@@ -2,7 +2,7 @@
 
 AgentWeave audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 
-Status: an early local prototype. There is no website, no hosted service and no package release. Passing tests do not make it production-ready.
+Status: an early local prototype. There is no hosted service and no published package; a local tarball can be built for testing (below), but it is not on npm. Passing tests do not make it production-ready.
 
 ## Requirements
 Node.js with built-in TypeScript support. `package.json` declares Node 24 or later, but only **Node 26.8.2 on macOS** has been tested. Run `npm ci` inside this folder; nothing is installed globally. `npm run doctor` checks this for you.
@@ -33,6 +33,16 @@ Run every step from this folder, in your own terminal.
 7. **Optional: connect a client yourself.** `npm run doctor -- --workspace <ws>` prints an MCP stdio config with absolute paths (example below). AgentWeave never installs it, and no paid assistant is needed for steps 1–6.
 
 **What has and has not been validated.** The tests and the demo are *protocol smoke tests*: they use the official MCP TypeScript SDK client over a real stdio process. No real assistant client (Claude Code, Claude Desktop, Codex, Cursor) has been validated yet, and the interactive approve/apply flow has only been exercised through core unit tests, not by a person through the CLI after the latest changes.
+
+## Local package tarball (alpha testing only, not published)
+`npm run pack:check` compiles `src/core`, `src/cli` and `src/mcp` to JavaScript in `build/` and writes `artifacts/pack/agentweave-<version>.tgz` with a strict file allowlist: `package.json`, `README.md`, `bin/agentweave.mjs`, `bin/agentweave-mcp.mjs` and `build/**/*.js`. It fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports. `npm run install:check` installs that tarball into a fresh temp folder with scripts disabled and runs help, doctor, scan, findings and an MCP stdio handshake against the installed copy only.
+
+To try the tarball yourself, in an empty folder: `npm install --ignore-scripts /path/to/agentweave-0.1.0.tgz`, then `npx agentweave help`. The MCP server is `npx agentweave-mcp --workspace <dir>`; `npx agentweave doctor --workspace <dir>` prints a config that points at the installed files.
+
+Not decided yet, so it is not published:
+- **Name.** `agentweave` is already taken on the public npm registry by an unrelated package. A scoped name such as `@<your-npm-scope>/agentweave` is the likely route. Do not run `npm install agentweave`; that installs someone else's package.
+- **Licence.** `package.json` says `UNLICENSED` and there is no LICENSE file, so no one else has permission to use the code yet.
+- `package.json` keeps `"private": true` so an accidental `npm publish` fails.
 
 ## Run
 ```sh
@@ -104,6 +114,8 @@ Matching metadata does **not** prove a file is unchanged, and new files are not 
 - **The approval guards are not authentication.** Approve, apply and reject refuse known coding-agent environments and non-interactive input. A program running as your user account can get around those checks. See `docs/SECURITY_REVIEW.md`.
 
 ## Known limitations
+- If a different folder appears at a registered path (deleted and recreated, or swapped), scans and apply refuse with `root_replaced` until you confirm it yourself with `project add <the same path>`.
+- Load figures from `npm run load:test` (synthetic monorepos up to about 5,000 files) describe one Mac and are not a guarantee; see `docs/ALPHA_VERIFICATION.md`.
 
 - The website is an early local prototype. It has not been tested with a screen reader, has had no formal accessibility audit and has not been reviewed for public hosting. The static demo has not been published anywhere.
 - Text returned by MCP tools goes to your assistant provider. It is redacted by pattern, and patterns can miss secrets.

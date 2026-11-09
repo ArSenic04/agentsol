@@ -88,3 +88,24 @@ Residual risks (not fixed):
 - `localhost` is accepted as a Host alias; a system with an unusual hosts file could map it elsewhere, but the socket still only listens on 127.0.0.1.
 - Secret detection is pattern-based. Redacted content is safer, not guaranteed clean.
 - The static site has not been reviewed for public hosting, and no host's headers have been checked. A host must send the same CSP and security headers.
+
+## Alpha verification review: package, large fixtures, root identity (Nov 9, 2026)
+
+Fixed:
+- **A replaced root was rescanned silently.** Before this, if the registered folder was deleted and a different folder created at the same path, the next scan read the new folder as if it were the same project, and apply could write into it. Now the project's device and inode are recorded when it is registered (or at the first scan for older workspaces). Scans check them before discovery and again after it; apply checks them before writing. A mismatch refuses, records nothing and is audited as `scan_refused`. Only a person running `project add <same path>` re-confirms it, audited as `project_root_reconfirmed`. Covered by `tests/rootIdentity.test.ts`, including a swap during a scan and an apply with byte-identical files in the replacement folder.
+- **The package build could ship stale code.** The repo `.npmrc` sets `ignore-scripts=true`, so `prepack` never runs. `pack:check` now builds explicitly and checks the result.
+
+Package review (`npm run pack:check`, `npm run install:check`):
+- 40 files on a strict allowlist. There are no install, preinstall or postinstall scripts in the package or its 3 runtime dependencies, and no native builds. Nothing points at the repository checkout.
+- The installed MCP server exposes the same 13 tools with no approve or apply. The installed CLI's approve/apply human gates were not exercised (the test terminal is agent-driven, so they refuse).
+- `npm audit`: 0 known vulnerabilities (5 production, 15 development packages) at the time of the run. That is a point-in-time advisory check, not a security guarantee.
+
+Large-fixture review (`tests/largeFixture.test.ts`, `npm run load:test`):
+- Every instruction-named file the generator creates is either read or listed as not read with a reason, except the one below the depth limit, which is counted in `skipped`. Partial coverage is reported whenever anything is skipped, truncated or excluded, so a partial scan is never reported as clean.
+- Source bytes are hashed before and after scan, freshness, propose, retries and concurrent writers; none changed. Approval is still bound to the reviewed proposal's byte hash, and a stale base refuses at approve (`stale_version`) or at apply (`stale_on_disk`).
+- The synthetic secret in the fixture is never returned unredacted.
+
+Still open: risks 1–8 above (except that root replacement is now handled), plus:
+- The 50,000-entries-per-directory limit and file counts above about 5,000 were not tested.
+- Node 24 (the declared minimum) was not tested; only Node 26.8.2 on macOS arm64.
+- No real assistant client has used the installed package. Grok Bot cannot attach a stdio server on this Mac today (see `docs/ALPHA_VERIFICATION.md`).

@@ -4,6 +4,18 @@
   "private": true,
   "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
   "type": "module",
+  "bin": {
+    "agentweave": "bin/agentweave.mjs",
+    "agentweave-mcp": "bin/agentweave-mcp.mjs"
+  },
+  "files": [
+    "bin/agentweave.mjs",
+    "bin/agentweave-mcp.mjs",
+    "build/**/*.js"
+  ],
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "license": "UNLICENSED",
   "engines": {
     "node": ">=24"
@@ -21,7 +33,12 @@
     "web:local": "node src/web/main.ts",
     "web:dev": "node scripts/buildWeb.ts && node src/web/main.ts --static-only",
     "test:web": "node scripts/buildWeb.ts && node --test --test-concurrency=1 \"tests/e2e/**/*.e2e.ts\"",
-    "check:web": "npm run check && npm run test:web"
+    "check:web": "npm run check && npm run test:web",
+    "build": "node scripts/buildPackage.ts",
+    "prepack": "node scripts/buildPackage.ts",
+    "pack:check": "node scripts/packCheck.ts",
+    "install:check": "node scripts/installCheck.ts",
+    "load:test": "node scripts/loadTest.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",

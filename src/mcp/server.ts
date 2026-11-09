@@ -35,7 +35,7 @@ const stderrSink: InternalErrorSink = (operation, error) => {
 
 /** Builds the MCP server. Exposes inspection, findings, proposals and status only. */
 export function createAgentWeaveServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink } = {}): McpServer {
-  const server = new McpServer({ name: "agentweave", version: "0.2.0" }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
+  const server = new McpServer({ name: "agentweave", version: "0.1.0" }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
   const svc = createAssistantService(store, {
     reporter: () => {
       const info = server.server.getClientVersion();

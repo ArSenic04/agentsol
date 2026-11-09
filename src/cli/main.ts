@@ -92,7 +92,7 @@ function describeFreshness(f: ProjectFreshness): string {
     case "not_checked":
       return "not checked (never scanned)";
     case "unknown":
-      return f.reason === "root_replaced" ? "UNKNOWN: the project folder was replaced since the last scan; scan again"
+      return f.reason === "root_replaced" ? "UNKNOWN: a different folder now sits at the registered path; scans refuse until you confirm it with project add <path>"
         : f.reason === "root_unavailable" ? "UNKNOWN: the project folder is missing, moved or now a symlink"
         : "UNKNOWN: no disk metadata from the last scan (scanned with an older version); scan again";
     default: {
@@ -140,8 +140,10 @@ async function run(argv: string[]): Promise<number> {
     return command ? 0 : 2;
   }
   if (command === "doctor") {
-    const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-    const report = runDoctor({ repo, workspace: dir, env: process.env, isTTY: isInteractive() });
+    // src/cli/main.ts in a checkout, build/cli/main.js in an installed package; both sit two levels below the root.
+    const here = fileURLToPath(import.meta.url);
+    const install = { kind: here.endsWith(".js") ? "package" : "repo", root: path.resolve(path.dirname(here), "../..") } as const;
+    const report = runDoctor({ install, workspace: dir, env: process.env, isTTY: isInteractive() });
     if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     else {
       for (const c of report.checks) out(`${c.status.toUpperCase().padEnd(4)}  ${c.message}`);
@@ -178,7 +180,8 @@ async function run(argv: string[]): Promise<number> {
         if (!target) return fail("project add needs a path", 2);
         const r = await ops.registerProject(target, name);
         if (!r.ok) return fail(r.error.message, 2);
-        if (r.value.alreadyRegistered) out(`already registered: ${r.value.project.id} ${r.value.project.name}`);
+        if (r.value.reconfirmed) out(`re-confirmed ${r.value.project.id} ${r.value.project.name}: the folder at this path was replaced, and you confirmed the new one. The next scan reads it.`);
+        else if (r.value.alreadyRegistered) out(`already registered: ${r.value.project.id} ${r.value.project.name}`);
         else {
           out(`registered ${r.value.project.id} ${r.value.project.name} (${r.value.project.rootReal})`);
           out("Only AGENTS.md, AGENTS.override.md, CLAUDE.md and SKILL.md files in this folder are read. CLAUDE.local.md, symlinks and secret-like names are skipped.");

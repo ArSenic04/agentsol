@@ -6,3 +6,4 @@ node_modules/
 .install-check/
 dist/
 artifacts/
+build/

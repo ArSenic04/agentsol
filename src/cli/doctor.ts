@@ -16,6 +16,9 @@ export const MIN_NODE_MAJOR = 24;
 
 export type CheckStatus = "ok" | "warn" | "fail" | "info";
 export type DoctorCheck = { id: string; status: CheckStatus; message: string };
+/** Where this copy runs from: a source checkout (TypeScript) or an installed package (compiled JS). */
+export type Install = { kind: "repo" | "package"; root: string };
+
 export type DoctorReport = {
   checks: DoctorCheck[];
   launch: { cli: string; mcp: string; mcpClientConfig: { command: string; args: string[] } } | null;
@@ -53,6 +56,33 @@ function dependencyChecks(repo: string): DoctorCheck[] {
   return out;
 }
 
+/** Finds an installed dependency the way Node resolves it: node_modules folders walking up. */
+function findInstalledManifest(fromDir: string, name: string): string | null {
+  for (let dir = fromDir; ; dir = path.dirname(dir)) {
+    const candidate = path.join(dir, "node_modules", name, "package.json");
+    if (existsSync(candidate)) return candidate;
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+/** Installed package: the runtime dependencies must be present at the exact versions it declares. */
+function packageDependencyChecks(root: string): DoctorCheck[] {
+  const pkg = PackageJson.safeParse(readJson(path.join(root, "package.json")));
+  if (!pkg.success) return [{ id: "package_json", status: "fail", message: "package.json could not be parsed" }];
+  const names = Object.keys(pkg.data.dependencies).sort();
+  const problems: string[] = [];
+  for (const name of names) {
+    const want = pkg.data.dependencies[name];
+    const manifest = findInstalledManifest(root, name);
+    const installed = manifest ? VersionOnly.safeParse(readJson(manifest)) : null;
+    if (!installed || !installed.success) problems.push(`${name}: not installed (needs ${want})`);
+    else if (installed.data.version !== want) problems.push(`${name}: installed ${installed.data.version}, declared ${want}`);
+  }
+  return [problems.length === 0
+    ? { id: "dependencies", status: "ok", message: `Installed package: ${names.length} runtime dependencies present at the declared versions` }
+    : { id: "dependencies", status: "fail", message: `${problems.join("; ")}. Reinstall the package.` }];
+}
+
 function workspaceChecks(dir: string): DoctorCheck[] {
   const abs = path.resolve(dir);
   let st;
@@ -88,14 +118,14 @@ function workspaceChecks(dir: string): DoctorCheck[] {
   return out;
 }
 
-export function runDoctor(args: { repo: string; workspace: string | null; env: NodeJS.ProcessEnv; isTTY: boolean }): DoctorReport {
+export function runDoctor(args: { install: Install; workspace: string | null; env: NodeJS.ProcessEnv; isTTY: boolean }): DoctorReport {
   const checks: DoctorCheck[] = [];
   const major = Number(process.versions.node.split(".")[0]);
   checks.push(major >= MIN_NODE_MAJOR
     ? { id: "node", status: process.versions.node === TESTED_NODE ? "ok" : "warn", message: `Node ${process.versions.node}${process.versions.node === TESTED_NODE ? " (the tested version)" : `; only Node ${TESTED_NODE} has been tested`}` }
     : { id: "node", status: "fail", message: `Node ${process.versions.node} is older than ${MIN_NODE_MAJOR}` });
   checks.push({ id: "sqlite", status: "ok", message: "node:sqlite is available" });
-  checks.push(...dependencyChecks(args.repo));
+  checks.push(...(args.install.kind === "repo" ? dependencyChecks(args.install.root) : packageDependencyChecks(args.install.root)));
   if (args.workspace) checks.push(...workspaceChecks(args.workspace));
   else checks.push({ id: "workspace", status: "info", message: "No workspace given. Pass --workspace <dir> or set AGENTWEAVE_WORKSPACE to check one." });
   const agent = detectAgentEnvironment(args.env);
@@ -105,11 +135,13 @@ export function runDoctor(args: { repo: string; workspace: string | null; env: N
       ? { id: "terminal", status: "ok", message: "Interactive terminal; approve, reject and apply can run here" }
       : { id: "terminal", status: "info", message: "Not an interactive terminal; approve, reject and apply need one" });
   const ws = args.workspace ? path.resolve(args.workspace) : null;
+  const entry = (which: "cli" | "mcp"): string =>
+    args.install.kind === "repo" ? path.join(args.install.root, "src", which, "main.ts") : path.join(args.install.root, "bin", which === "cli" ? "agentweave.mjs" : "agentweave-mcp.mjs");
   const launch = ws
     ? {
-        cli: `node ${path.join(args.repo, "src/cli/main.ts")} --workspace "${ws}" status`,
-        mcp: `node ${path.join(args.repo, "src/mcp/main.ts")} --workspace "${ws}"`,
-        mcpClientConfig: { command: process.execPath, args: [path.join(args.repo, "src/mcp/main.ts"), "--workspace", ws] },
+        cli: `node ${entry("cli")} --workspace "${ws}" status`,
+        mcp: `node ${entry("mcp")} --workspace "${ws}"`,
+        mcpClientConfig: { command: process.execPath, args: [entry("mcp"), "--workspace", ws] },
       }
     : null;
   return { checks, launch, ok: !checks.some((c) => c.status === "fail") };

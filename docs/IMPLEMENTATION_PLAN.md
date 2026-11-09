@@ -101,6 +101,26 @@ A person (Shivam) runs the walkthrough on the existing synthetic demo in a norma
 
 A human review of the site copy and screenshots, then an accessibility pass with VoiceOver, then a decision on a static host for `dist/web` only.
 
+## Alpha verification milestone (done, local only, not published)
+
+- Root identity: device and inode recorded at registration and enforced at scan and apply. `project add` re-confirms a replaced folder.
+- Package: `tsconfig.build.json`, `scripts/buildPackage.ts`, `bin/*.mjs` (Node >= 24 guard), `scripts/packCheck.ts` (allowlist and content audit), `scripts/installCheck.ts` (clean install into a temp folder, CLI plus MCP against the installed copy). Doctor understands installed-package mode.
+- Large synthetic fixtures: `scripts/bigFixture.ts`, `tests/largeFixture.test.ts` and `tests/rootIdentity.test.ts`; `scripts/loadTest.ts` for 3 bounded tiers (about 1,800 to 5,000 files).
+- Results: `docs/ALPHA_VERIFICATION.md`.
+
+## Alpha gates (all need a person)
+
+1. Choose a licence. It is `UNLICENSED` today.
+2. Choose a package name and npm account or scope. `agentweave` is taken on npm.
+3. Publish from your own account, removing `"private": true` on purpose. No agent publishes.
+4. Connect one real MCP client (for example Claude Code) by hand to the installed tarball, and record what it shows.
+5. Run approve and apply yourself, in a normal terminal, on the pending demo proposal.
+
+## Still unsupported after alpha verification
+
+- Grok Bot as a connector: it attaches only remote HTTPS servers or command servers on its own cloud computer, not stdio servers on this Mac.
+- Node 24, Windows, Linux, more than about 5,000 files, and directories near the 50,000-entry limit are untested.
+
 ## Older next units
 ### After review pass 1
 The workspace product needs a small "workspace service" layer in `src/core` that the CLI, the MCP server and a later hosted workspace all call. Commands such as register, scan, list and propose would go through it, with typed results, instead of each entry point calling store functions directly. Then add a read-only `status` view (projects, pending proposals, stale findings) as its first consumer.

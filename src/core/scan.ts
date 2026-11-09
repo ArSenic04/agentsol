@@ -1,8 +1,7 @@
-import { lstat } from "node:fs/promises";
 import { runStructuralChecks, type CheckSource } from "./checks.ts";
 import { discover, type SkippedCounts } from "./discovery.ts";
 import type { ProjectId } from "./ids.ts";
-import { verifyRegisteredRoot } from "./projectRoots.ts";
+import { checkRootIdentity, verifyRegisteredRoot } from "./projectRoots.ts";
 import { err, ok, type Result } from "./result.ts";
 import { redactLines } from "./secrets.ts";
 import type { NewVersionInput, VersionOrigin, WorkspaceStore } from "./store.ts";
@@ -27,16 +26,21 @@ export type ScanSummary = {
 export async function scanProject(store: WorkspaceStore, projectId: ProjectId, actor: string): Promise<Result<ScanSummary, string>> {
   const project = store.getProject(projectId);
   if (!project) return err(`Unknown project ${projectId}`);
-  const root = await verifyRegisteredRoot(project.rootReal);
-  if (!root.ok) {
+  const refuse = (reason: string): Result<ScanSummary, string> => {
     store.transaction(() => {
-      store.recordScan(projectId, "refused", { reason: root.error });
-      store.audit({ actor, action: "scan_refused", entityId: projectId, detail: { reason: root.error } });
+      store.recordScan(projectId, "refused", { reason });
+      store.audit({ actor, action: "scan_refused", entityId: projectId, detail: { reason } });
     });
-    return err(root.error);
-  }
-  const rootBefore = await lstat(project.rootReal, { bigint: true });
+    return err(reason);
+  };
+  const root = await verifyRegisteredRoot(project.rootReal);
+  if (!root.ok) return refuse(root.error);
+  // The folder must still be the one a person registered (or last re-confirmed).
+  const identity = await checkRootIdentity(project.rootReal, store.getRootObservation(projectId));
+  if (!identity.ok) return refuse(identity.error);
   const found = await discover(project.rootReal);
+  const after = await checkRootIdentity(project.rootReal, identity.value);
+  if (!after.ok) return refuse(`The project folder changed while it was being scanned; nothing was recorded. ${after.error}`);
   let newVersions = 0;
   const missing = store.transaction(() => {
     for (const s of found.sources) {
@@ -50,7 +54,7 @@ export async function scanProject(store: WorkspaceStore, projectId: ProjectId, a
       if (changed) newVersions += 1;
       store.putObservation(recorded.source.id, recorded.version.id, s.meta);
     }
-    store.putRootObservation(projectId, { dev: rootBefore.dev.toString(), ino: rootBefore.ino.toString() });
+    store.putRootObservation(projectId, identity.value);
     store.replaceExclusions(projectId, found.exclusions);
     store.recordScan(projectId, "ok", { sources: found.sources.length, exclusions: found.exclusions.length, skipped: found.skipped });
     const presentPaths = new Set(found.sources.map((s) => s.relPath));

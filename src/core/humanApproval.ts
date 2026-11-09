@@ -17,7 +17,7 @@ import { sha256Hex } from "./hash.ts";
 import type { ApprovalId, ProposalId, VersionId } from "./ids.ts";
 import { LIMITS } from "./limits.ts";
 import { resolveExistingInsideRoot } from "./paths.ts";
-import { verifyRegisteredRoot } from "./projectRoots.ts";
+import { checkRootIdentity, verifyRegisteredRoot } from "./projectRoots.ts";
 import { applyLineEdits, proposalDigest } from "./proposals.ts";
 import { err, ok, type Result } from "./result.ts";
 import { versionInputFromText } from "./scan.ts";
@@ -128,6 +128,8 @@ export async function applyApprovedProposal(
   if (!project || !source) return fail({ code: "path_rejected", message: "Project or source not found" }, "pending");
   const root = await verifyRegisteredRoot(project.rootReal);
   if (!root.ok) return fail({ code: "path_rejected", message: root.error }, "pending");
+  const identity = await checkRootIdentity(project.rootReal, store.getRootObservation(project.id));
+  if (!identity.ok) return fail({ code: "path_rejected", message: identity.error }, "pending");
   const read = await readFileInsideRoot(project.rootReal, p.relPath, LIMITS.maxFileBytes);
   if (!read.ok) return fail({ code: "path_rejected", message: read.error.message }, "pending");
   if (sha256Hex(read.value.bytes) !== p.baseRawSha256) {

@@ -1,5 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
+import type { DirIdentity } from "./fileMeta.ts";
 import { isStrictlyInside } from "./paths.ts";
 import { err, ok, type Result } from "./result.ts";
 import { isSecretLikeDirName, isSecretLikeFileName } from "./secrets.ts";
@@ -60,4 +61,32 @@ export async function verifyRegisteredRoot(rootReal: string): Promise<Result<tru
   } catch {
     return err("Registered project root no longer exists");
   }
+}
+
+export const ROOT_REPLACED_MESSAGE =
+  "The folder at the registered project path is a different folder than the one registered (its device or inode changed). Nothing was read or written. If that is expected, confirm it yourself in a terminal with: project add <the same path>";
+
+/** Device and inode of a registered root, read without following a symlink. */
+export async function rootIdentity(rootReal: string): Promise<Result<DirIdentity, string>> {
+  try {
+    const st = await lstat(rootReal, { bigint: true });
+    if (!st.isDirectory()) return err("Registered project root is no longer a directory");
+    return ok({ dev: st.dev.toString(), ino: st.ino.toString() });
+  } catch {
+    return err("Registered project root no longer exists");
+  }
+}
+
+/**
+ * Proves the registered root is still the folder that was registered (or last scanned).
+ * A different real directory at the same path (for example after `mv` and `mkdir`, or a
+ * fresh clone) is refused until a person re-confirms it with `project add`. With no
+ * recorded identity (workspaces from before identities were recorded at registration)
+ * the current identity is returned so the caller can record it.
+ */
+export async function checkRootIdentity(rootReal: string, recorded: DirIdentity | null): Promise<Result<DirIdentity, string>> {
+  const now = await rootIdentity(rootReal);
+  if (!now.ok) return now;
+  if (recorded && (recorded.dev !== now.value.dev || recorded.ino !== now.value.ino)) return err(ROOT_REPLACED_MESSAGE);
+  return now;
 }
