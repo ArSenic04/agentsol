@@ -1,15 +1,18 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { detectFormat, type SourceFormat } from "./formats.ts";
-import { readRegularFileNoFollow } from "./fsSafe.ts";
+import { readFileInsideRoot } from "./fsSafe.ts";
 import { sha256Hex } from "./hash.ts";
 import { LIMITS } from "./limits.ts";
-import { isSecretLikeFileName, SECRET_DIR_NAMES } from "./secrets.ts";
+import { isSecretLikeDirName, isSecretLikeFileName } from "./secrets.ts";
 import { decodeUtf8Strict } from "./text.ts";
 
+/** Reasons a file with a supported instruction-file name was not read. */
 export type ExclusionReason =
   | "symlink_not_followed"
-  | "secret_like_name"
+  | "hard_link"
+  | "personal_local_file"
+  | "changed_during_read"
   | "too_large"
   | "binary"
   | "invalid_utf8"
@@ -25,9 +28,14 @@ export type DiscoveredSource = {
   readonly byteLength: number;
 };
 
+/** Counts only: names of unrelated or secret-like entries are never recorded. */
+export type SkippedCounts = { secretLike: number; symlinks: number; unreadableDirs: number; limitReached: boolean };
+
 export type DiscoveryResult = {
   readonly sources: DiscoveredSource[];
+  /** Only entries whose name is a supported instruction file. */
   readonly exclusions: { relPath: string; reason: ExclusionReason }[];
+  readonly skipped: SkippedCounts;
 };
 
 /** Directories that are never instruction scopes worth walking. */
@@ -36,51 +44,59 @@ const SKIP_DIRS: ReadonlySet<string> = new Set([
   "__pycache__", ".cache", "target", "coverage", ".agentweave", ".local-workspace",
 ]);
 
+/** Personal files that are usually gitignored; not read unless a later opt-in adds them. */
+const PERSONAL_FORMATS: ReadonlySet<SourceFormat> = new Set(["claude-local-md"]);
+
 /**
- * Walks a project root (already realpath'd) and reads only files whose names match a
- * supported instruction format. Symlinks are never followed; secret-like names and
- * directories are never read; oversize, binary and non-UTF-8 files are excluded.
+ * Walks a project root (already verified) and reads only files whose names match a
+ * supported instruction format. Symlinks are never followed, hard-linked files are not
+ * read, secret-like names and directories are never opened, and only instruction-file
+ * names are ever recorded (other names are counted, not listed).
  */
 export async function discover(rootReal: string): Promise<DiscoveryResult> {
   const sources: DiscoveredSource[] = [];
   const exclusions: { relPath: string; reason: ExclusionReason }[] = [];
+  const skipped: SkippedCounts = { secretLike: 0, symlinks: 0, unreadableDirs: 0, limitReached: false };
   const queue: { rel: string; depth: number }[] = [{ rel: "", depth: 0 }];
   let entriesSeen = 0;
 
   while (queue.length > 0) {
     const next = queue.shift();
     if (!next) break;
-    const absDir = path.join(rootReal, next.rel);
     let entries;
     try {
-      entries = await readdir(absDir, { withFileTypes: true });
+      entries = await readdir(path.join(rootReal, next.rel), { withFileTypes: true });
     } catch {
-      exclusions.push({ relPath: next.rel || ".", reason: "unreadable" });
+      skipped.unreadableDirs += 1;
       continue;
     }
     entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const entry of entries) {
       entriesSeen += 1;
       const rel = next.rel ? `${next.rel}/${entry.name}` : entry.name;
+      const format = detectFormat(rel);
       if (entriesSeen > LIMITS.maxDirEntries) {
-        exclusions.push({ relPath: rel, reason: "limit_reached" });
-        return { sources, exclusions };
+        skipped.limitReached = true;
+        return { sources, exclusions, skipped };
       }
       if (entry.isSymbolicLink()) {
-        exclusions.push({ relPath: rel, reason: "symlink_not_followed" });
+        if (format) exclusions.push({ relPath: rel, reason: "symlink_not_followed" });
+        else skipped.symlinks += 1;
         continue;
       }
       if (entry.isDirectory()) {
-        if (SECRET_DIR_NAMES.has(entry.name)) exclusions.push({ relPath: rel, reason: "secret_like_name" });
+        if (isSecretLikeDirName(entry.name)) skipped.secretLike += 1;
         else if (!SKIP_DIRS.has(entry.name) && next.depth + 1 <= LIMITS.maxDepth) queue.push({ rel, depth: next.depth + 1 });
         continue;
       }
-      const format = detectFormat(rel);
-      if (isSecretLikeFileName(entry.name)) {
-        exclusions.push({ relPath: rel, reason: "secret_like_name" });
+      if (!format) {
+        if (isSecretLikeFileName(entry.name)) skipped.secretLike += 1;
         continue;
       }
-      if (!format) continue;
+      if (PERSONAL_FORMATS.has(format)) {
+        exclusions.push({ relPath: rel, reason: "personal_local_file" });
+        continue;
+      }
       if (!entry.isFile()) {
         exclusions.push({ relPath: rel, reason: "not_regular_file" });
         continue;
@@ -89,11 +105,13 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
         exclusions.push({ relPath: rel, reason: "limit_reached" });
         continue;
       }
-      const read = await readRegularFileNoFollow(path.join(rootReal, rel), LIMITS.maxFileBytes);
+      const read = await readFileInsideRoot(rootReal, rel, LIMITS.maxFileBytes);
       if (!read.ok) {
         const reason: ExclusionReason =
           read.error.code === "too_large" ? "too_large"
           : read.error.code === "symlink" ? "symlink_not_followed"
+          : read.error.code === "hard_link" ? "hard_link"
+          : read.error.code === "swapped" ? "changed_during_read"
           : read.error.code === "not_regular_file" ? "not_regular_file"
           : "unreadable";
         exclusions.push({ relPath: rel, reason });
@@ -104,14 +122,8 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
         exclusions.push({ relPath: rel, reason: decoded.error.code });
         continue;
       }
-      sources.push({
-        relPath: rel,
-        format,
-        text: decoded.value,
-        rawSha256: sha256Hex(read.value.bytes),
-        byteLength: read.value.bytes.length,
-      });
+      sources.push({ relPath: rel, format, text: decoded.value, rawSha256: sha256Hex(read.value.bytes), byteLength: read.value.bytes.length });
     }
   }
-  return { sources, exclusions };
+  return { sources, exclusions, skipped };
 }

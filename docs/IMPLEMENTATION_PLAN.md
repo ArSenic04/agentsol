@@ -17,6 +17,8 @@ Goal: the smallest end-to-end loop someone can verify. Import instruction files,
 - [x] Apply: on-disk hash re-check, no-follow read, backup in the workspace, temp file and atomic rename, EOL/BOM preserved, mixed EOL refused
 - [x] MCP stdio server with 10 tools and no approve or apply tool; tested over a real process in legacy (2025-11-25) and auto (2026-07-28) negotiation
 - [x] CLI for project registration, scan, review, approve, reject, apply and audit
+- [x] Adversarial review pass 1 (docs/SECURITY_REVIEW.md): root validation, name minimization, hard links, inode-verified reads, transactional single-active approvals with TTL, crash reconcile, terminal sanitizing, agent-environment refusal, working-directory scope model
+- [x] Synthetic demo (`npm run demo`), proposes over real MCP stdio and never writes the project
 - [ ] Manual test with a real Claude client (Claude Desktop or Claude Code) against a synthetic project, set up by the owner
 - [ ] Package as a Claude Desktop extension (.mcpb) or an `npx` entry; not done yet
 - [ ] `.cursor/rules`, `.claude/rules`, user-level and managed files (out of scope for slice 1)
@@ -25,5 +27,8 @@ Goal: the smallest end-to-end loop someone can verify. Import instruction files,
 ## Persistence decision
 One SQLite file (`workspace.sqlite`, through `node:sqlite`) in a workspace directory that you pass explicitly with `--workspace` or `AGENTWEAVE_WORKSPACE`. There is no hidden default location. The directory is created with mode 0700 and backups are written with mode 0600. Tests use throwaway temp directories.
 
-## Next smallest unit
+## Next smallest unit (after review pass 1)
+The workspace product needs a small "workspace service" layer in `src/core` that the CLI, the MCP server and a later hosted workspace all call. Commands such as register, scan, list and propose would go through it, with typed results, instead of each entry point calling store functions directly. Then add a read-only `status` view (projects, pending proposals, stale findings) as its first consumer.
+
+## Earlier next unit
 Connect the MCP server to Claude Code or Claude Desktop by hand, using a synthetic demo project. Write down the exact config and what the client shows, then add a `demo/` fixture plus a script that creates it.

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { validateQuotedSpan, type EvidenceError } from "./evidence.ts";
 import { newFindingId, type FindingId, type ProjectId } from "./ids.ts";
 import { SEMANTIC_CHECK_IDS, type EvidenceSpan, type SemanticFinding } from "./schemas.ts";
+import { containsSecretLike } from "./secrets.ts";
 import type { WorkspaceStore } from "./store.ts";
 
 export const SEMANTIC_CHECKS: Record<(typeof SEMANTIC_CHECK_IDS)[number], { title: string; minDistinctSources: number }> = {
@@ -33,7 +34,7 @@ export type SemanticFindingInput = z.infer<typeof SemanticFindingInputSchema>;
 
 export type SubmitResult = {
   accepted: FindingId[];
-  rejected: { index: number; errors: (EvidenceError | { code: "too_few_sources"; message: string })[] }[];
+  rejected: { index: number; errors: (EvidenceError | { code: "too_few_sources" | "secret_in_text"; message: string })[] }[];
 };
 
 /** Stores assistant-reported findings that carry valid, current, exact evidence. */
@@ -49,6 +50,9 @@ export function submitSemanticFindings(
       const v = validateQuotedSpan(store, args.projectId, q);
       if (v.ok) spans.push(v.value);
       else errors.push(v.error);
+    }
+    if ([input.title, input.message, input.suggestedFix ?? ""].some((t) => containsSecretLike(t))) {
+      errors.push({ code: "secret_in_text", message: "Finding text looks like it contains a secret; it was not stored" });
     }
     const distinct = new Set(spans.map((s) => s.sourceId)).size;
     const min = SEMANTIC_CHECKS[input.checkId].minDistinctSources;

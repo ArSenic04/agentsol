@@ -1,3 +1,4 @@
+import { hasUnsafeTextChars } from "./display.ts";
 import { z } from "zod";
 import { sha256Hex } from "./hash.ts";
 import { isFindingId, isSourceId, isVersionId, newProposalId, type FindingId, type ProjectId } from "./ids.ts";
@@ -19,7 +20,7 @@ export type ProposeInput = z.infer<typeof ProposeInputSchema>;
 
 export type ProposeErrorCode =
   | "bad_id" | "unknown_source" | "wrong_project" | "source_missing" | "stale_version" | "unknown_finding"
-  | "line_range" | "overlap" | "expected_mismatch" | "redacted_line" | "invalid_line" | "secret_in_replacement" | "too_large" | "no_change";
+  | "line_range" | "overlap" | "expected_mismatch" | "redacted_line" | "invalid_line" | "secret_in_replacement" | "secret_in_text" | "too_large" | "no_change";
 export type ProposeError = { readonly code: ProposeErrorCode; readonly message: string; readonly editIndex?: number };
 
 /**
@@ -46,8 +47,8 @@ export function applyLineEdits(lines: readonly string[], edits: readonly LineEdi
     if (lines.slice(e.startLine - 1, e.endLine).join("\n") !== normalizeQuote(e.expectedText)) {
       errors.push({ code: "expected_mismatch", message: `expectedText does not match lines ${e.startLine}-${e.endLine}`, editIndex: i });
     }
-    if (e.replacementLines.some((l) => /[\r\n\0]/.test(l))) {
-      errors.push({ code: "invalid_line", message: "replacementLines entries may not contain newlines or NUL", editIndex: i });
+    if (e.replacementLines.some((l) => /[\r\n\0]/.test(l) || hasUnsafeTextChars(l))) {
+      errors.push({ code: "invalid_line", message: "replacementLines entries may not contain newlines, NUL, control characters or bidi overrides", editIndex: i });
     }
   }
   if (errors.length > 0) return err(errors);
@@ -97,6 +98,7 @@ export function proposeChange(
   if (source.currentVersionId !== input.baseVersionId) return err([{ code: "stale_version", message: "baseVersionId is not the current version; re-read the source" }]);
   const version = store.getVersion(input.baseVersionId);
   if (!version) return err([{ code: "unknown_source", message: "Version not found" }]);
+  if (containsSecretLike(input.rationale)) return err([{ code: "secret_in_text", message: "Rationale looks like it contains a secret; it was not stored" }]);
   const findingIds: FindingId[] = [];
   for (const id of input.findingIds) {
     const f = isFindingId(id) ? store.getFinding(id) : null;

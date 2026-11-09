@@ -104,15 +104,22 @@ test("scope resolution follows each client's documented layering", async () => {
   try {
     await scanProject(fx.store, fx.projectId, "test");
     const sources: ScopeSource[] = checkSourcesFor(fx.store, fx.projectId).map((s) => ({ sourceId: s.sourceId, relPath: s.relPath, format: s.format, empty: s.lines.every((l) => l.trim() === "") }));
-    const chain = (targetPath: string, platform: "codex" | "claude-code" | "cursor") => {
-      const r = resolveScope({ sources, targetPath, platform });
+    const chain = (targetPath: string, platform: "codex" | "claude-code" | "cursor", workingDirectory?: string) => {
+      const r = resolveScope({ sources, targetPath, platform, workingDirectory });
       assert.ok(r.ok);
       assert.equal(r.value.relationship, "layered");
-      return r.value.chain.map((c) => c.relPath);
+      assert.equal(r.value.coverage, "partial");
+      assert.ok(r.value.notInspected.length > 0);
+      return r.value.chain.map((c) => `${c.when}:${c.relPath}`);
     };
-    assert.deepEqual(chain("services/api/handler.ts", "codex"), ["AGENTS.md", "services/AGENTS.md", "services/api/AGENTS.override.md"]);
-    assert.deepEqual(chain("web/app.tsx", "claude-code"), ["web/CLAUDE.md"]);
-    assert.deepEqual(chain("services/api/handler.ts", "claude-code"), ["AGENTS.md", "services/AGENTS.md", "services/api/AGENTS.md"]);
+    // Codex loads root -> working directory only; nothing below the working directory.
+    assert.deepEqual(chain("services/api/handler.ts", "codex"), ["launch:AGENTS.md"]);
+    assert.deepEqual(chain("services/api/handler.ts", "codex", "services/api"), ["launch:AGENTS.md", "launch:services/AGENTS.md", "launch:services/api/AGENTS.override.md"]);
+    // Claude Code: no CLAUDE.md at/above the root, so AGENTS.md at launch; web/CLAUDE.md on demand.
+    assert.deepEqual(chain("web/app.tsx", "claude-code"), ["launch:AGENTS.md", "on_demand:web/CLAUDE.md"]);
+    assert.deepEqual(chain("web/app.tsx", "claude-code", "web"), ["launch:web/CLAUDE.md"]);
+    assert.deepEqual(chain("services/api/handler.ts", "claude-code"), ["launch:AGENTS.md", "on_demand:services/AGENTS.md", "on_demand:services/api/AGENTS.md"]);
+    assert.deepEqual(chain("services/api/handler.ts", "cursor"), ["launch:AGENTS.md", "launch:services/AGENTS.md", "launch:services/api/AGENTS.md"]);
     const bad = resolveScope({ sources, targetPath: "../outside.ts", platform: "codex" });
     assert.equal(bad.ok, false);
   } finally {

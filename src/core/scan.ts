@@ -1,6 +1,7 @@
 import { runStructuralChecks, type CheckSource } from "./checks.ts";
-import { discover } from "./discovery.ts";
+import { discover, type SkippedCounts } from "./discovery.ts";
 import type { ProjectId } from "./ids.ts";
+import { verifyRegisteredRoot } from "./projectRoots.ts";
 import { err, ok, type Result } from "./result.ts";
 import { redactLines } from "./secrets.ts";
 import type { NewVersionInput, VersionOrigin, WorkspaceStore } from "./store.ts";
@@ -17,6 +18,7 @@ export type ScanSummary = {
   newVersions: number;
   missing: number;
   exclusions: number;
+  skipped: SkippedCounts;
   structuralFindings: number;
 };
 
@@ -24,6 +26,11 @@ export type ScanSummary = {
 export async function scanProject(store: WorkspaceStore, projectId: ProjectId, actor: string): Promise<Result<ScanSummary, string>> {
   const project = store.getProject(projectId);
   if (!project) return err(`Unknown project ${projectId}`);
+  const root = await verifyRegisteredRoot(project.rootReal);
+  if (!root.ok) {
+    store.audit({ actor, action: "scan_refused", entityId: projectId, detail: { reason: root.error } });
+    return err(root.error);
+  }
   const found = await discover(project.rootReal);
   let newVersions = 0;
   const missing = store.transaction(() => {
@@ -41,7 +48,7 @@ export async function scanProject(store: WorkspaceStore, projectId: ProjectId, a
   });
   const findings = await runChecksForProject(store, projectId);
   store.audit({ actor, action: "scan", entityId: projectId, detail: { sources: found.sources.length, newVersions, missing } });
-  return ok({ projectId, sources: found.sources.length, newVersions, missing, exclusions: found.exclusions.length, structuralFindings: findings });
+  return ok({ projectId, sources: found.sources.length, newVersions, missing, exclusions: found.exclusions.length, skipped: found.skipped, structuralFindings: findings });
 }
 
 export function checkSourcesFor(store: WorkspaceStore, projectId: ProjectId): CheckSource[] {

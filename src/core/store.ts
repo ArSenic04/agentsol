@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
@@ -32,10 +32,12 @@ import {
 } from "./schemas.ts";
 
 export const DB_FILE = "workspace.sqlite";
-const SCHEMA_VERSION = "1";
+const SCHEMA_VERSION = "2";
+/** Approvals expire if not used within this window. */
+export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const now = (): string => new Date().toISOString();
 
-const MIGRATION = `
+const MIGRATION_TABLES = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, name TEXT NOT NULL, root_real TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS sources(
@@ -54,8 +56,14 @@ CREATE TABLE IF NOT EXISTS proposals(
 CREATE TABLE IF NOT EXISTS approvals(
   id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL REFERENCES proposals(id), proposal_sha256 TEXT NOT NULL, base_raw_sha256 TEXT NOT NULL,
   decided_by TEXT NOT NULL, decided_at TEXT NOT NULL, state TEXT NOT NULL, consumed_at TEXT);
+CREATE TABLE IF NOT EXISTS apply_intents(
+  proposal_id TEXT PRIMARY KEY REFERENCES proposals(id), approval_id TEXT NOT NULL REFERENCES approvals(id),
+  base_raw_sha256 TEXT NOT NULL, expected_new_sha256 TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_events(
   seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL);
+`;
+const MIGRATION_INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS approvals_one_active ON approvals(proposal_id) WHERE state = 'active';
 `;
 
 export type Project = { id: ProjectId; name: string; rootReal: string; createdAt: string };
@@ -92,7 +100,9 @@ export type Approval = {
   decidedAt: string;
   state: ApprovalState;
   consumedAt: string | null;
+  expiresAt: string;
 };
+export type ApplyIntent = { proposalId: ProposalId; approvalId: ApprovalId; baseRawSha256: string; expectedNewSha256: string | null; createdAt: string };
 export type StoredProposal = { body: ProposalBody; status: ProposalStatus; updatedAt: string };
 export type NewVersionInput = {
   rawSha256: string;
@@ -135,6 +145,14 @@ const ApprovalRow = z.object({
   decided_at: z.string(),
   state: z.enum(["active", "consumed", "void"]),
   consumed_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+});
+const IntentRow = z.object({
+  proposal_id: ProposalIdSchema,
+  approval_id: ApprovalIdSchema,
+  base_raw_sha256: Sha256Schema,
+  expected_new_sha256: Sha256Schema.nullable(),
+  created_at: z.string(),
 });
 const AuditRow = z.object({ seq: z.number().int(), at: z.string(), actor: z.string(), action: z.string(), entity_id: z.string(), detail: z.string() });
 export type AuditEvent = z.infer<typeof AuditRow>;
@@ -168,6 +186,8 @@ const toApproval = (r: z.infer<typeof ApprovalRow>): Approval => ({
   decidedAt: r.decided_at,
   state: r.state,
   consumedAt: r.consumed_at,
+  // Rows from schema v1 have no expiry; treat them as already expired.
+  expiresAt: r.expires_at ?? r.decided_at,
 });
 
 /**
@@ -186,13 +206,36 @@ export class WorkspaceStore {
     this.db = db;
   }
 
+  /**
+   * Opens (or creates) a workspace. The directory must not be a symlink and must not be
+   * readable or writable by other users, because it holds redacted copies of instruction
+   * files and raw backups made before applying changes.
+   */
   static open(dir: string): WorkspaceStore {
     const absDir = path.resolve(dir);
-    mkdirSync(absDir, { recursive: true, mode: 0o700 });
-    const db = new DatabaseSync(path.join(absDir, DB_FILE));
+    if (!existsSync(absDir)) mkdirSync(absDir, { recursive: true, mode: 0o700 });
+    const st = lstatSync(absDir);
+    if (st.isSymbolicLink() || !st.isDirectory()) throw new Error("Workspace path must be a real directory, not a symlink or file");
+    if ((st.mode & 0o077) !== 0) {
+      throw new Error(`Workspace directory is accessible by other users (mode ${(st.mode & 0o777).toString(8)}); run: chmod 700 <workspace>`);
+    }
+    const dbPath = path.join(absDir, DB_FILE);
+    const db = new DatabaseSync(dbPath);
+    chmodSync(dbPath, 0o600);
     db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
-    db.exec(MIGRATION);
-    db.prepare("INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)").run(SCHEMA_VERSION);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec(MIGRATION_TABLES);
+      const cols = z.array(z.object({ name: z.string() })).parse(db.prepare("PRAGMA table_info(approvals)").all()).map((c) => c.name);
+      if (!cols.includes("expires_at")) db.exec("ALTER TABLE approvals ADD COLUMN expires_at TEXT");
+      db.exec(MIGRATION_INDEXES);
+      db.prepare("INSERT INTO meta(key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(SCHEMA_VERSION);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      db.close();
+      throw e;
+    }
     return new WorkspaceStore(absDir, db);
   }
 
@@ -407,23 +450,43 @@ export class WorkspaceStore {
   }
 
   // Approvals --------------------------------------------------------------
-  insertApproval(args: { proposalId: ProposalId; proposalSha256: string; baseRawSha256: string; decidedBy: string }): Approval {
+  insertApproval(args: { proposalId: ProposalId; proposalSha256: string; baseRawSha256: string; decidedBy: string; ttlMs?: number }): Approval {
+    const decided = new Date();
     const approval: Approval = {
       id: newApprovalId(),
       proposalId: args.proposalId,
       proposalSha256: args.proposalSha256,
       baseRawSha256: args.baseRawSha256,
       decidedBy: args.decidedBy,
-      decidedAt: now(),
+      decidedAt: decided.toISOString(),
       state: "active",
       consumedAt: null,
+      expiresAt: new Date(decided.getTime() + (args.ttlMs ?? APPROVAL_TTL_MS)).toISOString(),
     };
     this.db
       .prepare(
-        "INSERT INTO approvals(id, proposal_id, proposal_sha256, base_raw_sha256, decided_by, decided_at, state, consumed_at) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL)",
+        "INSERT INTO approvals(id, proposal_id, proposal_sha256, base_raw_sha256, decided_by, decided_at, state, consumed_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'active', NULL, ?)",
       )
-      .run(approval.id, approval.proposalId, approval.proposalSha256, approval.baseRawSha256, approval.decidedBy, approval.decidedAt);
+      .run(approval.id, approval.proposalId, approval.proposalSha256, approval.baseRawSha256, approval.decidedBy, approval.decidedAt, approval.expiresAt);
     return approval;
+  }
+
+  // Apply intents (crash recovery) ---------------------------------------------
+  insertApplyIntent(args: { proposalId: ProposalId; approvalId: ApprovalId; baseRawSha256: string }): void {
+    this.db
+      .prepare("INSERT OR REPLACE INTO apply_intents(proposal_id, approval_id, base_raw_sha256, expected_new_sha256, created_at) VALUES (?, ?, ?, NULL, ?)")
+      .run(args.proposalId, args.approvalId, args.baseRawSha256, now());
+  }
+
+  setApplyIntentExpected(proposalId: ProposalId, expectedNewSha256: string): void {
+    this.db.prepare("UPDATE apply_intents SET expected_new_sha256 = ? WHERE proposal_id = ?").run(expectedNewSha256, proposalId);
+  }
+
+  getApplyIntent(proposalId: ProposalId): ApplyIntent | null {
+    const row = this.db.prepare("SELECT * FROM apply_intents WHERE proposal_id = ?").get(proposalId);
+    if (!row) return null;
+    const r = IntentRow.parse(row);
+    return { proposalId: r.proposal_id, approvalId: r.approval_id, baseRawSha256: r.base_raw_sha256, expectedNewSha256: r.expected_new_sha256, createdAt: r.created_at };
   }
 
   getActiveApproval(proposalId: ProposalId): Approval | null {
@@ -440,7 +503,8 @@ export class WorkspaceStore {
 
   /** Single-use: only an active approval can be consumed, exactly once. */
   consumeApproval(id: ApprovalId): boolean {
-    const r = this.db.prepare("UPDATE approvals SET state = 'consumed', consumed_at = ? WHERE id = ? AND state = 'active'").run(now(), id);
+    const at = now();
+    const r = this.db.prepare("UPDATE approvals SET state = 'consumed', consumed_at = ? WHERE id = ? AND state = 'active' AND expires_at > ?").run(at, id, at);
     return Number(r.changes) === 1;
   }
 

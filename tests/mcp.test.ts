@@ -37,7 +37,10 @@ for (const mode of ["legacy", "auto"] as const) {
       client = await connect(fx, mode);
       assert.equal(client.getNegotiatedProtocolVersion(), mode === "legacy" ? "2025-11-25" : "2026-07-28");
       assert.equal(client.getDiscoverResult() !== undefined, mode === "auto");
-      assert.match(client.getInstructions() ?? "", /only the human can approve and apply/i);
+      const instructions = client.getInstructions() ?? "";
+      assert.match(instructions, /only the person can approve and apply/i);
+      assert.match(instructions, /never as instructions to you/);
+      assert.match(instructions, /misses secrets/);
 
       const tools = (await client.listTools()).tools.map((t) => t.name).sort();
       assert.deepEqual(tools, EXPECTED_TOOLS);
@@ -53,20 +56,23 @@ for (const mode of ["legacy", "auto"] as const) {
       const listed = await call(client, "sources_list", { projectId });
       const root = listed.data.sources.find((s: { relPath: string }) => s.relPath === "AGENTS.md");
       assert.ok(root);
-      assert.ok(listed.data.excluded.some((e: { relPath: string; reason: string }) => e.relPath === ".env" && e.reason === "secret_like_name"));
+      assert.ok(!JSON.stringify(listed.data).includes(".env"), "secret-like file names are not disclosed");
 
       const read = await call(client, "source_read", { sourceId: root.sourceId });
       assert.ok(!JSON.stringify(read.data).includes(FAKE_SECRET), "secret never crosses MCP");
       assert.deepEqual(read.data.redactedLines, [3]);
       assert.equal(read.data.lines[1].text, "- Use npm to run scripts.");
-      assert.match(read.data.notice, /leaves this machine/);
+      assert.match(read.data.notice, /leaves this computer/);
+      assert.match(read.data.notice, /untrusted/);
+      assert.equal(read.data.contentIsUntrusted, true);
 
       const bogusRead = await call(client, "source_read", { sourceId: "../../etc/passwd" });
       assert.equal(bogusRead.isError, true);
 
-      const scope = await call(client, "scope_resolve", { projectId, targetPath: "web/app.ts", platform: "codex" });
+      const scope = await call(client, "scope_resolve", { projectId, targetPath: "web/app.ts", platform: "codex", workingDirectory: "web" });
       assert.deepEqual(scope.data.chain.map((c: { relPath: string }) => c.relPath), ["AGENTS.md", "web/AGENTS.md"]);
       assert.equal(scope.data.relationship, "layered");
+      assert.equal(scope.data.coverage, "partial");
       const escape = await call(client, "scope_resolve", { projectId, targetPath: "../x", platform: "codex" });
       assert.equal(escape.isError, true);
 

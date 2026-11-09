@@ -7,66 +7,97 @@ import { ok, type Result } from "./result.ts";
 export const PLATFORMS = ["codex", "claude-code", "cursor"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
-export type ScopeSource = { sourceId: SourceId; relPath: string; format: SourceFormat; empty: boolean };
-export type ChainEntry = { order: number; sourceId: SourceId; relPath: string; format: SourceFormat; reason: string };
+/** sourceId is null for files AgentWeave knows exist but does not read (CLAUDE.local.md). */
+export type ScopeSource = { sourceId: SourceId | null; relPath: string; format: SourceFormat; empty: boolean };
+export type ChainEntry = { order: number; sourceId: SourceId | null; relPath: string; format: SourceFormat; when: "launch" | "on_demand"; reason: string };
 export type ScopeResolution = {
   platform: Platform;
   targetPath: string;
+  workingDirectory: string;
+  /** Launch files first, then files loaded on demand when the client reads files below the working directory. */
   chain: ChainEntry[];
   /** Overlapping scopes are layered context, never treated as conflicts by AgentWeave. */
   relationship: "layered";
-  notes: string[];
+  /** Always partial: user, managed, rule and IDE files are outside AgentWeave's view. */
+  coverage: "partial";
+  assumptions: string[];
+  notInspected: string[];
 };
 
-const ancestorDirs = (targetPath: string): string[] => {
-  const dir = path.posix.dirname(targetPath);
-  const parts = dir === "." ? [] : dir.split("/");
+const dirsFromRootTo = (dir: string): string[] => {
+  const parts = dir === "" ? [] : dir.split("/");
   return ["", ...parts.map((_, i) => parts.slice(0, i + 1).join("/"))];
+};
+const dirOfFile = (rel: string): string => {
+  const d = path.posix.dirname(rel);
+  return d === "." ? "" : d;
 };
 
 /**
- * Ordered list of project instruction files a client would load for a file at
- * `targetPath`, following each vendor's documented rules. Files outside the project
- * (home directory, managed policy) are out of scope and called out in notes.
+ * Ordered project instruction files a client would load, following each vendor's
+ * documented default behavior as of Nov 2026, for a session started in
+ * `workingDirectory` that works on `targetPath`. This is a model of documented
+ * defaults, not an observation of a running client.
  */
-export function resolveScope(args: { sources: readonly ScopeSource[]; targetPath: string; platform: Platform }): Result<ScopeResolution, PathError> {
+export function resolveScope(args: { sources: readonly ScopeSource[]; targetPath: string; platform: Platform; workingDirectory?: string }): Result<ScopeResolution, PathError> {
   const norm = normalizeRelPath(args.targetPath);
   if (!norm.ok) return norm;
-  const dirs = ancestorDirs(norm.value);
+  let cwd = "";
+  if (args.workingDirectory !== undefined && args.workingDirectory !== "" && args.workingDirectory !== ".") {
+    const w = normalizeRelPath(args.workingDirectory);
+    if (!w.ok) return w;
+    cwd = w.value;
+  }
+  const targetDir = dirOfFile(norm.value);
+  const launchDirs = dirsFromRootTo(cwd);
+  const belowCwd = targetDir === cwd || targetDir.startsWith(`${cwd}/`) || cwd === "";
+  const onDemandDirs = belowCwd ? dirsFromRootTo(targetDir).filter((d) => !launchDirs.includes(d)) : [];
   const inDir = (dir: string, format: SourceFormat): ScopeSource[] =>
     args.sources.filter((s) => s.format === format && !s.empty && scopeDirOf(s.relPath, s.format) === dir);
-  const picked: { s: ScopeSource; reason: string }[] = [];
-  const notes: string[] = [];
+  const picked: Omit<ChainEntry, "order">[] = [];
+  const add = (s: ScopeSource, when: ChainEntry["when"], reason: string) => picked.push({ sourceId: s.sourceId, relPath: s.relPath, format: s.format, when, reason });
+  const assumptions: string[] = [`Session started in ${cwd === "" ? "the registered project folder" : cwd}; pass workingDirectory to change this.`];
+  const notInspected: string[] = [];
 
   switch (args.platform) {
     case "codex": {
-      for (const dir of dirs) {
+      for (const dir of launchDirs) {
         const override = inDir(dir, "agents-override-md")[0];
         const agents = inDir(dir, "agents-md")[0];
-        if (override) picked.push({ s: override, reason: "AGENTS.override.md wins in its directory" });
-        else if (agents) picked.push({ s: agents, reason: "AGENTS.md for this directory" });
+        if (override) add(override, "launch", "AGENTS.override.md wins in its directory");
+        else if (agents) add(agents, "launch", "AGENTS.md for this directory");
       }
-      notes.push("Codex also reads ~/.codex/AGENTS(.override).md first; files outside the project are not inspected.");
-      notes.push("Codex concatenates root to leaf; later files appear later in the prompt. Combined size stops at 32 KiB by default.");
+      assumptions.push("Codex walks from the project root it detects (usually the Git root) to the working directory; that root may differ from the registered folder.");
+      assumptions.push("Instruction files below the working directory are not loaded automatically.");
+      assumptions.push("Codex stops adding files once the combined size reaches project_doc_max_bytes (32 KiB by default).");
+      notInspected.push("~/.codex/AGENTS.md and AGENTS.override.md", "project_doc_fallback_filenames and other config.toml settings");
       break;
     }
     case "claude-code": {
-      const hasClaude = dirs.some((d) => inDir(d, "claude-md").length > 0 || inDir(d, "claude-local-md").length > 0);
-      for (const dir of dirs) {
-        if (hasClaude) {
-          for (const s of inDir(dir, "claude-md")) picked.push({ s, reason: "CLAUDE.md for this directory" });
-          for (const s of inDir(dir, "claude-local-md")) picked.push({ s, reason: "CLAUDE.local.md is appended after CLAUDE.md" });
+      const counts = (d: string) => inDir(d, "claude-md").length > 0 || inDir(d, "claude-local-md").length > 0;
+      const claudeAtOrAbove = launchDirs.some(counts);
+      for (const dir of launchDirs) {
+        if (claudeAtOrAbove) {
+          for (const s of inDir(dir, "claude-md")) add(s, "launch", "CLAUDE.md at or above the working directory");
+          for (const s of inDir(dir, "claude-local-md")) add(s, "launch", "CLAUDE.local.md is appended after CLAUDE.md (AgentWeave does not read it)");
         } else {
-          for (const s of inDir(dir, "agents-md")) picked.push({ s, reason: "No CLAUDE.md applies, so Claude Code reads AGENTS.md (default setting)" });
+          for (const s of inDir(dir, "agents-md")) add(s, "launch", "No CLAUDE.md at or above the working directory, so the default setting reads AGENTS.md");
         }
       }
-      notes.push("Uses Claude Code's default Project instructions setting (claude-md-or-agents-md).");
-      notes.push("Managed policy, ~/.claude/CLAUDE.md, .claude/rules and files above the project root are not inspected.");
+      for (const dir of onDemandDirs) {
+        const claudeHere = inDir(dir, "claude-md");
+        for (const s of claudeHere) add(s, "on_demand", "Subdirectory CLAUDE.md, loaded when Claude reads files there");
+        if (!claudeAtOrAbove && !counts(dir)) for (const s of inDir(dir, "agents-md")) add(s, "on_demand", "Subdirectory AGENTS.md, loaded when Claude reads files there (default setting)");
+      }
+      assumptions.push("Uses the default Project instructions setting (claude-md-or-agents-md) and Claude Code v2.1.277 or later; older versions read only CLAUDE.md.");
+      assumptions.push("CLAUDE.md files above the registered folder also load and are not inspected.");
+      notInspected.push("~/.claude/CLAUDE.md, managed policy CLAUDE.md, .claude/rules/, auto memory", "@imports are listed by check D09 but not expanded here", ".claude/AGENTS.md");
       break;
     }
     case "cursor": {
-      for (const dir of dirs) for (const s of inDir(dir, "agents-md")) picked.push({ s, reason: "AGENTS.md (nested files combine with parents)" });
-      notes.push(".cursor/rules (.mdc) and User/Team rules are not supported by AgentWeave yet.");
+      for (const dir of dirsFromRootTo(targetDir)) for (const s of inDir(dir, "agents-md")) add(s, "launch", "AGENTS.md (nested files combine with parents)");
+      assumptions.push("Treats nested AGENTS.md files as applying to files in their directory.");
+      notInspected.push(".cursor/rules (.mdc), User and Team rules, CLAUDE.md compatibility settings");
       break;
     }
     default: {
@@ -74,13 +105,16 @@ export function resolveScope(args: { sources: readonly ScopeSource[]; targetPath
       return exhaustive;
     }
   }
-  notes.push("Skills (SKILL.md) load by relevance and are not part of this ordered chain.");
+  notInspected.push("SKILL.md files load by relevance and are not part of this ordered chain");
   return ok({
     platform: args.platform,
     targetPath: norm.value,
-    chain: picked.map((p, i) => ({ order: i + 1, sourceId: p.s.sourceId, relPath: p.s.relPath, format: p.s.format, reason: p.reason })),
+    workingDirectory: cwd,
+    chain: picked.map((p, i) => ({ ...p, order: i + 1 })),
     relationship: "layered",
-    notes,
+    coverage: "partial",
+    assumptions,
+    notInspected,
   });
 }
 

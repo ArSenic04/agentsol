@@ -37,15 +37,12 @@ test("discovery reads only supported instruction files and reports every exclusi
     assert.deepEqual(rels, ["AGENTS.md", "CLAUDE.md", "services/api/AGENTS.md", "skills/pdf-tools/SKILL.md"]);
     const excluded = Object.fromEntries(fx.store.listExclusions(fx.projectId).map((e) => [e.relPath, e.reason]));
     assert.deepEqual(excluded, {
-      ".env": "secret_like_name",
-      ".ssh": "secret_like_name",
       "big/AGENTS.md": "too_large",
       "bin/AGENTS.md": "binary",
-      "config/credentials.json": "secret_like_name",
       "latin/AGENTS.md": "invalid_utf8",
       "link/AGENTS.md": "symlink_not_followed",
-      linkdir: "symlink_not_followed",
-    });
+    }, "only instruction-file names are recorded; .env, credentials.json, .ssh and linkdir are counted, not named");
+    assert.ok(r.ok && r.value.skipped.secretLike === 3 && r.value.skipped.symlinks === 1, JSON.stringify(r.ok && r.value.skipped));
     for (const s of fx.store.listSources(fx.projectId)) {
       const v = s.currentVersionId ? fx.store.getVersion(s.currentVersionId) : null;
       assert.ok(v);

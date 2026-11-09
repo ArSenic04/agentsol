@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmod, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
-import { applyApprovedProposal, approveProposal, confirmationCode, rejectProposal } from "../src/core/humanApproval.ts";
+import { applyApprovedProposal, approveProposal, rejectProposal } from "../src/core/humanApproval.ts";
 import type { ProposalId } from "../src/core/ids.ts";
 import { proposeChange, type ProposeInput } from "../src/core/proposals.ts";
 import { scanProject } from "../src/core/scan.ts";
@@ -35,7 +35,7 @@ function mustPropose(fx: Fixture, edits: LineEdit[]): ProposalId {
 function approve(fx: Fixture, id: ProposalId): void {
   const p = fx.store.getProposal(id);
   assert.ok(p);
-  const r = approveProposal(fx.store, { proposalId: id, confirmCode: confirmationCode(p.body), decidedBy: "local-user:test" });
+  const r = approveProposal(fx.store, { proposalId: id, reviewedProposalSha256: p.body.proposalSha256, decidedBy: "local-user:test" });
   assert.ok(r.ok, JSON.stringify(!r.ok && r.error));
 }
 
@@ -66,17 +66,17 @@ test("proposals are validated and never write files", async () => {
   }
 });
 
-test("approval requires the exact confirmation code and a pending, current proposal", async () => {
+test("approval binds the exact reviewed proposal digest and a pending, current proposal", async () => {
   const fx = await setup();
   try {
     const id = mustPropose(fx, [EDIT]);
-    const wrong = approveProposal(fx.store, { proposalId: id, confirmCode: "000000000000", decidedBy: "u" });
-    assert.ok(!wrong.ok && wrong.error.code === "confirm_mismatch");
+    const wrong = approveProposal(fx.store, { proposalId: id, reviewedProposalSha256: "0".repeat(64), decidedBy: "u" });
+    assert.ok(!wrong.ok && wrong.error.code === "not_reviewed");
     const noApproval = await applyApprovedProposal(fx.store, { proposalId: id, actor: "u" });
     assert.ok(!noApproval.ok && noApproval.error.code === "no_approval");
     assert.equal(await readRoot(fx), ORIGINAL);
     approve(fx, id);
-    const twice = approveProposal(fx.store, { proposalId: id, confirmCode: confirmationCode(fx.store.getProposal(id)!.body), decidedBy: "u" });
+    const twice = approveProposal(fx.store, { proposalId: id, reviewedProposalSha256: fx.store.getProposal(id)!.body.proposalSha256, decidedBy: "u" });
     assert.ok(!twice.ok && twice.error.code === "already_approved");
   } finally {
     await fx.cleanup();
@@ -147,7 +147,7 @@ test("a proposal goes stale for approval once a rescan sees a newer version", as
     const id = mustPropose(fx, [EDIT]);
     await writeFile(path.join(fx.root, "AGENTS.md"), `${ORIGINAL}- more\n`);
     await scanProject(fx.store, fx.projectId, "test");
-    const r = approveProposal(fx.store, { proposalId: id, confirmCode: confirmationCode(fx.store.getProposal(id)!.body), decidedBy: "u" });
+    const r = approveProposal(fx.store, { proposalId: id, reviewedProposalSha256: fx.store.getProposal(id)!.body.proposalSha256, decidedBy: "u" });
     assert.ok(!r.ok && r.error.code === "stale_version");
   } finally {
     await fx.cleanup();
@@ -222,7 +222,7 @@ test("rejected proposals cannot be approved or applied", async () => {
   try {
     const id = mustPropose(fx, [EDIT]);
     assert.ok(rejectProposal(fx.store, { proposalId: id, decidedBy: "u" }).ok);
-    const r = approveProposal(fx.store, { proposalId: id, confirmCode: confirmationCode(fx.store.getProposal(id)!.body), decidedBy: "u" });
+    const r = approveProposal(fx.store, { proposalId: id, reviewedProposalSha256: fx.store.getProposal(id)!.body.proposalSha256, decidedBy: "u" });
     assert.ok(!r.ok && r.error.code === "not_pending");
     assert.equal(await readRoot(fx), ORIGINAL);
   } finally {

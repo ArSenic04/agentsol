@@ -6,6 +6,7 @@ import { sha256Hex } from "./hash.ts";
 import { findingIdFromDigest, type SourceId, type VersionId } from "./ids.ts";
 import { normalizeRelPath, resolveExistingInsideRoot } from "./paths.ts";
 import type { EvidenceSpan, Severity, StructuralCheckId, StructuralFinding } from "./schemas.ts";
+import { isSecretLikeDirName, isSecretLikeFileName } from "./secrets.ts";
 
 export type CheckSource = {
   readonly sourceId: SourceId;
@@ -141,6 +142,10 @@ async function claudeImportChecks(src: CheckSource, rootReal: string): Promise<S
       out.push(finding({ checkId: "D09", severity: "warn", message: `Import \`@${imp.raw}\` resolves outside the project root; AgentWeave does not follow it.`, evidence: ev, docUrl: doc }));
       continue;
     }
+    if (norm.value.split("/").some((part) => isSecretLikeDirName(part) || isSecretLikeFileName(part))) {
+      out.push(finding({ checkId: "D09", severity: "info", message: `Import \`@${imp.raw}\` has a secret-like name; not checked. Importing such a file would send it to the model.`, evidence: ev, docUrl: doc }));
+      continue;
+    }
     const resolved = await resolveExistingInsideRoot(rootReal, norm.value);
     if (!resolved.ok && resolved.error.code === "not_found") {
       out.push(finding({ checkId: "D09", severity: "warn", message: `Import \`@${imp.raw}\` points to \`${norm.value}\`, which does not exist.`, evidence: ev, docUrl: doc }));
@@ -196,7 +201,7 @@ function secretChecks(src: CheckSource): StructuralFinding[] {
   return [finding({
     checkId: "D12",
     severity: "warn",
-    message: `${src.redactedLineNumbers.length} line(s) contain secret-like text. Values are redacted and never stored or returned; consider moving secrets out of instruction files.`,
+    message: `${src.redactedLineNumbers.length} line(s) contain secret-like text. Matched values are blanked in AgentWeave's stored copy and tool output (pattern-based, so other secrets can be missed). Move secrets out of instruction files: every assistant that reads this file sees the original.`,
     evidence: [first, ...rest],
     docUrl: "https://agentskills.io/specification",
   })];
