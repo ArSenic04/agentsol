@@ -6,7 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAssistantService } from "../../src/core/service/assistant.ts";
-import { startWebServer } from "../../src/web/server.ts";
+import { LOCAL_MODE_MODULE, startWebServer } from "../../src/web/server.ts";
 import { tempDir, withoutTimes } from "../helpers.ts";
 import { raw, seededFixture, tinyStatic } from "./helpers.ts";
 
@@ -100,6 +100,14 @@ test("local bridge sanitizes internal errors and the static-only mode has no API
     const api = await raw(staticOnly.port, { path: "/api/status" });
     assert.equal(api.status, 404);
     assert.match(api.body, /static demo/);
+
+    // Explicit mode: only a bridge with a workspace tells the page to call the API.
+    const localMode = await raw(srv.port, { path: "/js/mode.js" });
+    assert.equal(localMode.status, 200);
+    assert.equal(localMode.body, LOCAL_MODE_MODULE);
+    assert.match(String(localMode.headers["content-type"]), /^text\/javascript/);
+    assert.match(String(localMode.headers["content-security-policy"]), /default-src 'none'/);
+    assert.notEqual((await raw(staticOnly.port, { path: "/js/mode.js" })).body, LOCAL_MODE_MODULE);
 
     fx.store.close();
     const r = await raw(srv.port, { path: "/api/status" });

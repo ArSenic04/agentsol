@@ -1,7 +1,6 @@
 /**
  * Local visual check: screenshots of the built site at desktop and mobile widths.
  * Usage: node scripts/webShots.ts <staticBaseUrl> <outDir> [localBridgeUrl]
- * The static preview logs one expected 404 for the /api/health probe; it is filtered here.
  */
 import { chromium } from "playwright-core";
 import path from "node:path";
@@ -14,7 +13,7 @@ const errors: string[] = [];
 try {
   for (const [label, width, height] of [["desktop", 1440, 900], ["mobile", 390, 844]] as const) {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-    page.on("console", (m) => { if (m.type() === "error" && !/404 \(Not Found\)/.test(m.text())) errors.push(`${label}: ${m.text()}`); });
+    page.on("console", (m) => { if (m.type() === "error") errors.push(`${label}: ${m.text()}`); });
     page.on("pageerror", (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(base);
     await page.waitForSelector(".excerpt");
@@ -26,6 +25,22 @@ try {
     await page.screenshot({ path: path.join(out, `demo-findings-${label}.png`), fullPage: true });
     await page.getByRole("tab", { name: /Proposed changes/ }).click();
     await page.screenshot({ path: path.join(out, `demo-changes-${label}.png`), fullPage: true });
+    if (label === "mobile") {
+      // Close-ups of the long-line areas, at 2x, for checking readability.
+      const zoom = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 2 });
+      await zoom.goto(base);
+      await zoom.waitForSelector(".excerpt .diff");
+      await zoom.locator(".excerpt-diff").screenshot({ path: path.join(out, "closeup-landing-diff-mobile.png") });
+      await zoom.goto(`${base}#/demo`);
+      await zoom.waitForSelector(".finding");
+      await zoom.getByRole("tab", { name: /Proposed changes/ }).click();
+      await zoom.locator(".proposal").screenshot({ path: path.join(out, "closeup-demo-change-mobile.png") });
+      await zoom.goto(`${base}#/setup`);
+      await zoom.waitForSelector(".setup-step");
+      await zoom.locator(".setup-step").nth(4).screenshot({ path: path.join(out, "closeup-setup-commands-mobile.png") });
+      await zoom.locator(".setup-step").nth(6).screenshot({ path: path.join(out, "closeup-setup-config-mobile.png") });
+      await zoom.close();
+    }
     await page.goto(`${base}#/workspace`);
     await page.waitForSelector("text=No local workspace connected");
     await page.screenshot({ path: path.join(out, `workspace-none-${label}.png`), fullPage: false });

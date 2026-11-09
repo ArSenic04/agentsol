@@ -28,23 +28,25 @@ after(async () => {
   await browser.close();
 });
 
-/** Fails on page errors, CSP violations and console errors other than the expected static-mode /api/health 404. */
-async function openPage(opts: { width?: number; reducedMotion?: "reduce" | "no-preference" } = {}): Promise<{ page: Page; problems: string[] }> {
+/** Collects page errors, CSP violations, any console error, external requests and API calls. */
+async function openPage(opts: { width?: number; reducedMotion?: "reduce" | "no-preference"; clipboard?: boolean } = {}): Promise<{ page: Page; problems: string[]; apiRequests: string[] }> {
   const context = await browser.newContext({ viewport: { width: opts.width ?? 1280, height: 900 }, reducedMotion: opts.reducedMotion ?? "no-preference" });
+  if (opts.clipboard) await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const page = await context.newPage();
   const problems: string[] = [];
+  const apiRequests: string[] = [];
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
     if (m.type() !== "error") return;
     const t = m.text();
-    if (/404 \(Not Found\)/.test(t)) return;
     problems.push(`console: ${t}`);
   });
   page.on("request", (r) => {
     const u = new URL(r.url());
     if (u.hostname !== "127.0.0.1") problems.push(`external request: ${u.origin}`);
+    if (u.pathname.startsWith("/api")) apiRequests.push(u.pathname);
   });
-  return { page, problems };
+  return { page, problems, apiRequests };
 }
 
 test("landing explains the product honestly and the CTA opens the labelled demo", async () => {
@@ -191,5 +193,165 @@ test("workspace view: empty workspace and server error states", async () => {
   } finally {
     await srv.close();
     await rm(base, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Everything on the page must be reachable: nothing clipped by overflow hidden/clip, nothing
+ * spilling past the viewport, and every sideways-scrolling block focusable (keyboard) and named.
+ */
+async function reachabilityProblems(page: Page, where: string): Promise<string[]> {
+  // Let ResizeObserver callbacks run (they fire after layout, before the next paint).
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+  const found = await page.evaluate(() => {
+    const out: string[] = [];
+    const describe = (el: Element): string => `${el.tagName.toLowerCase()}.${[...el.classList].join(".")} "${(el.textContent ?? "").trim().slice(0, 40)}"`;
+    const scrollerOf = (el: Element): Element | null => {
+      for (let a = el.parentElement; a; a = a.parentElement) {
+        const ox = getComputedStyle(a).overflowX;
+        if (ox === "auto" || ox === "scroll") return a;
+      }
+      return null;
+    };
+    for (const el of document.querySelectorAll("body *")) {
+      if (el.closest(".sr-only")) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      if (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1) {
+        if (cs.overflowX === "hidden" || cs.overflowX === "clip") out.push(`clipped: ${describe(el)}`);
+        if (cs.overflowX === "auto" || cs.overflowX === "scroll") {
+          if (!(el instanceof HTMLElement) || el.tabIndex < 0) out.push(`scrolls but not keyboard focusable: ${describe(el)}`);
+          if (!el.getAttribute("aria-label")) out.push(`scroll region has no name: ${describe(el)}`);
+        }
+      }
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && (r.right > window.innerWidth + 1 || r.left < -1) && !scrollerOf(el)) out.push(`outside viewport (${Math.round(r.left)}..${Math.round(r.right)} of ${window.innerWidth}): ${describe(el)}`);
+    }
+    for (const wrap of document.querySelectorAll(".code-wrap")) {
+      const pre = wrap.querySelector("pre");
+      const hint = wrap.querySelector(".scroll-hint");
+      if (!pre || !(hint instanceof HTMLElement) || pre.clientWidth === 0) continue;
+      const over = pre.scrollWidth > pre.clientWidth + 1;
+      if (over === hint.hidden) out.push(`scroll hint ${over ? "missing on an overflowing" : "shown on a fitting"} block: ${describe(pre)}`);
+    }
+    for (const pre of document.querySelectorAll(".cmd-wrap")) if (pre.scrollWidth > pre.clientWidth + 1) out.push(`command block does not wrap: ${describe(pre)}`);
+    return out;
+  });
+  return found.map((f) => `${where}: ${f}`);
+}
+
+/** Scrolls a block to its far edge and checks the end of its longest line becomes visible. */
+async function farEdgeVisible(page: Page, selector: string): Promise<boolean> {
+  return page.locator(selector).first().evaluate((pre) => {
+    pre.scrollLeft = pre.scrollWidth;
+    let longest: Text | null = null;
+    const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n instanceof Text && n.data.trim() && (!longest || n.data.length > longest.data.length)) longest = n;
+    if (!longest) return false;
+    const range = document.createRange();
+    const end = longest.data.trimEnd().length;
+    range.setStart(longest, end - 1);
+    range.setEnd(longest, end);
+    const box = range.getBoundingClientRect();
+    const frame = pre.getBoundingClientRect();
+    return box.right <= frame.right + 1 && box.left >= frame.left - 1;
+  });
+}
+
+for (const width of [375, 390, 1440]) {
+  test(`long code, diffs and commands are fully reachable at ${width}px`, async () => {
+    const { page, problems, apiRequests } = await openPage({ width });
+    const issues: string[] = [];
+    await page.goto(staticSrv.url);
+    await page.locator(".excerpt .diff").waitFor();
+    issues.push(...(await reachabilityProblems(page, "landing")));
+    assert.ok(await farEdgeVisible(page, ".excerpt .diff"), "landing diff: end of the longest line can be scrolled into view");
+
+    await page.goto(`${staticSrv.url}#/demo`);
+    await page.locator(".finding").first().click();
+    await page.locator(".evidence").first().waitFor();
+    issues.push(...(await reachabilityProblems(page, "demo findings")));
+    await page.getByRole("tab", { name: /Files/ }).click();
+    await page.locator(".file", { hasText: /^AGENTS\.md/ }).first().click();
+    await page.locator("#panel-files .detail .code").waitFor();
+    issues.push(...(await reachabilityProblems(page, "demo files")));
+    await page.getByRole("tab", { name: /Proposed changes/ }).click();
+    await page.locator(".proposal .diff").waitFor();
+    issues.push(...(await reachabilityProblems(page, "demo changes")));
+    assert.ok(await farEdgeVisible(page, ".proposal .diff"), "demo diff: end of the longest line can be scrolled into view");
+    if (width < 400) assert.ok(await page.locator(".proposal .code-wrap:has(.diff) .scroll-hint").isVisible(), "narrow screens say the diff scrolls sideways");
+    const diff = page.locator(".proposal .diff");
+    if (await diff.evaluate((el) => el.scrollWidth > el.clientWidth)) {
+      await diff.evaluate((el) => { el.scrollLeft = 0; });
+      await diff.focus();
+      assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("diff")), true, "diff takes focus");
+      for (let i = 0; i < 6; i++) await page.keyboard.press("ArrowRight");
+      await page.waitForFunction(() => (document.querySelector(".proposal .diff")?.scrollLeft ?? 0) > 0, undefined, { timeout: 2000 }).catch(() => undefined);
+      assert.ok((await diff.evaluate((el) => el.scrollLeft)) > 0, "focused diff scrolls with the arrow keys");
+    }
+    await page.getByRole("tab", { name: /Load order/ }).click();
+    await page.locator(".chain li").first().waitFor();
+    issues.push(...(await reachabilityProblems(page, "demo load order")));
+
+    await page.goto(`${staticSrv.url}#/setup`);
+    await page.locator(".cmd-code").first().waitFor();
+    issues.push(...(await reachabilityProblems(page, "setup")));
+    assert.ok(await farEdgeVisible(page, ".cmd-code:not(.cmd-wrap)"), "setup config: end of the longest line can be scrolled into view");
+    await page.goto(`${staticSrv.url}#/workspace`);
+    await page.getByText("No local workspace connected").waitFor();
+    issues.push(...(await reachabilityProblems(page, "workspace (static)")));
+    assert.deepEqual(issues, []);
+    assert.deepEqual(apiRequests, [], "a static copy never calls the API");
+    assert.deepEqual(problems, []);
+    await page.context().close();
+  });
+}
+
+test("commands wrap visually but copy and select as the exact original bytes", async () => {
+  const { page, problems } = await openPage({ width: 375, clipboard: true });
+  await page.goto(`${staticSrv.url}#/setup`);
+  const step5 = page.locator(".setup-step").nth(4);
+  const pre = step5.locator(".cmd-code");
+  const expected = ["review", "approve", "apply"].map((v) => `npm run cli -- --workspace "$TMPDIR/agentweave-demo/workspace" ${v} <proposalId>`).join("\n");
+  assert.ok((await pre.evaluate((el) => el.getBoundingClientRect().height)) > 3 * 30, "long commands really wrap at 375px");
+  await step5.getByRole("button", { name: "Copy" }).click();
+  await step5.getByText("Copied").waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), expected);
+  const selected = await pre.evaluate((el) => {
+    const sel = window.getSelection();
+    if (!sel) return "";
+    sel.selectAllChildren(el);
+    return sel.toString();
+  });
+  assert.equal(selected.replace(/\n$/, ""), expected, "selecting the block gives the same text, no inserted line breaks");
+  assert.deepEqual(problems, []);
+  await page.context().close();
+});
+
+test("local bridge: very long instruction lines stay reachable on mobile", async () => {
+  const long = `- ${"Always run the full integration suite with every service started, ".repeat(5)}END_OF_LINE`;
+  const fx = await seededFixture({ "AGENTS.md": `# Root\n${long}\n- Use npm.\n`, "web/AGENTS.md": "# Web\n" });
+  const local = await startWebServer({ store: fx.store, staticDir: DIST, port: 0, onInternalError: () => {} });
+  try {
+    for (const width of [375, 1440]) {
+      const { page, problems, apiRequests } = await openPage({ width });
+      await page.goto(`${local.url}#/workspace`);
+      await page.getByText("Your local workspace, read-only.").waitFor();
+      const issues = await reachabilityProblems(page, `local ${width}`);
+      await page.getByRole("tab", { name: /Files/ }).click();
+      await page.locator(".file", { hasText: /^AGENTS\.md/ }).first().click();
+      await page.locator("#panel-files .detail .code").waitFor();
+      issues.push(...(await reachabilityProblems(page, `local files ${width}`)));
+      assert.ok(await farEdgeVisible(page, "#panel-files .detail .code"), "END_OF_LINE can be scrolled into view");
+      await page.getByRole("tab", { name: /Proposed changes/ }).click();
+      issues.push(...(await reachabilityProblems(page, `local changes ${width}`)));
+      assert.deepEqual(issues, []);
+      assert.ok(apiRequests.includes("/api/health"), "the bridge is still verified before showing data");
+      assert.deepEqual(problems, []);
+      await page.context().close();
+    }
+  } finally {
+    await local.close();
+    await fx.cleanup();
   }
 });

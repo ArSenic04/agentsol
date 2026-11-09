@@ -98,7 +98,7 @@ nav { margin-left: auto; }
 .ticks li, .plain li { padding: 0.55rem 0 0.55rem 1.5rem; border-bottom: 1px solid var(--rule); position: relative; }
 .ticks li::before { content: ""; position: absolute; left: 0.1rem; top: 1.1rem; width: 0.8rem; height: 2px; background: var(--accent); }
 .plain li::before { content: ""; position: absolute; left: 0.25rem; top: 1.05rem; width: 0.35rem; height: 0.35rem; border-radius: 50%; background: var(--ink-2); }
-.excerpt { margin: 0; display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.25rem; }
+.excerpt { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
 .excerpt-cap { grid-column: 1 / -1; font-size: 0.85rem; color: var(--ink-2); }
 .excerpt-finding, .excerpt-diff { background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius); padding: 1.1rem; min-width: 0; }
 .excerpt-kicker { font-size: 0.85rem; font-weight: 650; margin-bottom: 0.4rem; }
@@ -114,7 +114,7 @@ nav { margin-left: auto; }
 .note { background: var(--paper-2); border-left: 3px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 8px 8px 0; max-width: var(--measure); }
 
 /* Code */
-.code { display: block; margin: 0.5rem 0; padding: 0.75rem 0; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; line-height: 1.55; white-space: pre; tab-size: 2; }
+.code { display: block; margin: 0.5rem 0; padding: 0.75rem 0; background: var(--card); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; line-height: 1.55; white-space: pre; tab-size: 2; max-width: 100%; scrollbar-width: thin; scrollbar-color: var(--ink-2) transparent; }
 .code .line { display: block; padding: 0 0.9rem; min-width: max-content; }
 .code .ln { display: inline-block; width: 3ch; margin-right: 1.1ch; text-align: right; color: var(--ink-2); user-select: none; }
 .code .cited { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
@@ -124,7 +124,15 @@ nav { margin-left: auto; }
 .diff .d-hunk { color: var(--possible); }
 .diff .d-file { color: var(--ink-2); }
 .cmd { margin: 0.5rem 0 1rem; }
-.cmd-code { padding: 0.75rem 0.9rem; white-space: pre; }
+.cmd-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmd-wrap .line { min-width: 0; padding-left: calc(0.9rem + 2ch); text-indent: -2ch; }
+:not(pre) > code { overflow-wrap: anywhere; }
+.code-wrap { margin: 0.5rem 0; min-width: 0; }
+.code-frame { position: relative; }
+.code-frame > .code { margin: 0; }
+.code-frame.is-overflowing:not(.at-end)::after { content: ""; position: absolute; top: 1px; right: 1px; bottom: 1px; width: 2.5rem; border-radius: 0 7px 7px 0; background: linear-gradient(to right, transparent, var(--card)); pointer-events: none; }
+.scroll-hint { margin: 0.3rem 0 0; font-size: 0.8rem; color: var(--ink-2); }
+.cmd .code-wrap { margin: 0 0 0.5rem; }
 .cmd-actions { display: flex; align-items: center; gap: 0.75rem; }
 .copy-status { font-size: 0.85rem; color: var(--ok); min-height: 1em; }
 
@@ -158,7 +166,7 @@ input { min-width: min(22rem, 100%); font-family: var(--mono); font-size: 0.9rem
 .partial summary::-webkit-details-marker { display: none; }
 .partial[open] { flex-basis: 100%; }
 .partial ul { margin: 0.5rem 0 0.25rem 1.25rem; font-size: 0.9rem; }
-.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--rule); overflow-x: auto; margin-bottom: 1.25rem; }
+.tabs { display: flex; flex-wrap: wrap; gap: 0 0.25rem; border-bottom: 1px solid var(--rule); margin-bottom: 1.25rem; }
 .tab { font: 600 0.95rem/1 var(--sans); background: none; border: 0; border-bottom: 3px solid transparent; color: var(--ink-2); padding: 0.85rem 0.9rem; cursor: pointer; white-space: nowrap; display: inline-flex; gap: 0.45rem; align-items: center; }
 .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .tab-count { font-size: 0.75rem; background: var(--muted-bg); border-radius: 999px; padding: 0.15rem 0.45rem; color: var(--ink-2); }
@@ -227,7 +235,8 @@ input { min-width: min(22rem, 100%); font-family: var(--mono); font-size: 0.9rem
 }
 @media (max-width: 40rem) {
   .two-col { grid-template-columns: 1fr; }
-  .tag { display: none; }
+  .tag { font-size: 0.65rem; }
+  .tab { padding: 0.75rem 0.6rem; }
   nav { margin-left: 0; width: 100%; }
   .nav { justify-content: space-between; }
   .head-inner { padding-top: 0.5rem; padding-bottom: 0.5rem; gap: 0.25rem; }

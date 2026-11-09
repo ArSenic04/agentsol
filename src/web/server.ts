@@ -62,6 +62,9 @@ export type WebServerOptions = {
 export type RunningServer = { server: Server; port: number; url: string; close: () => Promise<void> };
 
 const JSON_TYPE = "application/json; charset=utf-8";
+
+/** Replaces the built js/mode.js when a workspace is attached (see web/src/mode.ts). */
+export const LOCAL_MODE_MODULE = 'export const SERVED_BY = "local-bridge";\n';
 const TEXT_TYPE = "text/plain; charset=utf-8";
 
 function send(res: ServerResponse, status: number, type: string, body: string | Buffer, head: boolean, extra: Record<string, string> = {}): void {
@@ -73,6 +76,7 @@ const jsonError = (code: string, message: string): string => JSON.stringify({ er
 
 export function startWebServer(opts: WebServerOptions): Promise<RunningServer> {
   const files = loadStaticManifest(opts.staticDir);
+  if (opts.store) files.set("/js/mode.js", { body: Buffer.from(LOCAL_MODE_MODULE), type: CONTENT_TYPES[".js"] ?? "text/javascript; charset=utf-8" });
   const sink = opts.onInternalError ?? ((op: string, e: unknown) => process.stderr.write(`agentweave-web: ${op} internal error: ${e instanceof Error ? e.message : String(e)}\n`));
   const svc: AssistantService | null = opts.store ? createAssistantService(opts.store, { reporter: () => "web-local:read-only", onInternalError: sink }) : null;
   let port = opts.port;

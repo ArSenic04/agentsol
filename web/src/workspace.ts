@@ -5,7 +5,7 @@
  */
 import type { Finding, FindingsResponse, FreshnessReport, ProjectStatus, ProposalSummary, ProposalsResponse, ScopeResolution, SourceRead, SourcesResponse, WorkspaceStatus } from "./contract.ts";
 import type { ApiResult, DataSource } from "./data.ts";
-import { append, docHref, h, plural, replace, route, type Child } from "./dom.ts";
+import { append, codePre, docHref, h, plural, replace, route, type Child } from "./dom.ts";
 import { CHECK_NAMES, FRESH, NOT_READ, PLATFORM_LABEL } from "./labels.ts";
 
 export type WorkspaceContext = { builtAt?: string; scopeTargets?: string[] };
@@ -289,7 +289,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
     const redacted = new Set(src.redactedLines);
     return h("figure", { class: "evidence" },
       h("figcaption", {}, h("span", { class: "path" }, src.relPath), ` lines ${start}${end !== start ? `–${end}` : ""}`, stale ? chip("file has changed since", "warn") : null),
-      h("pre", { class: "code", attrs: { tabindex: "0", "aria-label": `${src.relPath} lines ${from} to ${to}` } },
+      codePre({ class: "code", attrs: { tabindex: "0", role: "region", "aria-label": `${src.relPath} lines ${from} to ${to}` } },
         ...src.lines.filter((l) => l.n >= from && l.n <= to).map((l) =>
           h("span", { class: `line${l.n >= start && l.n <= end ? " cited" : ""}${redacted.has(l.n) ? " redacted" : ""}` },
             h("span", { class: "ln", attrs: { "aria-hidden": "true" } }, String(l.n)), h("span", { class: "lt" }, l.text || " "), "\n"))));
@@ -314,7 +314,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
       replace(viewer,
         h("h3", { class: "detail-title path" }, r.value.relPath),
         h("p", { class: "muted small" }, `${plural(r.value.lineCount, "line")}. ${r.value.notice}`),
-        h("pre", { class: "code", attrs: { tabindex: "0", "aria-label": `Contents of ${r.value.relPath}` } },
+        codePre({ class: "code", attrs: { tabindex: "0", role: "region", "aria-label": `Contents of ${r.value.relPath}` } },
           ...r.value.lines.map((l) => h("span", { class: `line${redacted.has(l.n) ? " redacted" : ""}` }, h("span", { class: "ln", attrs: { "aria-hidden": "true" } }, String(l.n)), h("span", { class: "lt" }, l.text || " "), "\n"))),
         r.value.truncated ? h("p", { class: "muted small" }, "Truncated to the first 400 lines.") : null);
     };
@@ -373,7 +373,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
   };
 
   const diffView = (diff: string): HTMLElement =>
-    h("pre", { class: "code diff", attrs: { tabindex: "0", "aria-label": "Proposed diff" } },
+    codePre({ class: "code diff", attrs: { tabindex: "0", role: "region", "aria-label": "Proposed diff" } },
       ...diff.split("\n").map((line) => {
         const cls = line.startsWith("+++") || line.startsWith("---") ? "d-file" : line.startsWith("@@") ? "d-hunk" : line.startsWith("+") ? "d-add" : line.startsWith("-") ? "d-del" : "d-ctx";
         const sr = cls === "d-add" ? "Added: " : cls === "d-del" ? "Removed: " : "";
@@ -436,8 +436,14 @@ function revealOnNarrow(el: HTMLElement): void {
   el.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
 }
 
-export function codeBlock(lines: string[]): HTMLElement {
+/**
+ * Copyable commands or config. Shell commands soft-wrap (one line per command, continuation
+ * lines indented); wrapping is visual only, so selected or copied text keeps the exact bytes.
+ * Config keeps its layout and scrolls sideways instead (wrap: false).
+ */
+export function codeBlock(lines: string[], opts: { label?: string; wrap?: boolean } = {}): HTMLElement {
   const text = lines.join("\n");
+  const wrap = opts.wrap ?? true;
   const status = h("span", { class: "copy-status", attrs: { role: "status", "aria-live": "polite" } });
   const btn = h("button", {
     class: "btn btn-small copy",
@@ -451,7 +457,10 @@ export function codeBlock(lines: string[]): HTMLElement {
       else done(false);
     },
   }, "Copy");
-  return h("div", { class: "cmd" }, h("pre", { class: "code cmd-code", attrs: { tabindex: "0" } }, text), h("div", { class: "cmd-actions" }, btn, status));
+  return h("div", { class: "cmd" },
+    codePre({ class: `code cmd-code${wrap ? " cmd-wrap" : ""}`, attrs: { tabindex: "0", role: "region", "aria-label": opts.label ?? (lines.length === 1 ? "Command" : "Commands") } },
+      ...lines.map((l) => h("span", { class: "line" }, l || " ", "\n"))),
+    h("div", { class: "cmd-actions" }, btn, status));
 }
 
 export { route };

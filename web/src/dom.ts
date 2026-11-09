@@ -87,3 +87,23 @@ export function replace(el: Element, ...children: Child[]): void {
 }
 
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * A code block that keeps its lines intact and scrolls sideways when they are long. The
+ * block is focusable (arrow keys scroll it); when it overflows, a right-edge fade and a short
+ * hint show that more text is there, because overlay scrollbars are often invisible.
+ */
+export function codePre(props: Props, ...children: Child[]): HTMLElement {
+  const pre = h("pre", props, ...children);
+  const hint = h("p", { class: "scroll-hint", hidden: true }, "Long lines: scroll sideways, or focus the block and use the arrow keys.");
+  const frame = h("div", { class: "code-frame" }, pre);
+  const update = (): void => {
+    const over = pre.scrollWidth > pre.clientWidth + 1;
+    hint.hidden = !over;
+    frame.classList.toggle("is-overflowing", over);
+    frame.classList.toggle("at-end", pre.scrollLeft + pre.clientWidth >= pre.scrollWidth - 1);
+  };
+  new ResizeObserver(update).observe(pre);
+  pre.addEventListener("scroll", update, { passive: true });
+  return h("div", { class: "code-wrap" }, frame, hint);
+}

@@ -16,7 +16,7 @@ test("web build is static, self-contained, and carries no local paths or secrets
     const r = build(out);
     assert.equal(r.status, 0, r.stderr);
     const files = (await readdir(out, { recursive: true })).sort();
-    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/contract.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/labels.js", "js/landing.js", "js/setup.js", "js/workspace.js", "styles.css"]);
+    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/contract.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "styles.css"]);
     let all = "";
     for (const f of files) if (f.includes(".")) all += await readFile(path.join(out, f), "utf8");
     assert.ok(!all.includes(REPO) && !/\/(Users|private\/var|var\/folders)\//.test(all), "no absolute local paths");

@@ -1,6 +1,7 @@
 import { detectLocalBridge, demoSource, loadDemoBundle, localSource } from "./data.ts";
 import { h, replace } from "./dom.ts";
 import { renderLanding } from "./landing.ts";
+import { SERVED_BY } from "./mode.ts";
 import { renderSetup } from "./setup.ts";
 import { codeBlock, renderWorkspace } from "./workspace.ts";
 
@@ -29,7 +30,8 @@ async function render(): Promise<void> {
     else replace(main, h("section", { class: "page" }, h("h1", { class: "page-title", attrs: { tabindex: "-1", id: "page-title" } }, "Demo unavailable"), h("div", { class: "state state-error", attrs: { role: "alert" } }, h("p", {}, "This build has no recorded demo data. Rebuild with npm run web:build."))));
   } else if (r === "workspace") {
     replace(main, h("section", { class: "page" }, h("div", { class: "state state-loading", attrs: { role: "status" } }, h("span", { class: "spinner", attrs: { "aria-hidden": "true" } }), "Looking for a local AgentWeave server…")));
-    if (await detectLocalBridge()) renderWorkspace(main, localSource(), {});
+    // A static copy has no API, so it does not probe one.
+    if (SERVED_BY === "local-bridge" && (await detectLocalBridge())) renderWorkspace(main, localSource(), {});
     else {
       replace(main,
         h("section", { class: "page" },
@@ -37,7 +39,7 @@ async function render(): Promise<void> {
           h("h1", { class: "page-title", attrs: { tabindex: "-1", id: "page-title" } }, "No local workspace connected"),
           h("div", { class: "state state-empty" },
             h("p", {}, "This view only works when the page is served by the read-only AgentWeave server on your own machine. It is never available on a public website. Start it from the project folder:"),
-            codeBlock(["npm run web:build", "npm run web:local -- --workspace <your workspace folder>"]),
+            codeBlock(["npm run web:build", "npm run web:local -- --workspace <your workspace folder>"], { label: "Commands to start the local server" }),
             h("p", { class: "muted small" }, "Then open the http://127.0.0.1 address it prints."))));
     }
   } else renderLanding(main, await loadDemoBundle());

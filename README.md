@@ -73,7 +73,8 @@ npm run test:web                                    # build, then browser tests 
 - **Workspace** (`#/workspace`) works only under `web:local`. That bridge binds to 127.0.0.1 only and serves GET requests from the existing shared service. It cannot scan, edit, approve, apply or register folders. Approval stays in your terminal: the page shows the CLI commands to run.
 - `web:local` opens only the workspace folder you name, and it must already contain `workspace.sqlite`. It never browses your home folder or projects. There is no `--host` option.
 - The site loads nothing from other servers: no analytics, cookies, external fonts, CDNs or third-party scripts. A strict Content Security Policy blocks inline scripts.
-- Under the static preview the page probes `/api/health`, gets a 404 (logged once in the browser console) and shows the "no local workspace connected" state.
+- The build ships `js/mode.js` saying "static", so a static copy never calls `/api` and simply shows the "no local workspace connected" state. Only `web:local` (with a workspace) serves a "local-bridge" `mode.js`, and the page still verifies `/api/health` before showing data.
+- Long source and diff lines keep their layout and scroll sideways. Those blocks are keyboard-focusable and show a hint when they overflow. Shell commands soft-wrap without changing the copied text.
 - `dist/web` can be served by any static host later, after review. The local bridge (`src/web/`) must never be exposed to a network or run on a shared machine.
 
 ## MCP tools
