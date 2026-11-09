@@ -11,10 +11,11 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(REPO, "build");
-const MARKER = ".agentweave-package-build";
+const MARKER = ".agentlore-package-build";
+const LEGACY_MARKER = ".agentweave-package-build"; // builds made before the rename
 
 if (existsSync(OUT)) {
-  if (!existsSync(path.join(OUT, MARKER)) && readdirSync(OUT).length > 0) {
+  if (!existsSync(path.join(OUT, MARKER)) && !existsSync(path.join(OUT, LEGACY_MARKER)) && readdirSync(OUT).length > 0) {
     process.stderr.write("build/ exists and was not created by npm run build; refusing to delete it\n");
     process.exit(1);
   }

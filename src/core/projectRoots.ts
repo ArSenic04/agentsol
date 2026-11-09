@@ -45,8 +45,8 @@ export async function validateProjectRoot(input: RootCheckInput): Promise<Result
   if (parts.some((p) => isSecretLikeDirName(p) || isSecretLikeFileName(p))) return err("Refusing a folder with a secret-like name");
   const ws = path.resolve(input.workspaceDir);
   const wsReal = await realpath(ws).catch(() => ws);
-  if (rootReal === wsReal) return err("Refusing the AgentWeave workspace itself");
-  if (isStrictlyInside(wsReal, rootReal)) return err("Refusing a folder inside the AgentWeave workspace");
+  if (rootReal === wsReal) return err("Refusing the Agentlore workspace itself");
+  if (isStrictlyInside(wsReal, rootReal)) return err("Refusing a folder inside the Agentlore workspace");
   return ok(rootReal);
 }
 

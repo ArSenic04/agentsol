@@ -1,5 +1,7 @@
 # Alpha verification (Nov 9, 2026)
 
+_Recorded under the earlier name AgentWeave; the product is now Agentlore. Package and file names below are as they were at the time of this run (`agentweave-0.1.0.tgz`, `bin/agentweave*.mjs`). The current names are `agentlore-0.1.0.tgz` and `bin/agentlore*.mjs`._
+
 This was a local run on one Mac (Apple M1 Pro, 10 cores, 16 GiB, Node 26.8.2, darwin-arm64). Nothing was published, pushed or deployed. All fixtures are synthetic temp folders.
 
 ## Commands and results
@@ -52,9 +54,9 @@ Method:
 Sources:
 - https://docs.x.ai/grok-bot/computer-and-apps. A bot can add an MCP server by URL, or by a command that runs on its own (cloud) computer, which is separate from the Mac.
 - Third-party guides quoting staff replies (botcookbook.com, grokbotwiki.com, plugandship.dev) and an X post (https://x.com/grok/status/2115351609085473213). They say local stdio or localhost servers on your laptop are not attached, and remote servers need public HTTPS with OAuth.
-- The plugin catalog has no AgentWeave entry.
+- The plugin catalog has no Agentlore entry.
 
-Conclusion: AgentWeave runs as a stdio server on the Mac, so Grok Bot cannot attach it as a connector today. Nothing was attached or configured. The SDK client tests are protocol tests, not a connector test.
+Conclusion: Agentlore runs as a stdio server on the Mac, so Grok Bot cannot attach it as a connector today. Nothing was attached or configured. The SDK client tests are protocol tests, not a connector test.
 
 Options, each needing your decision:
 - (a) Allow installing the tarball on the bot's cloud computer as a command server. It would only see files on that computer, not your Mac projects.

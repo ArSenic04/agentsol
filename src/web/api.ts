@@ -26,7 +26,7 @@ export async function handleApi(svc: AssistantService, segments: readonly string
     const v = query.get(k);
     return v !== null && /^\d{1,7}$/.test(v) ? Number(v) : undefined;
   };
-  if (a === "health" && b === undefined) return { status: 200, body: { product: "agentweave", mode: "local", readOnly: true, apiVersion: API_VERSION } };
+  if (a === "health" && b === undefined) return { status: 200, body: { product: "agentlore", mode: "local", readOnly: true, apiVersion: API_VERSION } };
   if (a === "status" && b === undefined) return respond(await svc.status());
   if (a === "sources" && b !== undefined && c === undefined) {
     const start = int("start");

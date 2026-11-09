@@ -11,12 +11,14 @@ const out = path.resolve(process.argv[3] ?? "artifacts/screenshots");
 const browser = await chromium.launch({ headless: true });
 const errors: string[] = [];
 try {
-  for (const [label, width, height] of [["desktop", 1440, 900], ["mobile", 390, 844]] as const) {
+  for (const [label, width, height] of [["desktop", 1440, 900], ["mobile", 390, 844], ["mobile375", 375, 812]] as const) {
     const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
     page.on("console", (m) => { if (m.type() === "error") errors.push(`${label}: ${m.text()}`); });
     page.on("pageerror", (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(base);
     await page.waitForSelector(".excerpt");
+    await page.waitForSelector(".hero-art svg");
+    await page.screenshot({ path: path.join(out, `hero-${label}.png`), fullPage: false });
     await page.screenshot({ path: path.join(out, `landing-${label}.png`), fullPage: true });
     await page.goto(`${base}#/demo`);
     await page.waitForSelector(".finding");

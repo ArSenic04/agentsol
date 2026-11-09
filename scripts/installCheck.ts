@@ -25,12 +25,12 @@ const record = (step: string, ok: boolean, detail = ""): void => {
   process.stdout.write(`${ok ? "PASS" : "FAIL"}  ${step}${detail ? ` — ${detail}` : ""}\n`);
 };
 
-const base = realpathSync(mkdtempSync(path.join(tmpdir(), "agentweave-install-")));
+const base = realpathSync(mkdtempSync(path.join(tmpdir(), "agentlore-install-")));
 const app = path.join(base, "app");
 const ws = path.join(base, "workspace");
 const project = path.join(base, "synthetic-project");
 mkdirSync(app);
-writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "agentweave-install-check", private: true }));
+writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "agentlore-install-check", private: true }));
 try {
   record("install folder is outside the repository", !base.startsWith(REPO) && !REPO.startsWith(base), base.replace(/.*\//, "<tmp>/"));
   const t0 = performance.now();
@@ -65,15 +65,15 @@ try {
   record("installed top-level packages", true, top.join(" "));
 
   const bin = (name: string): string => path.join(nm, ".bin", name);
-  const run = (args: string[]) => spawnSync(bin("agentweave"), args, { cwd: app, encoding: "utf8", env: { ...process.env, AGENTWEAVE_WORKSPACE: "" } });
+  const run = (args: string[]) => spawnSync(bin("agentlore"), args, { cwd: app, encoding: "utf8", env: { ...process.env, AGENTLORE_WORKSPACE: "", AGENTWEAVE_WORKSPACE: "" } });
   const help = run(["help"]);
-  record("installed `agentweave help`", help.status === 0 && help.stdout.includes("Commands"), `exit ${help.status}`);
+  record("installed `agentlore help`", help.status === 0 && help.stdout.includes("Commands"), `exit ${help.status}`);
 
   const doc = run(["--workspace", ws, "doctor", "--json"]);
   const report = JSON.parse(doc.stdout || "{}");
   const deps = report.checks?.find((c: { id: string }) => c.id === "dependencies");
-  record("installed `agentweave doctor`", doc.status === 0 && deps?.status === "ok" && !existsSync(ws), `${deps?.message}; workspace not created: ${!existsSync(ws)}`);
-  record("doctor launch command points at the installed package", String(report.launch?.mcp ?? "").includes(path.join(nm, "agentweave", "bin", "agentweave-mcp.mjs")) && !String(report.launch?.mcp).includes(REPO));
+  record("installed `agentlore doctor`", doc.status === 0 && deps?.status === "ok" && !existsSync(ws), `${deps?.message}; workspace not created: ${!existsSync(ws)}`);
+  record("doctor launch command points at the installed package", String(report.launch?.mcp ?? "").includes(path.join(nm, "agentlore", "bin", "agentlore-mcp.mjs")) && !String(report.launch?.mcp).includes(REPO));
 
   mkdirSync(path.join(project, "skills", "release"), { recursive: true });
   mkdirSync(path.join(project, "services", "api"), { recursive: true });
@@ -100,12 +100,12 @@ try {
   record("installed `findings`", findings.status === 0 && ids.length > 0, [...new Set(ids.map((s) => s.slice(11, 14)))].sort().join(" "));
 
   // MCP stdio handshake against the installed server binary, from the install folder.
-  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(nm, "agentweave", "bin", "agentweave-mcp.mjs"), "--workspace", ws], cwd: app, stderr: "pipe" });
-  const client = new Client({ name: "agentweave-install-check", version: "0.0.0" }, { versionNegotiation: { mode: "auto" } });
+  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(nm, "agentlore", "bin", "agentlore-mcp.mjs"), "--workspace", ws], cwd: app, stderr: "pipe" });
+  const client = new Client({ name: "agentlore-install-check", version: "0.0.0" }, { versionNegotiation: { mode: "auto" } });
   await client.connect(transport);
   const info = client.getServerVersion();
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-  record("MCP handshake with the installed server", info?.name === "agentweave", `server ${info?.name} ${info?.version}, protocol ${client.getNegotiatedProtocolVersion()}`);
+  record("MCP handshake with the installed server", info?.name === "agentlore", `server ${info?.name} ${info?.version}, protocol ${client.getNegotiatedProtocolVersion()}`);
   record("MCP tools exposed (no approve/apply)", tools.length === 13 && !tools.some((t) => /approve|apply|reject|register|shell/.test(t)), tools.join(" "));
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await client.callTool({ name, arguments: args });
@@ -129,8 +129,8 @@ try {
   await client.close();
   record("project files unchanged by scan, MCP reads and propose", hashAll() === before);
 
-  const installedText = manifests.filter((m) => m.includes(`${path.sep}agentweave${path.sep}`)).length;
-  const grep = spawnSync("grep", ["-rl", REPO, path.join(nm, "agentweave")], { encoding: "utf8" });
+  const installedText = manifests.filter((m) => m.includes(`${path.sep}agentlore${path.sep}`)).length;
+  const grep = spawnSync("grep", ["-rl", REPO, path.join(nm, "agentlore")], { encoding: "utf8" });
   record("installed package contains no repository path", grep.stdout.trim() === "", `${installedText} manifest(s) checked`);
 } catch (e) {
   record("unexpected error", false, e instanceof Error ? e.message.replace(base, "<tmp>") : String(e));

@@ -133,13 +133,13 @@ async function claudeImportChecks(src: CheckSource, rootReal: string): Promise<S
     if (imp.kind === "home") continue; // outside the project by design; not inspected
     const ev: [EvidenceSpan] = [span(src, imp.line, imp.line)];
     if (imp.kind === "absolute") {
-      out.push(finding({ checkId: "D09", severity: "info", message: `Import \`@${imp.raw}\` is an absolute path outside the project; AgentWeave does not inspect it.`, evidence: ev, docUrl: doc }));
+      out.push(finding({ checkId: "D09", severity: "info", message: `Import \`@${imp.raw}\` is an absolute path outside the project; Agentlore does not inspect it.`, evidence: ev, docUrl: doc }));
       continue;
     }
     const joined = path.posix.normalize(path.posix.join(fileDirOf(src.relPath) || ".", imp.raw));
     const norm = normalizeRelPath(joined);
     if (!norm.ok) {
-      out.push(finding({ checkId: "D09", severity: "warn", message: `Import \`@${imp.raw}\` resolves outside the project root; AgentWeave does not follow it.`, evidence: ev, docUrl: doc }));
+      out.push(finding({ checkId: "D09", severity: "warn", message: `Import \`@${imp.raw}\` resolves outside the project root; Agentlore does not follow it.`, evidence: ev, docUrl: doc }));
       continue;
     }
     if (norm.value.split("/").some((part) => isSecretLikeDirName(part) || isSecretLikeFileName(part))) {
@@ -201,7 +201,7 @@ function secretChecks(src: CheckSource): StructuralFinding[] {
   return [finding({
     checkId: "D12",
     severity: "warn",
-    message: `${src.redactedLineNumbers.length} line(s) contain secret-like text. Matched values are blanked in AgentWeave's stored copy and tool output (pattern-based, so other secrets can be missed). Move secrets out of instruction files: every assistant that reads this file sees the original.`,
+    message: `${src.redactedLineNumbers.length} line(s) contain secret-like text. Matched values are blanked in Agentlore's stored copy and tool output (pattern-based, so other secrets can be missed). Move secrets out of instruction files: every assistant that reads this file sees the original.`,
     evidence: [first, ...rest],
     docUrl: "https://agentskills.io/specification",
   })];

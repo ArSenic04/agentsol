@@ -55,7 +55,7 @@ test("demo refuses a non-empty folder that is not an earlier demo", async () => 
   await writeFile(path.join(dir, "AGENTS.md"), "# Someone's real project\n");
   const r = demo("--dir", dir, "--reset");
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /not an AgentWeave demo folder/);
+  assert.match(r.stderr, /not an Agentlore demo folder/);
   assert.equal(await readFile(path.join(dir, "AGENTS.md"), "utf8"), "# Someone's real project\n");
   await rm(base, { recursive: true, force: true });
 });
@@ -65,7 +65,7 @@ test("doctor is non-destructive, reports workspace problems, and prints no envir
   const doctor = (...args: string[]) =>
     spawnSync(process.execPath, [path.join(REPO, "scripts", "doctor.mjs"), "doctor", ...args, "--json"], {
       cwd: REPO, encoding: "utf8", timeout: 30_000,
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CURSOR_AGENT: "1", AGENTWEAVE_TEST_SECRET: "sk-DOCTORFAKEFAKEFAKEFAKE1234" },
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CURSOR_AGENT: "1", AGENTLORE_TEST_SECRET: "sk-DOCTORFAKEFAKEFAKEFAKE1234" },
     });
   const missing = path.join(base, "not-created");
   const r1 = doctor("--workspace", missing);
@@ -90,5 +90,22 @@ test("doctor is non-destructive, reports workspace problems, and prints no envir
   const r3 = doctor("--workspace", linked);
   assert.equal(r3.status, 1);
   assert.match(r3.stdout, /symlink/);
+  await rm(base, { recursive: true, force: true });
+});
+
+test("a demo created before the rename (legacy .agentweave-demo marker) is recognized and kept", async () => {
+  const base = await tempDir("demo-legacy");
+  const dir = path.join(base, "old-demo");
+  const first = demo("--dir", dir);
+  assert.equal(first.status, 0, first.stderr);
+  const id = /review (chg_[0-9a-f]{16})/.exec(first.stdout)?.[1];
+  assert.ok(id);
+  const { rename } = await import("node:fs/promises");
+  await rename(path.join(dir, ".agentlore-demo"), path.join(dir, ".agentweave-demo"));
+  const again = demo("--dir", dir);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /already exists .* kept as is/);
+  assert.match(again.stdout, new RegExp(`proposal ${id}: pending`));
+  assert.ok(existsSync(path.join(dir, ".agentweave-demo")) && !existsSync(path.join(dir, ".agentlore-demo")), "the old marker is left alone");
   await rm(base, { recursive: true, force: true });
 });

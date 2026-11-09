@@ -13,6 +13,11 @@ export function workspaceFrom(argv: readonly string[], env: NodeJS.ProcessEnv): 
       rest.push(a);
     }
   }
-  const fromEnv = env["AGENTWEAVE_WORKSPACE"];
-  return { dir: dir ?? (fromEnv && fromEnv.length > 0 ? fromEnv : null), rest };
+  // AGENTWEAVE_WORKSPACE is the name used before the product was renamed to Agentlore; it still works.
+  const fromEnv = nonEmpty(env["AGENTLORE_WORKSPACE"]) ?? nonEmpty(env["AGENTWEAVE_WORKSPACE"]);
+  return { dir: dir ?? fromEnv, rest };
+}
+
+function nonEmpty(v: string | undefined): string | null {
+  return v !== undefined && v.length > 0 ? v : null;
 }

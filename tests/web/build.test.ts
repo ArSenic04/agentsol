@@ -16,7 +16,7 @@ test("web build is static, self-contained, and carries no local paths or secrets
     const r = build(out);
     assert.equal(r.status, 0, r.stderr);
     const files = (await readdir(out, { recursive: true })).sort();
-    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/contract.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "styles.css"]);
+    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/contract.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/hero.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "styles.css"]);
     let all = "";
     for (const f of files) if (f.includes(".")) all += await readFile(path.join(out, f), "utf8");
     assert.ok(!all.includes(REPO) && !/\/(Users|private\/var|var\/folders)\//.test(all), "no absolute local paths");
@@ -44,6 +44,22 @@ test("web build refuses to delete a folder that is not an earlier build", async 
     assert.equal(r.status, 1);
     assert.match(r.stderr, /refusing to delete/);
     assert.equal(await readFile(path.join(out, "keep.txt"), "utf8"), "user file");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("web build replaces an earlier build made before the rename (legacy marker)", async () => {
+  const base = await tempDir("webbuild-legacy");
+  const out = path.join(base, "site");
+  try {
+    await mkdir(out);
+    await writeFile(path.join(out, ".agentweave-web-build"), "old build\n");
+    await writeFile(path.join(out, "stale.js"), "// old");
+    const r = build(out);
+    assert.equal(r.status, 0, r.stderr);
+    const files = await readdir(out);
+    assert.ok(files.includes(".agentlore-web-build") && !files.includes("stale.js"));
   } finally {
     await rm(base, { recursive: true, force: true });
   }

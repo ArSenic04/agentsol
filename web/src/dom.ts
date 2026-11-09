@@ -1,7 +1,7 @@
 /**
  * Tiny DOM builder. All data is inserted as text nodes; there is no innerHTML anywhere in
  * the site. Attributes are limited to a fixed allowlist, and links can only be internal
- * routes or a short list of documentation URLs that come from AgentWeave itself.
+ * routes or a short list of documentation URLs that come from Agentlore itself.
  */
 declare const safeHrefBrand: unique symbol;
 export type SafeHref = string & { readonly [safeHrefBrand]: true };
@@ -16,7 +16,7 @@ function brand(s: string): SafeHref {
   return s as SafeHref;
 }
 
-/** Documentation pages AgentWeave's own checks link to. Anything else is shown as plain text. */
+/** Documentation pages Agentlore's own checks link to. Anything else is shown as plain text. */
 const DOC_URLS = new Set([
   "https://agentskills.io/specification",
   "https://code.claude.com/docs/en/memory",
@@ -106,4 +106,23 @@ export function codePre(props: Props, ...children: Child[]): HTMLElement {
   new ResizeObserver(update).observe(pre);
   pre.addEventListener("scroll", update, { passive: true });
   return h("div", { class: "code-wrap" }, frame, hint);
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const SVG_TAGS = new Set(["svg", "g", "path", "rect", "circle", "text", "line"]);
+const SVG_ATTR = /^(viewBox|class|d|x|y|x1|y1|x2|y2|cx|cy|r|rx|ry|width|height|text-anchor|dominant-baseline|aria-hidden|focusable|preserveAspectRatio|role)$/;
+
+/**
+ * Decorative SVG built from code-owned constants only (never from project data). Tags and
+ * attributes come from a fixed allowlist; text is set as text nodes.
+ */
+export function svg(tag: string, attrs: Record<string, string | number> = {}, ...children: (SVGElement | string)[]): SVGElement {
+  if (!SVG_TAGS.has(tag)) throw new Error(`svg tag not allowed: ${tag}`);
+  const el = document.createElementNS(SVG_NS, tag) as SVGElement;
+  for (const [k, v] of Object.entries(attrs)) {
+    if (!SVG_ATTR.test(k)) throw new Error(`svg attribute not allowed: ${k}`);
+    el.setAttribute(k, String(v));
+  }
+  for (const c of children) el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  return el;
 }

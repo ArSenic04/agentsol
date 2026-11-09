@@ -31,11 +31,11 @@ const files: string[] = info.files.map((f: { path: string }) => f.path).sort();
 
 const problems: string[] = [];
 const allowed = (f: string): boolean =>
-  f === "package.json" || f === "README.md" || f === "bin/agentweave.mjs" || f === "bin/agentweave-mcp.mjs" || /^build\/(core|cli|mcp)(\/service)?\/[A-Za-z]+\.js$/.test(f);
+  f === "package.json" || f === "README.md" || f === "bin/agentlore.mjs" || f === "bin/agentlore-mcp.mjs" || /^build\/(core|cli|mcp)(\/service)?\/[A-Za-z]+\.js$/.test(f);
 for (const f of files) if (!allowed(f)) problems.push(`not on the allowlist: ${f}`);
-for (const must of ["package.json", "README.md", "bin/agentweave.mjs", "bin/agentweave-mcp.mjs", "build/cli/main.js", "build/mcp/main.js", "build/core/store.js"]) if (!files.includes(must)) problems.push(`missing: ${must}`);
+for (const must of ["package.json", "README.md", "bin/agentlore.mjs", "bin/agentlore-mcp.mjs", "build/cli/main.js", "build/mcp/main.js", "build/core/store.js"]) if (!files.includes(must)) problems.push(`missing: ${must}`);
 
-const dir = mkdtempSync(path.join(tmpdir(), "agentweave-packcheck-"));
+const dir = mkdtempSync(path.join(tmpdir(), "agentlore-packcheck-"));
 try {
   run("tar", ["-xzf", tarball, "-C", dir]);
   const pkg = JSON.parse(readFileSync(path.join(dir, "package", "package.json"), "utf8"));

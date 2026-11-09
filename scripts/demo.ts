@@ -3,7 +3,7 @@
  * stdio the way an assistant would: list, scan, read, submit a finding, propose a change.
  * It never touches real projects and never approves or applies anything.
  *
- *   npm run demo                 # creates $TMPDIR/agentweave-demo, or shows the existing demo and its next steps
+ *   npm run demo                 # creates $TMPDIR/agentlore-demo, or shows the existing demo and its next steps
  *   npm run demo -- --dir <dir>  # somewhere else (must be empty or an earlier demo)
  *   npm run demo -- --reset      # recreate an earlier demo; refuses if it holds proposals
  *   npm run demo -- --reset --discard-proposals   # recreate even though proposals would be lost
@@ -17,7 +17,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { validateProjectRoot } from "../src/core/projectRoots.ts";
 import { DB_FILE, WorkspaceStore } from "../src/core/store.ts";
-import { DEMO_FILES, DEMO_MARKER } from "./demoFixture.ts";
+import { DEMO_FILES, DEMO_MARKER, LEGACY_DEMO_MARKERS } from "./demoFixture.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const say = (s: string): void => {
@@ -28,7 +28,7 @@ type Args = { dir: string; reset: boolean; discardProposals: boolean };
 function parseArgs(argv: string[]): Args {
   const i = argv.indexOf("--dir");
   const dir = i >= 0 ? argv[i + 1] : undefined;
-  return { dir: path.resolve(dir ?? path.join(tmpdir(), "agentweave-demo")), reset: argv.includes("--reset"), discardProposals: argv.includes("--discard-proposals") };
+  return { dir: path.resolve(dir ?? path.join(tmpdir(), "agentlore-demo")), reset: argv.includes("--reset"), discardProposals: argv.includes("--discard-proposals") };
 }
 
 const cliFor = (wsDir: string): string => `npm run cli -- --workspace "${wsDir}"`;
@@ -63,9 +63,9 @@ function inspectExisting(wsDir: string): Existing {
 async function prepare(args: Args): Promise<"created" | "existing"> {
   const { dir, reset } = args;
   if (existsSync(dir)) {
-    const isDemo = existsSync(path.join(dir, DEMO_MARKER));
+    const isDemo = [DEMO_MARKER, ...LEGACY_DEMO_MARKERS].some((m) => existsSync(path.join(dir, m)));
     if (!isDemo) {
-      if (readdirSync(dir).length > 0) throw new UserFacing(`${dir} exists and is not an AgentWeave demo folder; refusing to touch it. Pick another folder with --dir.`);
+      if (readdirSync(dir).length > 0) throw new UserFacing(`${dir} exists and is not an Agentlore demo folder; refusing to touch it. Pick another folder with --dir.`);
     } else {
       const existing = inspectExisting(path.join(dir, "workspace"));
       if (!reset) return "existing";
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
   say(`Demo workspace: ${wsDir}\n`);
 
   const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", wsDir], cwd: REPO, stderr: "pipe" });
-  const client = new Client({ name: "agentweave-demo", version: "0.1.0" }, { versionNegotiation: { mode: "auto" } });
+  const client = new Client({ name: "agentlore-demo", version: "0.1.0" }, { versionNegotiation: { mode: "auto" } });
   await client.connect(transport);
   try {
     say(`MCP protocol ${client.getNegotiatedProtocolVersion()}; tools: ${(await client.listTools()).tools.map((t) => t.name).join(", ")}\n`);

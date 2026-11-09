@@ -1,16 +1,16 @@
 {
-  "name": "agentweave",
+  "name": "agentlore",
   "version": "0.1.0",
   "private": true,
   "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
   "type": "module",
   "bin": {
-    "agentweave": "bin/agentweave.mjs",
-    "agentweave-mcp": "bin/agentweave-mcp.mjs"
+    "agentlore": "bin/agentlore.mjs",
+    "agentlore-mcp": "bin/agentlore-mcp.mjs"
   },
   "files": [
-    "bin/agentweave.mjs",
-    "bin/agentweave-mcp.mjs",
+    "bin/agentlore.mjs",
+    "bin/agentlore-mcp.mjs",
     "build/**/*.js"
   ],
   "exports": {

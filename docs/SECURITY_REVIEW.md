@@ -42,14 +42,14 @@ Scope: the code and tests in this repository. Every fixed defect has a regressio
 8. **Power loss** between rename and directory fsync is not tested.
 
 ## Milestone 3 review: shared service (Nov 9, 2026)
-- **One validation path.** CLI and MCP both call `createAssistantService`; a test asserts `agentweave sources|findings|status --json` equals the MCP tool result byte-for-byte as parsed JSON, including error objects.
+- **One validation path.** CLI and MCP both call `createAssistantService`; a test asserts `agentlore sources|findings|status --json` equals the MCP tool result byte-for-byte as parsed JSON, including error objects.
 - **Approval stays out of reach.** An import-graph walk (static and dynamic relative imports) from `src/mcp/main.ts` and from the assistant service must not reach `humanApproval.ts` or `service/operator.ts`; the assistant service object is frozen and its exact key set is asserted. Limitation: the walk is regex-based and would miss imports built from computed strings (none exist today).
 - **Error sanitization.** Unexpected exceptions return `internal_error` with a fixed message; a test closes the store mid-session and checks for no stack frames or absolute paths. Root-missing scans return `root_unavailable` without the path. Path stripping is pattern-based (common Unix and Windows roots), defense in depth rather than a guarantee.
 - **Replay.** Request keys are scoped to project and operation, bound to a hash of the canonical request, and written in the same transaction as the record they protect. Keys do not expire yet, and the stored result is rebuilt from current records (so a replayed proposal reports its current status).
 - **Cross-project ids.** Proposals and findings that cite a source from another project are refused (`wrong_project`); a test checks a rescan of one project changes nothing in another.
 
 ### Allowlist review: does discovery honor the documented roots?
-- Supported names are matched exactly and case-sensitively. On case-insensitive volumes (default macOS), `agents.md` or `claude.md` would be loaded by some clients; AgentWeave now reports them as `case_variant_name` (not read) instead of ignoring them.
+- Supported names are matched exactly and case-sensitively. On case-insensitive volumes (default macOS), `agents.md` or `claude.md` would be loaded by some clients; Agentlore now reports them as `case_variant_name` (not read) instead of ignoring them.
 - `node_modules`, `.git`, `dist`, `build`, `out`, `target` and similar folders are skipped; a real AGENTS.md there (for example a package named `build/`) is not audited. They are now counted and the scan is marked partial.
 - Folders deeper than 16 levels were silently dropped before; they are now counted and reported.
 - Symlinks (files and folders) are never followed, including the common `CLAUDE.md -> AGENTS.md` pattern. They are reported as `symlink_not_followed`, and `scope_resolve` lists them as presence-only, so a client that does load them is not misrepresented as loading nothing.

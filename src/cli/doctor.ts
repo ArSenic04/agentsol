@@ -91,7 +91,7 @@ function workspaceChecks(dir: string): DoctorCheck[] {
   } catch {
     return [{ id: "workspace", status: "info", message: "Workspace folder does not exist yet; the first CLI command creates it with mode 0700" }];
   }
-  if (st.isSymbolicLink()) return [{ id: "workspace", status: "fail", message: "Workspace path is a symlink; AgentWeave refuses it. Use a real folder." }];
+  if (st.isSymbolicLink()) return [{ id: "workspace", status: "fail", message: "Workspace path is a symlink; Agentlore refuses it. Use a real folder." }];
   if (!st.isDirectory()) return [{ id: "workspace", status: "fail", message: "Workspace path exists but is not a folder" }];
   if ((st.mode & 0o077) !== 0) return [{ id: "workspace", status: "fail", message: `Workspace folder is accessible by other users (mode ${(st.mode & 0o777).toString(8)}). Run: chmod 700 <workspace>` }];
   const out: DoctorCheck[] = [{ id: "workspace", status: "ok", message: "Workspace folder exists, is private (no group/other access) and is not a symlink" }];
@@ -127,7 +127,7 @@ export function runDoctor(args: { install: Install; workspace: string | null; en
   checks.push({ id: "sqlite", status: "ok", message: "node:sqlite is available" });
   checks.push(...(args.install.kind === "repo" ? dependencyChecks(args.install.root) : packageDependencyChecks(args.install.root)));
   if (args.workspace) checks.push(...workspaceChecks(args.workspace));
-  else checks.push({ id: "workspace", status: "info", message: "No workspace given. Pass --workspace <dir> or set AGENTWEAVE_WORKSPACE to check one." });
+  else checks.push({ id: "workspace", status: "info", message: "No workspace given. Pass --workspace <dir> or set AGENTLORE_WORKSPACE to check one." });
   const agent = detectAgentEnvironment(args.env);
   checks.push(agent
     ? { id: "terminal", status: "warn", message: `This terminal looks agent-driven (${agent.variable} is set): approve, reject and apply will refuse here. Run them yourself in a normal terminal.` }
@@ -136,7 +136,7 @@ export function runDoctor(args: { install: Install; workspace: string | null; en
       : { id: "terminal", status: "info", message: "Not an interactive terminal; approve, reject and apply need one" });
   const ws = args.workspace ? path.resolve(args.workspace) : null;
   const entry = (which: "cli" | "mcp"): string =>
-    args.install.kind === "repo" ? path.join(args.install.root, "src", which, "main.ts") : path.join(args.install.root, "bin", which === "cli" ? "agentweave.mjs" : "agentweave-mcp.mjs");
+    args.install.kind === "repo" ? path.join(args.install.root, "src", which, "main.ts") : path.join(args.install.root, "bin", which === "cli" ? "agentlore.mjs" : "agentlore-mcp.mjs");
   const launch = ws
     ? {
         cli: `node ${entry("cli")} --workspace "${ws}" status`,

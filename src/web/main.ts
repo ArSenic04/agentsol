@@ -12,7 +12,7 @@ import { startWebServer } from "./server.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 function die(msg: string): never {
-  process.stderr.write(`agentweave-web: ${msg}\n`);
+  process.stderr.write(`agentlore-web: ${msg}\n`);
   process.exit(2);
 }
 
@@ -28,7 +28,7 @@ const staticDir = path.resolve(distIdx >= 0 ? (rest[distIdx + 1] ?? "") : path.j
 if (!existsSync(path.join(staticDir, "index.html"))) die("no built site found; run: npm run web:build");
 
 function openWorkspace(d: string | null): WorkspaceStore {
-  if (!d) die("pass --workspace <dir> (an existing AgentWeave workspace), or use npm run web:preview for the static demo");
+  if (!d) die("pass --workspace <dir> (an existing Agentlore workspace), or use npm run web:preview for the static demo");
   const ws = path.resolve(d);
   let isDir = false;
   try {
@@ -38,7 +38,7 @@ function openWorkspace(d: string | null): WorkspaceStore {
     die("that workspace does not exist. Create one with the CLI first, or run: npm run demo");
   }
   if (!isDir) die("the workspace must be a real folder, not a file or symlink");
-  if (!existsSync(path.join(ws, DB_FILE))) die("that folder is not an AgentWeave workspace (no workspace.sqlite); nothing was created");
+  if (!existsSync(path.join(ws, DB_FILE))) die("that folder is not an Agentlore workspace (no workspace.sqlite); nothing was created");
   try {
     return WorkspaceStore.open(ws);
   } catch (e) {
@@ -54,7 +54,7 @@ try {
   const code = e instanceof Error && "code" in e ? e.code : undefined;
   die(code === "EADDRINUSE" ? `port ${port} is in use; pass --port <n>` : `could not start: ${e instanceof Error ? e.message : String(e)}`);
 }
-process.stdout.write(`AgentWeave ${staticOnly ? "static demo preview" : "local workspace (read-only)"} at ${running.url}  (pid ${process.pid}; 127.0.0.1 only; Ctrl+C to stop)\n`);
+process.stdout.write(`Agentlore ${staticOnly ? "static demo preview" : "local workspace (read-only)"} at ${running.url}  (pid ${process.pid}; 127.0.0.1 only; Ctrl+C to stop)\n`);
 const shutdown = (): void => {
   void running.close().finally(() => {
     store?.close();

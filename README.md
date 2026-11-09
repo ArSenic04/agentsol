@@ -1,6 +1,8 @@
-# AgentWeave (early local prototype)
+# Agentlore (early local prototype)
 
-AgentWeave audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
+_Renamed from AgentWeave on Nov 9, 2026. Older workspaces, demos and the `AGENTWEAVE_WORKSPACE` variable keep working; see "Renamed from AgentWeave" below. The source folder may still be called `agentweave`._
+
+Agentlore audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 
 Status: an early local prototype. There is no hosted service and no published package; a local tarball can be built for testing (below), but it is not on npm. Passing tests do not make it production-ready.
 
@@ -9,7 +11,7 @@ Node.js with built-in TypeScript support. `package.json` declares Node 24 or lat
 
 ## Before you use it: what leaves your computer
 - Anything the MCP tools return goes to your assistant's provider (usually a cloud service), under that provider's terms.
-- AgentWeave returns only AGENTS.md, AGENTS.override.md, CLAUDE.md and SKILL.md files from folders you registered.
+- Agentlore returns only AGENTS.md, AGENTS.override.md, CLAUDE.md and SKILL.md files from folders you registered.
 - It blanks out text that matches known secret patterns. **Pattern matching is not a guarantee:** unknown formats and short or split secrets can get through, so keep secrets out of instruction files.
 - `CLAUDE.local.md`, secret-like names (`.env*`, keys, credentials, `.ssh`, and similar), symlinks and hard-linked files are never read.
 
@@ -19,35 +21,35 @@ Run every step from this folder, in your own terminal.
 1. **Install from the lockfile.** `npm ci` (exact versions from `package-lock.json`; nothing global).
 2. **Preflight.** `npm run doctor`. It reports the Node version, whether the installed packages match the lockfile, whether this terminal is agent-driven (approve/apply refuse there), and with `-- --workspace <dir>` whether that folder is private. It reads only; it never creates or upgrades a workspace, uses the network, or configures any app. `--json` for machine-readable output.
 3. **Tests.** `npm run check` (typecheck plus all tests; fixtures are synthetic temp folders).
-4. **Synthetic demo.** `npm run demo`. It creates `$TMPDIR/agentweave-demo` with a made-up project, drives the MCP server over stdio with the official SDK client (scan, read, a "possible" finding, one proposed edit), and prints the commands for the next steps. Nothing in the project is changed.
+4. **Synthetic demo.** `npm run demo`. It creates `$TMPDIR/agentlore-demo` with a made-up project, drives the MCP server over stdio with the official SDK client (scan, read, a "possible" finding, one proposed edit), and prints the commands for the next steps. Nothing in the project is changed.
    - Running `npm run demo` again keeps the demo and prints its pending proposals and next commands.
    - `npm run demo -- --reset` recreates it, but refuses while the demo holds proposals; add `--discard-proposals` to delete them on purpose.
    - `npm run demo -- --dir /some/empty/folder` puts it elsewhere.
-5. **Check the workspace.** `npm run cli -- --workspace "$TMPDIR/agentweave-demo/workspace" status`. It shows the last-scan snapshot, partial coverage, and whether files changed on disk since the scan.
+5. **Check the workspace.** `npm run cli -- --workspace "$TMPDIR/agentlore-demo/workspace" status`. It shows the last-scan snapshot, partial coverage, and whether files changed on disk since the scan.
 6. **Review and decide, as a person.**
    - `npm run cli -- --workspace <ws> review <proposalId>`
    - `npm run cli -- --workspace <ws> approve <proposalId>`: shows the diff again and asks you to type a one-time code.
    - `npm run cli -- --workspace <ws> apply <proposalId>`: writes the demo file and keeps a backup.
 
    Approve, reject and apply refuse to run inside coding-agent terminals or without an interactive terminal.
-7. **Optional: connect a client yourself.** `npm run doctor -- --workspace <ws>` prints an MCP stdio config with absolute paths (example below). AgentWeave never installs it, and no paid assistant is needed for steps 1–6.
+7. **Optional: connect a client yourself.** `npm run doctor -- --workspace <ws>` prints an MCP stdio config with absolute paths (example below). Agentlore never installs it, and no paid assistant is needed for steps 1–6.
 
 **What has and has not been validated.** The tests and the demo are *protocol smoke tests*: they use the official MCP TypeScript SDK client over a real stdio process. No real assistant client (Claude Code, Claude Desktop, Codex, Cursor) has been validated yet, and the interactive approve/apply flow has only been exercised through core unit tests, not by a person through the CLI after the latest changes.
 
 ## Local package tarball (alpha testing only, not published)
-`npm run pack:check` compiles `src/core`, `src/cli` and `src/mcp` to JavaScript in `build/` and writes `artifacts/pack/agentweave-<version>.tgz` with a strict file allowlist: `package.json`, `README.md`, `bin/agentweave.mjs`, `bin/agentweave-mcp.mjs` and `build/**/*.js`. It fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports. `npm run install:check` installs that tarball into a fresh temp folder with scripts disabled and runs help, doctor, scan, findings and an MCP stdio handshake against the installed copy only.
+`npm run pack:check` compiles `src/core`, `src/cli` and `src/mcp` to JavaScript in `build/` and writes `artifacts/pack/agentlore-<version>.tgz` with a strict file allowlist: `package.json`, `README.md`, `bin/agentlore.mjs`, `bin/agentlore-mcp.mjs` and `build/**/*.js`. It fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports. `npm run install:check` installs that tarball into a fresh temp folder with scripts disabled and runs help, doctor, scan, findings and an MCP stdio handshake against the installed copy only.
 
-To try the tarball yourself, in an empty folder: `npm install --ignore-scripts /path/to/agentweave-0.1.0.tgz`, then `npx agentweave help`. The MCP server is `npx agentweave-mcp --workspace <dir>`; `npx agentweave doctor --workspace <dir>` prints a config that points at the installed files.
+To try the tarball yourself, in an empty folder: `npm install --ignore-scripts /path/to/agentlore-0.1.0.tgz`, then `npx agentlore help`. The MCP server is `npx agentlore-mcp --workspace <dir>`; `npx agentlore doctor --workspace <dir>` prints a config that points at the installed files.
 
 Not decided yet, so it is not published:
-- **Name.** `agentweave` is already taken on the public npm registry by an unrelated package. A scoped name such as `@<your-npm-scope>/agentweave` is the likely route. Do not run `npm install agentweave`; that installs someone else's package.
+- **Name.** The package is named `agentlore`. On Nov 9, 2026 the public npm registry returned 404 (not found) for `agentlore`, but nothing has been reserved or published, and npm can still refuse a name that is too similar to an existing one. Until it is published, `npm install agentlore` installs nothing (or, if someone else takes the name, their package).
 - **Licence.** `package.json` says `UNLICENSED` and there is no LICENSE file, so no one else has permission to use the code yet.
 - `package.json` keeps `"private": true` so an accidental `npm publish` fails.
 
 ## Run
 ```sh
 npm run check                                   # typecheck plus all tests
-export AGENTWEAVE_WORKSPACE="$PWD/.local-workspace"   # gitignored
+export AGENTLORE_WORKSPACE="$PWD/.local-workspace"   # gitignored
 npm run cli -- project add /path/to/a/project --name demo
 npm run cli -- projects
 npm run cli -- status                # add --json for machine-readable output (also: sources, findings, scan, freshness)
@@ -64,7 +66,7 @@ npm run mcp                           # MCP server on stdio, same workspace
 
 Example MCP client config (stdio). Not installed automatically. GUI clients often have a different `PATH`, so use the absolute `node` path that `npm run doctor -- --workspace <dir>` prints:
 ```json
-{ "command": "/ABSOLUTE/PATH/TO/node", "args": ["/ABSOLUTE/PATH/agentweave/src/mcp/main.ts", "--workspace", "/ABSOLUTE/PATH/agentweave/.local-workspace"] }
+{ "command": "/ABSOLUTE/PATH/TO/node", "args": ["/ABSOLUTE/PATH/TO/your-checkout/src/mcp/main.ts", "--workspace", "/ABSOLUTE/PATH/TO/your-checkout/.local-workspace"] }
 ```
 
 ## Website and read-only workspace view
@@ -79,7 +81,7 @@ npm run web:local -- --workspace "<workspace dir>"  # adds your workspace, read-
 npm run test:web                                    # build, then browser tests (needs the local Playwright Chromium)
 ```
 
-- **Demo** (`#/demo`) shows real AgentWeave output recorded from the synthetic demo project when you build. The "possible" finding and the proposed change were prewritten by the demo script. No AI wrote them.
+- **Demo** (`#/demo`) shows real Agentlore output recorded from the synthetic demo project when you build. The "possible" finding and the proposed change were prewritten by the demo script. No AI wrote them.
 - **Workspace** (`#/workspace`) works only under `web:local`. That bridge binds to 127.0.0.1 only and serves GET requests from the existing shared service. It cannot scan, edit, approve, apply or register folders. Approval stays in your terminal: the page shows the CLI commands to run.
 - `web:local` opens only the workspace folder you name, and it must already contain `workspace.sqlite`. It never browses your home folder or projects. There is no `--host` option.
 - The site loads nothing from other servers: no analytics, cookies, external fonts, CDNs or third-party scripts. A strict Content Security Policy blocks inline scripts.
@@ -113,6 +115,13 @@ Matching metadata does **not** prove a file is unchanged, and new files are not 
 - **Applying a change:** the file must still match, be reachable without symlinks inside the root, and not be hard-linked. A backup is kept, the write is atomic, and the result is checked after writing.
 - **The approval guards are not authentication.** Approve, apply and reject refuse known coding-agent environments and non-interactive input. A program running as your user account can get around those checks. See `docs/SECURITY_REVIEW.md`.
 
+## Renamed from AgentWeave
+- The command names are now `agentlore` and `agentlore-mcp`, the MCP server reports itself as `agentlore`, and the workspace variable is `AGENTLORE_WORKSPACE`.
+- `AGENTWEAVE_WORKSPACE` still works when `AGENTLORE_WORKSPACE` is not set.
+- Existing workspaces need no migration: the database format did not change.
+- `npm run demo` now uses `$TMPDIR/agentlore-demo`. A demo made earlier in `$TMPDIR/agentweave-demo` is left as it was and still works with `--workspace "$TMPDIR/agentweave-demo/workspace"` or `npm run demo -- --dir "$TMPDIR/agentweave-demo"`.
+- If you set up an MCP client by hand, its config points at a file path, which did not change. Only the server name it reports changed.
+
 ## Known limitations
 - If a different folder appears at a registered path (deleted and recreated, or swapped), scans and apply refuse with `root_replaced` until you confirm it yourself with `project add <the same path>`.
 - Load figures from `npm run load:test` (synthetic monorepos up to about 5,000 files) describe one Mac and are not a guarantee; see `docs/ALPHA_VERIFICATION.md`.
@@ -124,6 +133,6 @@ Matching metadata does **not** prove a file is unchanged, and new files are not 
 - Tested over a real stdio MCP process with the official SDK client (protocol smoke test). Not yet validated inside any real assistant client.
 - Freshness is metadata-only and only covers files recorded by the last scan; it cannot prove that nothing changed.
 - Claude Code scope assumes the default "Project instructions" setting. User-level, managed and `.claude/rules` files are not inspected. Cursor `.mdc` rules are not supported.
-- Only LF or CRLF files with consistent line endings can be edited. Lines with redacted secrets cannot be edited through AgentWeave.
+- Only LF or CRLF files with consistent line endings can be edited. Lines with redacted secrets cannot be edited through Agentlore.
 - A process that can rewrite folders inside the project during an apply can still race the final rename. This is detected afterwards (`write_unverified`) but not prevented. Power loss during apply is not tested.
 - On macOS and Linux only; not tested on Windows.

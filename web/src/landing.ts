@@ -2,6 +2,7 @@ import type { FindingsResponse, ProposalsResponse, SourceRead, WorkspaceStatus }
 import type { DemoBundle } from "./data.ts";
 import { demoSource } from "./data.ts";
 import { codePre, h, replace, route } from "./dom.ts";
+import { heroDiagram } from "./hero.ts";
 
 function step(n: string, title: string, body: string): HTMLElement {
   return h("li", { class: "step" }, h("span", { class: "step-n", attrs: { "aria-hidden": "true" } }, n), h("h3", {}, title), h("p", {}, body));
@@ -25,7 +26,7 @@ async function excerpt(bundle: DemoBundle): Promise<HTMLElement | null> {
   if (!read.ok) return null;
   const proposal = pr.value.proposals[0];
   return h("figure", { class: "excerpt", attrs: { "aria-label": "Real output from the synthetic demo" } },
-    h("figcaption", { class: "excerpt-cap" }, "Actual AgentWeave output for the synthetic demo project"),
+    h("figcaption", { class: "excerpt-cap" }, "Actual Agentlore output for the synthetic demo project"),
     h("div", { class: "excerpt-finding" },
       h("p", { class: "excerpt-kicker" }, h("span", { class: "chip chip-warn" }, finding.severity), ` ${finding.checkId} · fact`),
       h("p", { class: "excerpt-msg" }, finding.message),
@@ -45,13 +46,18 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
   const excerptSlot = h("div", { class: "excerpt-slot" });
   replace(root,
     h("section", { class: "hero" },
-      h("p", { class: "eyebrow" }, "Early local prototype · free to run on your own machine"),
-      h("h1", { class: "display", attrs: { tabindex: "-1", id: "page-title" } }, "Your coding agents follow instructions scattered across the repo. ", h("em", {}, "Read them together.")),
-      h("p", { class: "lede" }, "AgentWeave finds the AGENTS.md, CLAUDE.md and SKILL.md files in a project, checks them, and lets the assistant you already use point at exact lines. Every edit it suggests waits for you, in your own terminal."),
-      h("div", { class: "cta-row" },
-        h("a", { class: "btn btn-primary", href: route("#/demo") }, "Open the interactive demo"),
-        h("a", { class: "btn", href: route("#/setup") }, "Run it on your machine")),
-      h("p", { class: "muted small" }, "The demo uses a made-up project. Nothing is uploaded; this page loads no analytics, fonts or scripts from anywhere else.")),
+      h("div", { class: "hero-copy" },
+        h("p", { class: "eyebrow" }, "Early local prototype · free to run on your own machine"),
+        h("h1", { class: "display", attrs: { tabindex: "-1", id: "page-title" } }, "Your coding agents follow instructions scattered across the repo. ", h("em", {}, "Read them together.")),
+        h("p", { class: "lede" }, "Agentlore finds the AGENTS.md, CLAUDE.md and SKILL.md files in a project, checks them, and lets the assistant you already use point at exact lines. Every edit it suggests waits for you, in your own terminal."),
+        h("div", { class: "cta-row" },
+          h("a", { class: "btn btn-primary", href: route("#/demo") }, "Open the interactive demo"),
+          h("a", { class: "btn", href: route("#/setup") }, "Run it on your machine")),
+        h("ul", { class: "proof" },
+          h("li", {}, h("strong", {}, "Evidence-linked."), " Findings quote exact lines of a pinned file version."),
+          h("li", {}, h("strong", {}, "Human-controlled."), " Approve and apply exist only in your terminal, never as assistant tools."),
+          h("li", {}, h("strong", {}, "Local."), " The demo uses a made-up project; this page loads nothing from anywhere else."))),
+      heroDiagram()),
 
     h("section", { class: "band", attrs: { "aria-labelledby": "why" } },
       h("h2", { attrs: { id: "why" } }, "Instruction files multiply quietly"),
@@ -62,7 +68,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
     h("section", { class: "band", attrs: { "aria-labelledby": "how" } },
       h("h2", { attrs: { id: "how" } }, "How it works"),
       h("ol", { class: "steps" },
-        step("1", "Inspect", "Point the CLI at a project folder you choose. AgentWeave reads only supported instruction files, skips secret-like names and symlinks, and masks text that looks like a key."),
+        step("1", "Inspect", "Point the CLI at a project folder you choose. Agentlore reads only supported instruction files, skips secret-like names and symlinks, and masks text that looks like a key."),
         step("2", "Cite", "Deterministic checks report facts. Your assistant, connected over MCP, can add possible issues, but only by quoting exact lines of the current file version. Stale evidence is hidden."),
         step("3", "You decide", "Suggested edits become diffs. Nothing changes on disk until you review, approve with a one-time code, and apply, in a terminal you control. A backup is kept."))),
 
@@ -90,7 +96,25 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
             h("li", {}, "Rules that may be too vague to follow"),
             h("li", {}, "Content that may belong in a different folder"),
             h("li", {}, "Skill descriptions that may not match the body")),
-          h("p", { class: "muted small" }, "Always labelled “possible”. AgentWeave checks the quotes, not the opinion.")))),
+          h("p", { class: "muted small" }, "Always labelled “possible”. Agentlore checks the quotes, not the opinion.")))),
+
+    h("section", { class: "band", attrs: { "aria-labelledby": "assistant" } },
+      h("h2", { attrs: { id: "assistant" } }, "Bring your assistant"),
+      h("div", {},
+        h("p", { class: "prose-lead" }, "Agentlore is an MCP server over stdio. Your assistant reads files and cites lines through it; it never gets a tool to approve or apply."),
+        h("div", { class: "two-col" },
+          h("div", { class: "support support-verified" },
+            h("h3", {}, "Verified today"),
+            h("ul", { class: "ticks" },
+              h("li", {}, "The official MCP TypeScript SDK client, over a real stdio process, in automated tests"),
+              h("li", {}, "A clean install of a local package build, driven the same way"),
+              h("li", {}, "Refusal of approve and apply in agent-driven terminals"))),
+          h("div", { class: "support support-intended" },
+            h("h3", {}, "Built for, not yet validated"),
+            h("ul", { class: "plain" },
+              h("li", {}, "Claude Code, Codex and Cursor, through their own MCP config"),
+              h("li", {}, "Grok Bot cannot attach a local stdio server today"),
+              h("li", {}, "Any other MCP client: untested")))))),
 
     h("section", { class: "band", attrs: { "aria-labelledby": "honest" } },
       h("h2", { attrs: { id: "honest" } }, "Where it stands"),
@@ -104,8 +128,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
         h("div", {},
           h("h3", {}, "Not yet"),
           h("ul", { class: "plain" },
-            h("li", {}, "No hosted service, accounts or public download. It runs from source on your machine."),
-            h("li", {}, "Tested with the official MCP TypeScript SDK client only. Not yet validated inside Claude Code, Codex, Cursor or any other assistant app."),
+            h("li", {}, "No hosted service, accounts or published package. It runs from source on your machine."),
             h("li", {}, "Load-order views are models of documented defaults, always marked partial."),
             h("li", {}, "Tested on macOS with Node 26.8.2. Free to run locally during early access; no pricing has been decided."))))),
 

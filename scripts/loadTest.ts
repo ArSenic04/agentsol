@@ -24,7 +24,7 @@ async function runTier(name: Tier): Promise<unknown> {
   const { WorkspaceStore, DB_FILE } = await import("../src/core/store.ts");
   const { createOperatorService } = await import("../src/core/service/operator.ts");
   const { createAssistantService } = await import("../src/core/service/assistant.ts");
-  const base = await realpath(mkdtempSync(path.join(tmpdir(), `agentweave-load-${name}-`)));
+  const base = await realpath(mkdtempSync(path.join(tmpdir(), `agentlore-load-${name}-`)));
   const root = path.join(base, "monorepo");
   await mkdir(root);
   let peak = 0;

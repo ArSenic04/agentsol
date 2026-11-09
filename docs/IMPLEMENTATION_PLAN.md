@@ -1,4 +1,4 @@
-# AgentWeave implementation plan: slice 1 (local engine, MCP server and CLI)
+# Agentlore implementation plan: slice 1 (local engine, MCP server and CLI)
 
 Goal: the smallest end-to-end loop someone can verify. Import instruction files, record versions, run deterministic checks, let an assistant read, audit and propose over MCP, and keep approval and apply with the human in a local CLI.
 
@@ -25,13 +25,13 @@ Goal: the smallest end-to-end loop someone can verify. Import instruction files,
 - [ ] Hosted workspace (later; the engine in `src/core` has no MCP or CLI dependencies)
 
 ## Persistence decision
-One SQLite file (`workspace.sqlite`, through `node:sqlite`) in a workspace directory that you pass explicitly with `--workspace` or `AGENTWEAVE_WORKSPACE`. There is no hidden default location. The directory is created with mode 0700 and backups are written with mode 0600. Tests use throwaway temp directories.
+One SQLite file (`workspace.sqlite`, through `node:sqlite`) in a workspace directory that you pass explicitly with `--workspace` or `AGENTLORE_WORKSPACE` (or the older `AGENTWEAVE_WORKSPACE`). There is no hidden default location. The directory is created with mode 0700 and backups are written with mode 0600. Tests use throwaway temp directories.
 
 ## Milestone 3: shared workspace service (done)
 - `src/core/service/assistant.ts`: the only surface MCP (and a future web client) may use. Typed `ServiceResult` for list/scan/read/scope/checks/findings/propose/status. Frozen object; no approve, reject, apply, register or reconcile.
 - `src/core/service/operator.ts`: register, review, approve, reject, apply, reconcile, audit. Imported only by the CLI. A test walks the import graph from `src/mcp/main.ts` and from the assistant service and fails if `humanApproval.ts` or `operator.ts` is reachable.
 - `src/core/service/errors.ts`: public error codes (`not_found`, `invalid_input`, `wrong_project`, `stale_version`, `rejected`, `root_unavailable`, `request_key_conflict`, `internal_error`). Messages strip absolute paths and terminal-unsafe characters; unexpected exceptions become `internal_error` and details go only to a local stderr sink.
-- `src/core/service/status.ts` + `workspace_status` tool + `agentweave status`: per project scan state (`never_scanned`, `refused` with reason, `scanned` with `partial` and reasons), present/missing sources, sources with redacted lines, files not read by reason, current vs stale-hidden findings, proposal counts including pending proposals whose base version is no longer current. No file text, no paths.
+- `src/core/service/status.ts` + `workspace_status` tool + `agentlore status`: per project scan state (`never_scanned`, `refused` with reason, `scanned` with `partial` and reasons), present/missing sources, sources with redacted lines, files not read by reason, current vs stale-hidden findings, proposal counts including pending proposals whose base version is no longer current. No file text, no paths.
 - Replay protection: optional `requestKey` on `findings_submit` and `change_propose`, stored per project and operation with a SHA-256 of the canonical request. Same key + same request returns the stored result (`replayed: true`); same key + different request returns `request_key_conflict`; failed requests do not consume a key. Independently of keys, an identical pending proposal (same source, version and edits) or an identical finding returns the existing id. This means "the same change was already recorded", not "the change is correct".
 - Discovery now reports, instead of silently dropping: folders beyond the depth limit, skipped generated/dependency folders (`node_modules`, `dist`, `build`, ...), case-variant names (`agents.md`, `claude.md`), and symlinked instruction files (presence only in `scope_resolve`).
 - Store: schema v3 (`scans`, `request_keys`), nested transactions via savepoints.
@@ -108,10 +108,17 @@ A human review of the site copy and screenshots, then an accessibility pass with
 - Large synthetic fixtures: `scripts/bigFixture.ts`, `tests/largeFixture.test.ts` and `tests/rootIdentity.test.ts`; `scripts/loadTest.ts` for 3 bounded tiers (about 1,800 to 5,000 files).
 - Results: `docs/ALPHA_VERIFICATION.md`.
 
+## Rename and website refresh: Agentlore (done, local only)
+
+- Brand, title, wordmark, favicon, meta, accessibility labels and setup commands now say Agentlore. The hero has a code-drawn diagram (instruction files, Agentlore, your assistant, you), with slow motion that stops under reduced motion.
+- New section "Bring your assistant" separates what is verified (SDK client, installed package, refusal in agent terminals) from what it is built for but has not validated (Claude Code, Codex, Cursor).
+- Package and binaries: `agentlore`, `agentlore-mcp`; MCP server name `agentlore`; `AGENTLORE_WORKSPACE` with `AGENTWEAVE_WORKSPACE` as a fallback. The demo, web-build and package-build markers accept the old names. The database is unchanged.
+- Not renamed: the source folder, git history and historical notes.
+
 ## Alpha gates (all need a person)
 
 1. Choose a licence. It is `UNLICENSED` today.
-2. Choose a package name and npm account or scope. `agentweave` is taken on npm.
+2. Confirm the package name and npm account. The product is now Agentlore (`agentlore` returned 404 on npm on Nov 9, 2026; not reserved). `agentweave` is taken.
 3. Publish from your own account, removing `"private": true` on purpose. No agent publishes.
 4. Connect one real MCP client (for example Claude Code) by hand to the installed tarball, and record what it shows.
 5. Run approve and apply yourself, in a normal terminal, on the pending demo proposal.

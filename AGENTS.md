@@ -1,4 +1,4 @@
-# AgentWeave: instructions for agents working in this repo
+# Agentlore: instructions for agents working in this repo
 
 ## Hard rules
 - Local only. No deployment, no pushes, no public uploads, no paid APIs or services. Budget for new spending is $0.

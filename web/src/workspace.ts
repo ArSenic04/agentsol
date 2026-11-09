@@ -74,7 +74,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
   const banner = isDemo
     ? h("div", { class: "mode-banner mode-demo", attrs: { role: "note" } },
         h("strong", {}, "Synthetic demo. "),
-        "Everything here is real AgentWeave output for a made-up project, recorded when this site was built",
+        "Everything here is real Agentlore output for a made-up project, recorded when this site was built",
         ctx.builtAt ? ` (${new Date(ctx.builtAt).toLocaleString()})` : "",
         ". The “possible” finding and the proposed change were prewritten by the demo script to exercise the protocol; no AI wrote them.")
     : h("div", { class: "mode-banner mode-local", attrs: { role: "note" } },
@@ -86,7 +86,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
     h("div", { class: "ws" },
       h("header", { class: "ws-head" },
         h("p", { class: "eyebrow" }, isDemo ? "Interactive demo" : "Local workspace"),
-        h("h1", { class: "ws-title", attrs: { tabindex: "-1", id: "page-title" } }, isDemo ? "Paper Lantern, a synthetic project" : "Your AgentWeave workspace"),
+        h("h1", { class: "ws-title", attrs: { tabindex: "-1", id: "page-title" } }, isDemo ? "Paper Lantern, a synthetic project" : "Your Agentlore workspace"),
         banner),
       body));
 
@@ -224,7 +224,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
     const rank: Record<string, number> = { error: 0, warn: 1, info: 2 };
     const findings = [...d.findings.findings].sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
     if (findings.length === 0) {
-      append(panel, [h("div", { class: "state state-empty" }, h("p", { class: "state-title" }, "No current findings"), h("p", {}, "That means none of AgentWeave's checks matched. It does not mean the instructions are correct or complete."))]);
+      append(panel, [h("div", { class: "state state-empty" }, h("p", { class: "state-title" }, "No current findings"), h("p", {}, "That means none of Agentlore's checks matched. It does not mean the instructions are correct or complete."))]);
       return;
     }
     const detail = h("div", { class: "detail", attrs: { "aria-live": "polite" } }, h("p", { class: "muted" }, "Select a finding to see its evidence."));
@@ -274,7 +274,7 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
       h("h3", { class: "detail-title" }, f.kind === "semantic" ? f.title : CHECK_NAMES[f.checkId] ?? f.title),
       h("p", { class: "detail-msg" }, f.message),
       f.kind === "semantic"
-        ? h("p", { class: "muted small" }, `Reported by ${f.reporter}, confidence ${f.confidence}. AgentWeave verified that the quoted lines exist in the current file version; it did not verify the claim itself.`, isDemo ? " In this demo the finding was prewritten by the demo script." : "")
+        ? h("p", { class: "muted small" }, `Reported by ${f.reporter}, confidence ${f.confidence}. Agentlore verified that the quoted lines exist in the current file version; it did not verify the claim itself.`, isDemo ? " In this demo the finding was prewritten by the demo script." : "")
         : null,
       f.checkId === "D10" ? h("p", { class: "note" }, "Identical text in two files is layering, not a conflict.") : null,
       h("h4", { class: "evidence-title" }, f.evidence.length > 1 ? "Evidence (quoted from each file)" : "Evidence"),
@@ -396,11 +396,11 @@ export function renderWorkspace(root: HTMLElement, source: DataSource, ctx: Work
       }
       const v = r.value;
       replace(out,
-        h("p", { class: "note" }, h("strong", {}, "Modeled, not observed. "), `This is AgentWeave's model of ${PLATFORM_LABEL[v.platform] ?? v.platform}'s documented defaults (coverage: ${v.coverage}). It has not been checked against a running client.`),
+        h("p", { class: "note" }, h("strong", {}, "Modeled, not observed. "), `This is Agentlore's model of ${PLATFORM_LABEL[v.platform] ?? v.platform}'s documented defaults (coverage: ${v.coverage}). It has not been checked against a running client.`),
         h("ol", { class: "chain" }, ...v.chain.map((c) => h("li", {},
           h("span", { class: "path" }, c.relPath),
           chip(c.when === "launch" ? "at launch" : "on demand", "muted"),
-          c.sourceId ? chip("read by AgentWeave", "ok") : chip("present, not read", "warn"),
+          c.sourceId ? chip("read by Agentlore", "ok") : chip("present, not read", "warn"),
           h("span", { class: "muted small chain-reason" }, c.reason)))),
         v.chain.length === 0 ? h("p", { class: "muted" }, "No project instruction files would load for this target, by this model.") : null,
         h("h4", {}, "Assumptions"), h("ul", { class: "small" }, ...v.assumptions.map((a) => h("li", {}, a))),

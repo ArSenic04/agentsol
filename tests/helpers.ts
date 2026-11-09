@@ -6,7 +6,7 @@ import { WorkspaceStore } from "../src/core/store.ts";
 
 /** All fixtures are synthetic and live in fresh temp directories. */
 export async function tempDir(prefix: string): Promise<string> {
-  return realpath(await mkdtemp(path.join(tmpdir(), `agentweave-test-${prefix}-`)));
+  return realpath(await mkdtemp(path.join(tmpdir(), `agentlore-test-${prefix}-`)));
 }
 
 export async function writeTree(root: string, files: Record<string, string | Uint8Array>): Promise<void> {

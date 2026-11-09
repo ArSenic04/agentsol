@@ -129,6 +129,10 @@ test("narrow mobile width has no horizontal overflow; reduced motion disables an
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(overflow <= 1, `${route || "landing"} overflows by ${overflow}px`);
   }
+  await page.goto(staticSrv.url);
+  await page.locator(".hero-art svg").waitFor();
+  const heroMotion = await page.evaluate(() => [...document.querySelectorAll(".g-flow, .g-spin")].map((el) => getComputedStyle(el).animationName));
+  assert.ok(heroMotion.length > 0 && heroMotion.every((n) => n === "none"), `hero motion stops under reduced motion: ${heroMotion.join(",")}`);
   const anim = await page.evaluate(() => {
     const s = document.createElement("span");
     s.className = "spinner";
@@ -312,7 +316,7 @@ test("commands wrap visually but copy and select as the exact original bytes", a
   await page.goto(`${staticSrv.url}#/setup`);
   const step5 = page.locator(".setup-step").nth(4);
   const pre = step5.locator(".cmd-code");
-  const expected = ["review", "approve", "apply"].map((v) => `npm run cli -- --workspace "$TMPDIR/agentweave-demo/workspace" ${v} <proposalId>`).join("\n");
+  const expected = ["review", "approve", "apply"].map((v) => `npm run cli -- --workspace "$TMPDIR/agentlore-demo/workspace" ${v} <proposalId>`).join("\n");
   assert.ok((await pre.evaluate((el) => el.getBoundingClientRect().height)) > 3 * 30, "long commands really wrap at 375px");
   await step5.getByRole("button", { name: "Copy" }).click();
   await step5.getByText("Copied").waitFor();
@@ -354,4 +358,27 @@ test("local bridge: very long instruction lines stay reachable on mobile", async
     await local.close();
     await fx.cleanup();
   }
+});
+
+test("hero diagram: decorative, labelled for screen readers, honest about support, gentle motion", async () => {
+  const { page, problems } = await openPage({ width: 1440 });
+  await page.goto(staticSrv.url);
+  const art = page.locator(".hero-art");
+  await art.locator("svg").waitFor();
+  assert.equal(await art.locator("svg").getAttribute("aria-hidden"), "true");
+  assert.equal(await art.locator("svg [tabindex], svg a").count(), 0, "the diagram adds no focus stops");
+  const caption = await art.locator("figcaption").innerText();
+  assert.match(caption, /Exercised by automated tests today/);
+  assert.match(caption, /not yet validated/);
+  assert.match(await art.locator(".sr-only").textContent() ?? "", /waits for you to approve/);
+  const motion = await page.evaluate(() => [...document.querySelectorAll(".g-flow, .g-spin")].map((el) => parseFloat(getComputedStyle(el).animationDuration)));
+  assert.ok(motion.length >= 5 && motion.every((s) => s >= 8), `motion is slow (durations ${motion.join(",")}s)`);
+  const brand = await page.locator(".wordmark").innerText();
+  assert.equal(brand.trim(), "Agentlore");
+  assert.equal(await page.title(), "Agentlore: read your agent instructions together");
+  const text = await page.locator("body").innerText();
+  assert.ok(!/AgentWeave/i.test(text), "no old brand on the landing page");
+  assert.ok(!/npm (i|install) agentlore/.test(text), "no public install claim before publishing");
+  assert.deepEqual(problems, []);
+  await page.context().close();
 });

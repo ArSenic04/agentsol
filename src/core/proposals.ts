@@ -40,7 +40,7 @@ export function applyLineEdits(lines: readonly string[], edits: readonly LineEdi
     prevEnd = Math.max(prevEnd, e.endLine);
     for (let n = e.startLine; n <= e.endLine; n += 1) {
       if (redactedLines.has(n)) {
-        errors.push({ code: "redacted_line", message: `Line ${n} contains redacted secret-like text and cannot be edited through AgentWeave`, editIndex: i });
+        errors.push({ code: "redacted_line", message: `Line ${n} contains redacted secret-like text and cannot be edited through Agentlore`, editIndex: i });
         break;
       }
     }
