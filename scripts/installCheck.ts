@@ -6,6 +6,8 @@
  * Usage: node scripts/installCheck.ts [--tarball <file.tgz>] [--node <path/to/node>] [--keep]
  *   --tarball  check this exact file (default: the single tarball in artifacts/pack/)
  *   --node     run the installed binaries and MCP server with this Node (e.g. a local Node 24)
+ *   --from-registry <spec> --expect-integrity <sha512-...>  install the PUBLISHED package from
+ *              registry.npmjs.org with an empty private npm cache instead of a local tarball
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -21,7 +23,11 @@ const argValue = (flag: string): string | undefined => {
   const i = process.argv.indexOf(flag);
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
+const FROM_REGISTRY = argValue("--from-registry");
+const EXPECT_INTEGRITY = argValue("--expect-integrity");
+if (FROM_REGISTRY && !EXPECT_INTEGRITY) throw new Error("--from-registry needs --expect-integrity");
 const TARBALL = ((): string => {
+  if (FROM_REGISTRY) return "";
   const explicit = argValue("--tarball");
   if (explicit) return path.resolve(explicit);
   const tarballs = readdirSync(path.join(REPO, "artifacts", "pack")).filter((f) => f.endsWith(".tgz"));
@@ -30,7 +36,7 @@ const TARBALL = ((): string => {
 })();
 const NODE = path.resolve(argValue("--node") ?? process.execPath);
 const nodeVersion = spawnSync(NODE, ["--version"], { encoding: "utf8" }).stdout.trim();
-const tarballSha512 = createHash("sha512").update(readFileSync(TARBALL)).digest("base64");
+const tarballSha512 = FROM_REGISTRY ? "" : createHash("sha512").update(readFileSync(TARBALL)).digest("base64");
 
 const results: { step: string; ok: boolean; detail: string }[] = [];
 const record = (step: string, ok: boolean, detail = ""): void => {
@@ -47,8 +53,10 @@ writeFileSync(path.join(app, "package.json"), JSON.stringify({ name: "agentsol-i
 try {
   record("install folder is outside the repository", !base.startsWith(REPO) && !REPO.startsWith(base), base.replace(/.*\//, "<tmp>/"));
   const t0 = performance.now();
-  const inst = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline", TARBALL], { cwd: app, encoding: "utf8" });
-  record("npm install <tarball> (scripts disabled)", inst.status === 0, `${Math.round(performance.now() - t0)} ms${inst.status === 0 ? "" : `: ${inst.stderr.slice(-400)}`}`);
+  const inst = FROM_REGISTRY
+    ? spawnSync("npm", ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-online", "--cache", path.join(base, "empty-npm-cache"), "--registry", "https://registry.npmjs.org/", FROM_REGISTRY], { cwd: app, encoding: "utf8" })
+    : spawnSync("npm", ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline", TARBALL], { cwd: app, encoding: "utf8" });
+  record(FROM_REGISTRY ? `npm install ${FROM_REGISTRY} from registry.npmjs.org (empty cache, scripts disabled)` : "npm install <tarball> (scripts disabled)", inst.status === 0, `${Math.round(performance.now() - t0)} ms${inst.status === 0 ? "" : `: ${inst.stderr.slice(-400)}`}`);
   if (inst.status !== 0) throw new Error("install failed");
 
   // Every installed package: no install-time scripts and no native build files.
@@ -150,12 +158,15 @@ try {
   const installedText = manifests.filter((m) => m.includes(`${path.sep}agentsol${path.sep}`)).length;
   const grep = spawnSync("grep", ["-rl", REPO, path.join(nm, "agentsol")], { encoding: "utf8" });
   record("installed package contains no repository path", grep.stdout.trim() === "", `${installedText} manifest(s) checked`);
-  record("tarball unchanged by the install check", createHash("sha512").update(readFileSync(TARBALL)).digest("base64") === tarballSha512, `sha512-${tarballSha512.slice(0, 16)}…`);
+  if (FROM_REGISTRY) {
+    const lock = JSON.parse(readFileSync(path.join(app, "package-lock.json"), "utf8")).packages?.["node_modules/agentsol"] ?? {};
+    record("installed agentsol came from registry.npmjs.org with the expected integrity", lock.integrity === EXPECT_INTEGRITY && String(lock.resolved).startsWith("https://registry.npmjs.org/agentsol/-/"), `${lock.resolved} ${String(lock.integrity).slice(0, 23)}…`);
+  } else record("tarball unchanged by the install check", createHash("sha512").update(readFileSync(TARBALL)).digest("base64") === tarballSha512, `sha512-${tarballSha512.slice(0, 16)}…`);
 } catch (e) {
   record("unexpected error", false, e instanceof Error ? e.message.replace(base, "<tmp>") : String(e));
 } finally {
   if (!process.argv.includes("--keep")) rmSync(base, { recursive: true, force: true });
 }
 const failed = results.filter((r) => !r.ok).length;
-process.stdout.write(`\n${results.length - failed}/${results.length} install checks passed (Node ${nodeVersion}, ${path.basename(TARBALL)})\n`);
+process.stdout.write(`\n${results.length - failed}/${results.length} install checks passed (Node ${nodeVersion}, ${FROM_REGISTRY ?? path.basename(TARBALL)})\n`);
 process.exit(failed ? 1 : 0);
