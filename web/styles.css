@@ -1,4 +1,4 @@
-/* Agentlore: typography-led, paper and ink, terracotta accents. No external assets. */
+/* Agentsol: typography-led, paper and ink, terracotta accents. No external assets. */
 :root {
   --paper: #f5f2ea;
   --paper-2: #ece7db;
@@ -8,6 +8,7 @@
   --rule: #d6cfbf;
   --accent: #9a3412;
   --accent-soft: #f3dccf;
+  --sun: #d4612c;
   --focus: #1d4ed8;
   --ok: #2f6b3a; --ok-bg: #dcebdc;
   --warn: #7a4f00; --warn-bg: #f4e5bf;
@@ -25,7 +26,7 @@
   :root {
     --paper: #14130f; --paper-2: #1c1a15; --card: #1a1914;
     --ink: #ede8dc; --ink-2: #b3ac9c; --rule: #3a362d;
-    --accent: #f08a55; --accent-soft: #3b2518; --focus: #8ab4ff;
+    --accent: #f08a55; --accent-soft: #3b2518; --sun: #f08a55; --focus: #8ab4ff;
     --ok: #8fd19a; --ok-bg: #1d3322; --warn: #f0c56a; --warn-bg: #3a2e12;
     --bad: #f39a9a; --bad-bg: #3d1c1f; --possible: #b9b7ff; --possible-bg: #26254a; --muted-bg: #2a2820;
     color-scheme: dark;
@@ -60,9 +61,8 @@ code { background: var(--muted-bg); padding: 0.05em 0.35em; border-radius: 4px; 
 .head-inner { display: flex; align-items: center; gap: 1rem; min-height: 4rem; flex-wrap: wrap; }
 .wordmark { display: inline-flex; align-items: center; gap: 0.55rem; color: var(--ink); text-decoration: none; font-family: var(--serif); font-size: 1.25rem; font-weight: 650; letter-spacing: -0.01em; }
 .mark { width: 1.6rem; height: 1.6rem; }
-.mark-links { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linecap: round; }
-.mark-node { fill: var(--ink); }
-.mark-core { fill: var(--accent); }
+.mark-links { fill: none; stroke: var(--ink); stroke-width: 5; stroke-linecap: round; }
+.mark-core { fill: var(--sun); }
 .tag { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); border: 1px solid var(--rule); padding: 0.15rem 0.5rem; border-radius: 999px; }
 nav { margin-left: auto; }
 .nav { display: flex; gap: 0.25rem; list-style: none; margin: 0; padding: 0; }

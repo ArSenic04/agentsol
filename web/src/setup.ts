@@ -1,25 +1,29 @@
-import { h, replace, route } from "./dom.ts";
+import { docHref, h, replace, route } from "./dom.ts";
 import { codeBlock } from "./workspace.ts";
 
 function stepBlock(n: number, title: string, ...body: (HTMLElement | string)[]): HTMLElement {
   return h("li", { class: "setup-step" }, h("h2", {}, h("span", { class: "step-n", attrs: { "aria-hidden": "true" } }, String(n)), title), ...body);
 }
 
+const NPM_PAGE = "https://www.npmjs.com/package/agentsol";
+
 export function renderSetup(root: HTMLElement): void {
+  const npmHref = docHref(NPM_PAGE);
   replace(root,
     h("section", { class: "page" },
       h("p", { class: "eyebrow" }, "Local setup"),
-      h("h1", { class: "page-title", attrs: { tabindex: "-1", id: "page-title" } }, "Run Agentlore on your machine"),
-      h("p", { class: "lede" }, "Agentlore is not published yet. There is no public download or npm package. If you have a copy of the source, these are the exact steps. Everything runs locally and nothing is installed globally."),
-      h("p", { class: "note" }, h("strong", {}, "Requirements: "), "Node.js with built-in TypeScript support. Only Node 26.8.2 on macOS has been tested; the declared minimum is Node 24. No paid assistant is needed for steps 1–6."),
+      h("h1", { class: "page-title", attrs: { tabindex: "-1", id: "page-title" } }, "Run Agentsol on your machine"),
+      h("p", { class: "lede" }, "Agentsol 0.1.0-alpha.1 is on npm as an early alpha (",
+        npmHref ? h("a", { href: npmHref, external: true }, "npmjs.com/package/agentsol") : "npmjs.com/package/agentsol",
+        "). Install it into a folder you choose; nothing is installed globally and everything runs on your machine."),
+      h("p", { class: "note" }, h("strong", {}, "Requirements: "), "Node.js 24 or newer. Clean installs from npm have been tested on macOS with Node 24.0.0, 24.22.2 and 26.8.2 only; Windows and Linux are untested. No paid assistant is needed for steps 1–3 and 5."),
       h("ol", { class: "setup" },
-        stepBlock(1, "Install exact dependencies", h("p", {}, "From the project folder:"), codeBlock(["npm ci"])),
-        stepBlock(2, "Check your setup", h("p", {}, "Reports the Node version, whether packages match the lockfile, and whether this terminal can approve changes. Read-only; no network."), codeBlock(["npm run doctor"])),
-        stepBlock(3, "Create the synthetic demo", h("p", {}, "Makes a throwaway project under your temp folder and drives the MCP server over stdio. It never touches your real projects. Running it again keeps the existing demo."), codeBlock(["npm run demo"])),
-        stepBlock(4, "Browse it in this website, locally", h("p", {}, "Starts a read-only server on 127.0.0.1 for that one workspace. It cannot scan, edit, approve or apply."), codeBlock(["npm run web:build", "npm run web:local -- --workspace \"$TMPDIR/agentlore-demo/workspace\""]), h("p", {}, "Then open the address it prints and go to ", h("a", { href: route("#/workspace") }, "Workspace"), ".")),
-        stepBlock(5, "Review and decide, as a person", h("p", {}, "In a normal terminal. Approve shows the diff again and asks for a one-time code; apply keeps a backup."), codeBlock(["npm run cli -- --workspace \"$TMPDIR/agentlore-demo/workspace\" review <proposalId>", "npm run cli -- --workspace \"$TMPDIR/agentlore-demo/workspace\" approve <proposalId>", "npm run cli -- --workspace \"$TMPDIR/agentlore-demo/workspace\" apply <proposalId>"])),
-        stepBlock(6, "Use it on your own project", h("p", {}, "Pick a private workspace folder and register a project folder explicitly. Home, system and broad folders are refused."), codeBlock(["export AGENTLORE_WORKSPACE=\"$PWD/.local-workspace\"", "npm run cli -- project add /path/to/your/project", "npm run cli -- scan <projectId>", "npm run cli -- status"])),
-        stepBlock(7, "Optional: connect an assistant yourself", h("p", {}, "Agentlore is an MCP server over stdio. ", h("code", {}, "npm run doctor -- --workspace <dir>"), " prints a config with absolute paths, shaped like this. Agentlore never installs it for you, and no specific assistant app has been validated yet."),
-          codeBlock(["{", "  \"command\": \"/absolute/path/to/node\",", "  \"args\": [", "    \"/absolute/path/to/your-checkout/src/mcp/main.ts\",", "    \"--workspace\",", "    \"/absolute/path/to/workspace\"", "  ]", "}"], { label: "Example MCP config", wrap: false }))),
-      h("p", { class: "muted small" }, "Protocol tests use the official MCP TypeScript SDK client over a real stdio process. That is not the same as validation in an assistant app.")));
+        stepBlock(1, "Install the alpha", h("p", {}, "In a new folder. The package has no install scripts. It provides two commands: ", h("code", {}, "agentsol"), " (CLI) and ", h("code", {}, "agentsol-mcp"), " (MCP server)."), codeBlock(["mkdir agentsol-local && cd agentsol-local", "npm install agentsol@alpha", "npx agentsol --version"])),
+        stepBlock(2, "Check your setup", h("p", {}, "Reports the Node version, whether dependencies are complete, and whether this terminal can approve changes. Read-only; it does not create the workspace."), codeBlock(["export AGENTSOL_WORKSPACE=\"$PWD/.agentsol-workspace\"", "npx agentsol doctor"])),
+        stepBlock(3, "Register and scan your project", h("p", {}, "Register a project folder explicitly. Home, system and broad folders are refused. Scans read only supported instruction files and change nothing."), codeBlock(["npx agentsol project add /path/to/your/project", "npx agentsol scan <projectId>", "npx agentsol status", "npx agentsol findings <projectId>"])),
+        stepBlock(4, "Optional: connect an assistant yourself", h("p", {}, "Agentsol is an MCP server over stdio. ", h("code", {}, "npx agentsol doctor"), " prints a launch config with absolute paths, shaped like this. Agentsol never installs it for you, and no specific assistant app has been validated yet."),
+          codeBlock(["{", "  \"command\": \"/absolute/path/to/node\",", "  \"args\": [", "    \"/absolute/path/to/agentsol-local/node_modules/agentsol/bin/agentsol-mcp.mjs\",", "    \"--workspace\",", "    \"/absolute/path/to/agentsol-local/.agentsol-workspace\"", "  ]", "}"], { label: "Example MCP config", wrap: false })),
+        stepBlock(5, "Review and decide, as a person", h("p", {}, "In a normal terminal, never through the assistant. Approve shows the diff again and asks for a one-time code; apply keeps a backup. This human approve and apply flow has not yet been run end to end by a person through the published CLI."), codeBlock(["npx agentsol review <proposalId>", "npx agentsol approve <proposalId>", "npx agentsol apply <proposalId>"])),
+        stepBlock(6, "Optional: synthetic demo and this website, from the source", h("p", {}, "The demo and the local website are not in the npm package. With a copy of the source repository:"), codeBlock(["npm ci", "npm run demo", "npm run web:build", "npm run web:local -- --workspace \"$TMPDIR/agentsol-demo/workspace\""]), h("p", {}, "Then open the address it prints and go to ", h("a", { href: route("#/workspace") }, "Workspace"), ". That server is read-only, bound to 127.0.0.1, and cannot scan, edit, approve or apply."))),
+      h("p", { class: "muted small" }, "Protocol tests use the official MCP TypeScript SDK client over a real stdio process against the installed package. That is not the same as validation in an assistant app.")));
 }

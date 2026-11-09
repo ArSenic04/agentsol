@@ -1,6 +1,6 @@
 # Agentsol (early local prototype)
 
-_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. The website still shows the Agentlore name until its update after the npm release._
+_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. Published on npm as `agentsol@0.1.0-alpha.1` (tags `alpha` and `latest`)._
 
 Agentsol audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 
@@ -43,7 +43,7 @@ Run every step from this folder, in your own terminal.
 **What has and has not been validated.** The tests and the demo are *protocol smoke tests*: they use the official MCP TypeScript SDK client over a real stdio process. No real assistant client (Claude Code, Claude Desktop, Codex, Cursor) has been validated yet, and the interactive approve/apply flow has only been exercised through core unit tests, not by a person through the CLI after the latest changes.
 
 ## Install the alpha from npm
-The alpha is published under the `alpha` tag, never `latest`. If `npm view agentsol@alpha version` prints nothing, it has not been published yet.
+`agentsol@0.1.0-alpha.1` was published on Nov 9, 2026 under the `alpha` tag. Because it is the first real version, npm also pointed `latest` at it, so a plain `npm install agentsol` currently installs this alpha too. Package page: https://www.npmjs.com/package/agentsol
 
 ```sh
 mkdir agentsol-try && cd agentsol-try && npm init -y

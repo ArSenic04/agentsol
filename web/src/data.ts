@@ -20,7 +20,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 
 function toResult<T>(status: number, body: unknown): ApiResult<T> {
   if (status >= 200 && status < 300) {
-    // Trust boundary: these bodies come from Agentlore's own API contract (see contract.ts).
+    // Trust boundary: these bodies come from Agentsol's own API contract (see contract.ts).
     return { ok: true, value: body as T };
   }
   const err = isRecord(body) && isRecord(body["error"]) ? body["error"] : {};
@@ -70,7 +70,7 @@ export function localSource(): DataSource {
       try {
         res = await fetch(path, { method: "GET", credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } });
       } catch {
-        return { ok: false, status: 0, code: "unreachable", message: "The local Agentlore server is not reachable. Is it still running?" };
+        return { ok: false, status: 0, code: "unreachable", message: "The local Agentsol server is not reachable. Is it still running?" };
       }
       const type = res.headers.get("content-type") ?? "";
       if (!type.startsWith("application/json")) return { ok: false, status: res.status, code: "not_json", message: `Unexpected response (${res.status}).` };

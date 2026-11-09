@@ -1,7 +1,7 @@
 import { h, svg } from "./dom.ts";
 
 /**
- * The hero diagram: instruction files flow into Agentlore, which keeps line-level evidence;
+ * The hero diagram: instruction files flow into Agentsol, which keeps line-level evidence;
  * your assistant reads and cites over MCP; every change ends with you. Solid lines are what
  * automated tests exercise today; the dashed assistant link is the intended client set,
  * not yet validated. All geometry is a code constant. Motion is a slow dash drift and one
@@ -54,14 +54,14 @@ export function heroDiagram(): HTMLElement {
     svg("circle", { class: "g-orbit", cx: CORE.x, cy: CORE.y, r: CORE.r + 20 }),
     svg("g", { class: "g-spin" }, svg("circle", { class: "g-orbit-dot", cx: CORE.x + CORE.r + 20, cy: CORE.y, r: 4 })),
     svg("circle", { class: "g-core", cx: CORE.x, cy: CORE.y, r: CORE.r }),
-    svg("text", { x: CORE.x, y: CORE.y - 5, "text-anchor": "middle", "dominant-baseline": "middle", class: "g-core-title" }, "Agentlore"),
+    svg("text", { x: CORE.x, y: CORE.y - 5, "text-anchor": "middle", "dominant-baseline": "middle", class: "g-core-title" }, "Agentsol"),
     svg("text", { x: CORE.x, y: CORE.y + 14, "text-anchor": "middle", "dominant-baseline": "middle", class: "g-core-sub" }, "evidence"),
     box("g-assistant", assistant.x, assistant.y, "Your assistant", "over MCP"),
     box("g-human", person.x, person.y, "You approve", "in your terminal"));
   return h("figure", { class: "hero-art" },
     h("div", { class: "hero-art-frame" }, art),
     h("figcaption", { class: "legend" },
-      h("span", { class: "sr-only" }, "Diagram: instruction files such as AGENTS.md, CLAUDE.md and SKILL.md feed Agentlore, which keeps line-level evidence. Your assistant reads and cites those lines over MCP. Every change waits for you to approve in your terminal. "),
+      h("span", { class: "sr-only" }, "Diagram: instruction files such as AGENTS.md, CLAUDE.md and SKILL.md feed Agentsol, which keeps line-level evidence. Your assistant reads and cites those lines over MCP. Every change waits for you to approve in your terminal. "),
       h("span", { class: "legend-item" }, h("span", { class: "swatch swatch-solid", attrs: { "aria-hidden": "true" } }), "Exercised by automated tests today"),
       h("span", { class: "legend-item" }, h("span", { class: "swatch swatch-dashed", attrs: { "aria-hidden": "true" } }), "Assistant apps it is built for (Claude Code, Codex, Cursor), not yet validated")));
 }

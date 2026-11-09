@@ -1,7 +1,7 @@
 /**
  * Tiny DOM builder. All data is inserted as text nodes; there is no innerHTML anywhere in
  * the site. Attributes are limited to a fixed allowlist, and links can only be internal
- * routes or a short list of documentation URLs that come from Agentlore itself.
+ * routes or a short list of documentation URLs that come from Agentsol itself.
  */
 declare const safeHrefBrand: unique symbol;
 export type SafeHref = string & { readonly [safeHrefBrand]: true };
@@ -16,8 +16,9 @@ function brand(s: string): SafeHref {
   return s as SafeHref;
 }
 
-/** Documentation pages Agentlore's own checks link to. Anything else is shown as plain text. */
+/** Documentation pages Agentsol's own checks link to, plus its npm package page. Anything else is shown as plain text. */
 const DOC_URLS = new Set([
+  "https://www.npmjs.com/package/agentsol",
   "https://agentskills.io/specification",
   "https://code.claude.com/docs/en/memory",
   "https://learn.chatgpt.com/docs/agent-configuration/agents-md",

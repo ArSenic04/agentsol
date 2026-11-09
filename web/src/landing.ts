@@ -26,7 +26,7 @@ async function excerpt(bundle: DemoBundle): Promise<HTMLElement | null> {
   if (!read.ok) return null;
   const proposal = pr.value.proposals[0];
   return h("figure", { class: "excerpt", attrs: { "aria-label": "Real output from the synthetic demo" } },
-    h("figcaption", { class: "excerpt-cap" }, "Actual Agentlore output for the synthetic demo project"),
+    h("figcaption", { class: "excerpt-cap" }, "Actual Agentsol output for the synthetic demo project"),
     h("div", { class: "excerpt-finding" },
       h("p", { class: "excerpt-kicker" }, h("span", { class: "chip chip-warn" }, finding.severity), ` ${finding.checkId} · fact`),
       h("p", { class: "excerpt-msg" }, finding.message),
@@ -49,7 +49,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
       h("div", { class: "hero-copy" },
         h("p", { class: "eyebrow" }, "Early local prototype · free to run on your own machine"),
         h("h1", { class: "display", attrs: { tabindex: "-1", id: "page-title" } }, "Your coding agents follow instructions scattered across the repo. ", h("em", {}, "Read them together.")),
-        h("p", { class: "lede" }, "Agentlore finds the AGENTS.md, CLAUDE.md and SKILL.md files in a project, checks them, and lets the assistant you already use point at exact lines. Every edit it suggests waits for you, in your own terminal."),
+        h("p", { class: "lede" }, "Agentsol finds the AGENTS.md, CLAUDE.md and SKILL.md files in a project, checks them, and lets the assistant you already use point at exact lines. Every edit it suggests waits for you, in your own terminal."),
         h("div", { class: "cta-row" },
           h("a", { class: "btn btn-primary", href: route("#/demo") }, "Open the interactive demo"),
           h("a", { class: "btn", href: route("#/setup") }, "Run it on your machine")),
@@ -68,7 +68,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
     h("section", { class: "band", attrs: { "aria-labelledby": "how" } },
       h("h2", { attrs: { id: "how" } }, "How it works"),
       h("ol", { class: "steps" },
-        step("1", "Inspect", "Point the CLI at a project folder you choose. Agentlore reads only supported instruction files, skips secret-like names and symlinks, and masks text that looks like a key."),
+        step("1", "Inspect", "Point the CLI at a project folder you choose. Agentsol reads only supported instruction files, skips secret-like names and symlinks, and masks text that looks like a key."),
         step("2", "Cite", "Deterministic checks report facts. Your assistant, connected over MCP, can add possible issues, but only by quoting exact lines of the current file version. Stale evidence is hidden."),
         step("3", "You decide", "Suggested edits become diffs. Nothing changes on disk until you review, approve with a one-time code, and apply, in a terminal you control. A backup is kept."))),
 
@@ -96,12 +96,12 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
             h("li", {}, "Rules that may be too vague to follow"),
             h("li", {}, "Content that may belong in a different folder"),
             h("li", {}, "Skill descriptions that may not match the body")),
-          h("p", { class: "muted small" }, "Always labelled “possible”. Agentlore checks the quotes, not the opinion.")))),
+          h("p", { class: "muted small" }, "Always labelled “possible”. Agentsol checks the quotes, not the opinion.")))),
 
     h("section", { class: "band", attrs: { "aria-labelledby": "assistant" } },
       h("h2", { attrs: { id: "assistant" } }, "Bring your assistant"),
       h("div", {},
-        h("p", { class: "prose-lead" }, "Agentlore is an MCP server over stdio. Your assistant reads files and cites lines through it; it never gets a tool to approve or apply."),
+        h("p", { class: "prose-lead" }, "Agentsol is an MCP server over stdio. Your assistant reads files and cites lines through it; it never gets a tool to approve or apply."),
         h("div", { class: "two-col" },
           h("div", { class: "support support-verified" },
             h("h3", {}, "Verified today"),
