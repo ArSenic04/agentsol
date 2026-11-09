@@ -1,0 +1,5 @@
+node_modules/
+.local-workspace/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

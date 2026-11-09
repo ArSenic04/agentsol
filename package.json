@@ -1,0 +1,28 @@
+{
+  "name": "agentweave",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "cli": "node src/cli/main.ts",
+    "mcp": "node src/mcp/main.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "26.6.6",
+    "typescript": "6.0.3"
+  }
+}
