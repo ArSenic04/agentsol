@@ -36,7 +36,7 @@ run(process.execPath, [path.join(REPO, "scripts", "buildPackage.ts")]);
 const RELEASE_EARLY = process.argv.includes("--release");
 const packFrom = ((): string => {
   if (!RELEASE_EARLY) return REPO;
-  const stage = mkdtempSync(path.join(tmpdir(), "agentlore-release-stage-"));
+  const stage = mkdtempSync(path.join(tmpdir(), "agentsol-release-stage-"));
   const manifest = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8"));
   delete manifest.private; delete manifest.scripts; delete manifest.devDependencies;
   writeFileSync(path.join(stage, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
@@ -63,11 +63,11 @@ const files: string[] = info.files.map((f: { path: string }) => f.path).sort();
 const RELEASE = RELEASE_EARLY;
 const problems: string[] = [];
 const allowed = (f: string): boolean =>
-  f === "package.json" || f === "README.md" || f === "LICENSE" || f === "bin/agentlore.mjs" || f === "bin/agentlore-mcp.mjs" || /^build\/(core|cli|mcp)(\/service)?\/[A-Za-z]+\.js$/.test(f);
+  f === "package.json" || f === "README.md" || f === "LICENSE" || f === "bin/agentsol.mjs" || f === "bin/agentsol-mcp.mjs" || /^build\/(core|cli|mcp)(\/service)?\/[A-Za-z]+\.js$/.test(f);
 for (const f of files) if (!allowed(f)) problems.push(`not on the allowlist: ${f}`);
-for (const must of ["package.json", "README.md", "LICENSE", "bin/agentlore.mjs", "bin/agentlore-mcp.mjs", "build/cli/main.js", "build/mcp/main.js", "build/core/store.js"]) if (!files.includes(must)) problems.push(`missing: ${must}`);
+for (const must of ["package.json", "README.md", "LICENSE", "bin/agentsol.mjs", "bin/agentsol-mcp.mjs", "build/cli/main.js", "build/mcp/main.js", "build/core/store.js"]) if (!files.includes(must)) problems.push(`missing: ${must}`);
 
-const dir = mkdtempSync(path.join(tmpdir(), "agentlore-packcheck-"));
+const dir = mkdtempSync(path.join(tmpdir(), "agentsol-packcheck-"));
 try {
   run("tar", ["-xzf", tarball, "-C", dir]);
   const pkg = JSON.parse(readFileSync(path.join(dir, "package", "package.json"), "utf8"));

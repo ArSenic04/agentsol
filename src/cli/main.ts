@@ -22,8 +22,8 @@ import { WorkspaceStore } from "../core/store.ts";
 import { workspaceFrom } from "../core/workspaceArg.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
 
-const USAGE = `agentlore --workspace <dir> <command> [--json]
-agentlore --version
+const USAGE = `agentsol --workspace <dir> <command> [--json]
+agentsol --version
 
 Commands (human-run, local only):
   doctor [--json]                       non-destructive preflight: Node, installed packages, workspace, terminal
@@ -47,7 +47,7 @@ const out = (s: string): void => {
   process.stdout.write(`${sanitizeForTerminal(s)}\n`);
 };
 const fail = (s: string, code = 1): number => {
-  process.stderr.write(`agentlore: ${sanitizeForTerminal(s)}\n`);
+  process.stderr.write(`agentsol: ${sanitizeForTerminal(s)}\n`);
   return code;
 };
 const actor = (): string => `local-user:${userInfo().username}`;
@@ -138,7 +138,7 @@ async function run(argv: string[]): Promise<number> {
   const rest = withFlags.filter((a) => a !== "--json");
   const [command, ...args] = rest;
   if (command === "--version" || command === "version") {
-    out(`agentlore ${PRODUCT_VERSION} (early alpha; approve/apply have not yet been run end to end by a person through this CLI)`);
+    out(`agentsol ${PRODUCT_VERSION} (early alpha; approve/apply have not yet been run end to end by a person through this CLI)`);
     return 0;
   }
   if (!command || command === "help" || command === "--help") {
@@ -156,13 +156,13 @@ async function run(argv: string[]): Promise<number> {
       if (report.launch) {
         out(`\nCLI:        ${report.launch.cli}`);
         out(`MCP server: ${report.launch.mcp}`);
-        out(`MCP client config (example only; Agentlore does not install it):\n${JSON.stringify(report.launch.mcpClientConfig, null, 2)}`);
+        out(`MCP client config (example only; Agentsol does not install it):\n${JSON.stringify(report.launch.mcpClientConfig, null, 2)}`);
       }
       out(report.ok ? "\nNo blocking problems found. This does not test any assistant client." : "\nFix the FAIL items above first.");
     }
     return report.ok ? 0 : 1;
   }
-  if (!dir) return fail("pass --workspace <dir> or set AGENTLORE_WORKSPACE", 2);
+  if (!dir) return fail("pass --workspace <dir> or set AGENTSOL_WORKSPACE", 2);
   let store: WorkspaceStore;
   try {
     store = WorkspaceStore.open(dir);
@@ -172,7 +172,7 @@ async function run(argv: string[]): Promise<number> {
   try {
     const svc = createAssistantService(store, {
       reporter: actor,
-      onInternalError: (op, e) => process.stderr.write(`agentlore: ${op} internal error: ${e instanceof Error ? e.message : String(e)}\n`),
+      onInternalError: (op, e) => process.stderr.write(`agentsol: ${op} internal error: ${e instanceof Error ? e.message : String(e)}\n`),
     });
     const ops = createOperatorService(store, { actor, homeReal: await realpath(homedir()) });
     const arg = args[0] ?? "";
@@ -248,7 +248,7 @@ async function run(argv: string[]): Promise<number> {
         if (typed.trim() !== challenge) return fail("cancelled; nothing was approved", 1);
         const r = ops.approve({ proposalId: arg, reviewedProposalSha256: shown.value.proposal.body.proposalSha256 });
         if (!r.ok) return fail(`not approved: ${r.error.message}`);
-        out(`approved (${r.value}); valid for 10 minutes, once. Run: agentlore apply ${arg}`);
+        out(`approved (${r.value}); valid for 10 minutes, once. Run: agentsol apply ${arg}`);
         return 0;
       }
       case "reject": {

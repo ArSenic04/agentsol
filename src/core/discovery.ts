@@ -54,7 +54,7 @@ export type DiscoveryResult = {
 /** Directories that are never instruction scopes worth walking. */
 const SKIP_DIRS: ReadonlySet<string> = new Set([
   ".git", "node_modules", ".hg", ".svn", "dist", "build", "out", ".next", ".turbo", ".venv", "venv",
-  "__pycache__", ".cache", "target", "coverage", ".agentweave", ".agentlore", ".local-workspace",
+  "__pycache__", ".cache", "target", "coverage", ".agentweave", ".agentlore", ".agentsol", ".local-workspace",
 ]);
 
 const CASE_VARIANTS: ReadonlySet<string> = new Set(["agents.md", "agents.override.md", "claude.md", "claude.local.md", "skill.md"]);
@@ -109,7 +109,7 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
       if (!format) {
         if (isSecretLikeFileName(entry.name)) skipped.secretLike += 1;
         // agents.md / Claude.md: case-insensitive filesystems (macOS default) let clients
-        // open these as AGENTS.md / CLAUDE.md. Agentlore does not read them; it reports them.
+        // open these as AGENTS.md / CLAUDE.md. Agentsol does not read them; it reports them.
         else if (CASE_VARIANTS.has(entry.name.toLowerCase())) exclusions.push({ relPath: rel, reason: "case_variant_name" });
         continue;
       }

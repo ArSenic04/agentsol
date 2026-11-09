@@ -37,3 +37,9 @@
 - `npm publish` returned `EOTP: This operation requires a one-time password` and exited, because the agent's shell has no terminal for npm to wait on. It printed a one-time browser sign-in link and a token-retrieval link. The agent did not open either, and did not retrieve any token.
 - Registry still 404 afterwards; tarball unchanged.
 - Human step: run the same publish command in your own Terminal (see below); npm then waits for the browser approval or the code itself.
+
+## Agentsol 0.1.0-alpha.1 (Nov 9, 2026, America/Toronto)
+- Renamed Agentlore -> Agentsol; source folder moved to `~/Projects/agentsol`. The Agentlore tarball above is kept unchanged and will never be published.
+- Registry check 5:12 PM EST: `agentsol` and 22 punctuation/spacing variants plus close spellings (agentsole, agentsoul, agentsols, agent-sol, agentsolo, agentsolver) returned 404; npm search for "agentsol" returned nothing. npm may still apply its own similarity rule at publish time.
+- Release file: `artifacts/release/agentsol-0.1.0-alpha.1.tgz`, 42 files, 56,271 bytes, sha256 6776f6e4f13faa9666bfd64595c52c00211f2ae01af0fe59fc6435c5f335b117, integrity sha512-d8viGMhETjGzyawa7X8I/aKsXSK5wRe6vIf1fVsNukIGxiOsPVGrhz4xuA93q4kyHGwPiVXtlpCzc/RryQ78mg==.
+- `release:check --existing` READY: clean install + CLI + MCP 21/21 on Node 24.0.0, 24.22.2, 26.8.2; dry run tag alpha, public.

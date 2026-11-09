@@ -1,5 +1,7 @@
 # Agentlore implementation plan: slice 1 (local engine, MCP server and CLI)
 
+> **Current name: Agentsol** (renamed Nov 9, 2026, after npm refused `agentlore` as too similar to `agent-lore`). Sections below keep the names that were current when they were written (AgentWeave, Agentlore).
+
 Goal: the smallest end-to-end loop someone can verify. Import instruction files, record versions, run deterministic checks, let an assistant read, audit and propose over MCP, and keep approval and apply with the human in a local CLI.
 
 ## Checklist

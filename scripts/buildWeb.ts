@@ -20,8 +20,8 @@ import { handleApi } from "../src/web/api.ts";
 import { DEMO_FILES } from "./demoFixture.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BUILD_MARKER = ".agentlore-web-build";
-const LEGACY_BUILD_MARKER = ".agentweave-web-build"; // builds made before the rename
+const BUILD_MARKER = ".agentsol-web-build";
+const LEGACY_BUILD_MARKERS = [".agentweave-web-build", ".agentlore-web-build"]; // builds made under earlier names
 export const SCOPE_TARGETS = ["services/api/handler.ts", "src/index.ts", "skills/changelog/SKILL.md"];
 const PLATFORMS = ["claude-code", "codex", "cursor"];
 
@@ -33,7 +33,7 @@ function parseOut(argv: string[]): string {
 async function prepareOut(out: string): Promise<void> {
   if (existsSync(out)) {
     const entries = readdirSync(out);
-    if (entries.length > 0 && !entries.includes(BUILD_MARKER) && !entries.includes(LEGACY_BUILD_MARKER)) throw new Error(`${out} is not empty and is not an earlier web build; refusing to delete it`);
+    if (entries.length > 0 && !entries.includes(BUILD_MARKER) && !LEGACY_BUILD_MARKERS.some((m) => entries.includes(m))) throw new Error(`${out} is not empty and is not an earlier web build; refusing to delete it`);
     await rm(out, { recursive: true, force: true });
   }
   await mkdir(path.join(out, "js"), { recursive: true });
@@ -60,7 +60,7 @@ type Recorded = { status: number; body: unknown };
 
 /** Runs the real core on a throwaway synthetic project and records API responses. */
 export async function recordDemo(): Promise<{ builtAt: string; responses: Record<string, Recorded>; scopeTargets: string[] }> {
-  const base = await realpath(await mkdtemp(path.join(tmpdir(), "agentlore-webdemo-")));
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), "agentsol-webdemo-")));
   const projectDir = path.join(base, "project");
   const wsDir = path.join(base, "workspace");
   try {

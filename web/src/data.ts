@@ -82,5 +82,5 @@ export function localSource(): DataSource {
 /** True only when this page is served by the local bridge (not by a static host). */
 export async function detectLocalBridge(): Promise<boolean> {
   const r = await localSource().get<{ product?: string; mode?: string }>("/api/health");
-  return r.ok && r.value.product === "agentlore" && r.value.mode === "local";
+  return r.ok && r.value.product === "agentsol" && r.value.mode === "local";
 }

@@ -155,7 +155,7 @@ export async function applyApprovedProposal(
   }
 
   const relDir = path.posix.dirname(p.relPath);
-  const tmpName = `.${path.posix.basename(p.relPath)}.agentlore-${randomBytes(6).toString("hex")}.tmp`;
+  const tmpName = `.${path.posix.basename(p.relPath)}.agentsol-${randomBytes(6).toString("hex")}.tmp`;
   const tmpRel = relDir === "." ? tmpName : `${relDir}/${tmpName}`;
   const tmpPath = path.join(path.dirname(read.value.absPath), tmpName);
   let tmpIno: number;

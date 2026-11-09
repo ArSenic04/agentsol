@@ -38,7 +38,7 @@ test("local bridge: loopback only, read-only, same results as the shared service
     const stored = fx.store.listProposals(fx.projectId)[0];
     assert.ok(stored && !JSON.stringify(proposals).includes(stored.body.proposalSha256.slice(0, 16)), "the approval digest is never exposed");
     const health = JSON.parse((await raw(srv.port, { path: "/api/health" })).body);
-    assert.deepEqual(health, { product: "agentlore", mode: "local", readOnly: true, apiVersion: 1 });
+    assert.deepEqual(health, { product: "agentsol", mode: "local", readOnly: true, apiVersion: 1 });
   } finally {
     await srv.close();
     await fx.cleanup();
@@ -68,7 +68,7 @@ test("local bridge refuses hostile hosts, origins, methods, traversal and approv
     for (const p of ["/../package.json", "/%2e%2e/package.json", "/js/../../package.json", "//etc/passwd", "/linked.txt", "/js/%2e%2e%2f%2e%2e%2fpackage.json"]) {
       const r = await raw(port, { path: p });
       assert.ok(r.status === 404 || r.status === 400, `${p} -> ${r.status}`);
-      assert.ok(!r.body.includes("SECRET-OUTSIDE") && !r.body.includes('"name": "agentlore"'), `${p} serves nothing outside the build`);
+      assert.ok(!r.body.includes("SECRET-OUTSIDE") && !r.body.includes('"name": "agentsol"'), `${p} serves nothing outside the build`);
     }
     const firstProposal = fx.store.listProposals(fx.projectId)[0];
     assert.ok(firstProposal);
@@ -137,7 +137,7 @@ test("web entrypoint needs an existing workspace, never creates one, and has no 
     await mkdir(path.join(base, "empty"), { mode: 0o700 });
     const notWs = run("--workspace", path.join(base, "empty"));
     assert.equal(notWs.status, 2);
-    assert.match(notWs.stderr, /not an Agentlore workspace/);
+    assert.match(notWs.stderr, /not an Agentsol workspace/);
     assert.equal(existsSync(path.join(base, "empty", "workspace.sqlite")), false);
     const host = run("--static-only", "--host", "0.0.0.0");
     assert.equal(host.status, 2);

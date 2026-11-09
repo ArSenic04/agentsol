@@ -17,7 +17,7 @@ type Mode = "legacy" | "auto";
 
 async function connect(fx: Fixture, mode: Mode): Promise<Client> {
   const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER, "--workspace", fx.wsDir], cwd: REPO, stderr: "pipe" });
-  const client = new Client({ name: "agentlore-test-client", version: "0.0.0" }, { versionNegotiation: { mode } });
+  const client = new Client({ name: "agentsol-test-client", version: "0.0.0" }, { versionNegotiation: { mode } });
   await client.connect(transport);
   return client;
 }

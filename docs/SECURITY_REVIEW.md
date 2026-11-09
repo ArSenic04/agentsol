@@ -1,5 +1,7 @@
 # Adversarial review: slice 1 (Nov 9, 2026)
 
+> **Current name: Agentsol** (renamed Nov 9, 2026, after npm refused `agentlore` as too similar to `agent-lore`). Sections below keep the names that were current when they were written (AgentWeave, Agentlore).
+
 Scope: the code and tests in this repository. Every fixed defect has a regression test, in `tests/review-regressions.test.ts` (R1–R8), `tests/safety-v2.test.ts` or `tests/cli.test.ts`.
 
 ## Trust model

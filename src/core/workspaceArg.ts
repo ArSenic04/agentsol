@@ -13,8 +13,8 @@ export function workspaceFrom(argv: readonly string[], env: NodeJS.ProcessEnv): 
       rest.push(a);
     }
   }
-  // AGENTWEAVE_WORKSPACE is the name used before the product was renamed to Agentlore; it still works.
-  const fromEnv = nonEmpty(env["AGENTLORE_WORKSPACE"]) ?? nonEmpty(env["AGENTWEAVE_WORKSPACE"]);
+  // Older names still work: AGENTLORE_WORKSPACE and AGENTWEAVE_WORKSPACE (earlier product names).
+  const fromEnv = nonEmpty(env["AGENTSOL_WORKSPACE"]) ?? nonEmpty(env["AGENTLORE_WORKSPACE"]) ?? nonEmpty(env["AGENTWEAVE_WORKSPACE"]);
   return { dir: dir ?? fromEnv, rest };
 }
 

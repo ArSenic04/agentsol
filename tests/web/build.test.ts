@@ -59,7 +59,7 @@ test("web build replaces an earlier build made before the rename (legacy marker)
     const r = build(out);
     assert.equal(r.status, 0, r.stderr);
     const files = await readdir(out);
-    assert.ok(files.includes(".agentlore-web-build") && !files.includes("stale.js"));
+    assert.ok(files.includes(".agentsol-web-build") && !files.includes("stale.js"));
   } finally {
     await rm(base, { recursive: true, force: true });
   }

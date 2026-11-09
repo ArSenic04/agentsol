@@ -1,16 +1,16 @@
 {
-  "name": "agentlore",
+  "name": "agentsol",
   "version": "0.1.0-alpha.1",
   "private": true,
   "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
   "type": "module",
   "bin": {
-    "agentlore": "bin/agentlore.mjs",
-    "agentlore-mcp": "bin/agentlore-mcp.mjs"
+    "agentsol": "bin/agentsol.mjs",
+    "agentsol-mcp": "bin/agentsol-mcp.mjs"
   },
   "files": [
-    "bin/agentlore.mjs",
-    "bin/agentlore-mcp.mjs",
+    "bin/agentsol.mjs",
+    "bin/agentsol-mcp.mjs",
     "build/**/*.js"
   ],
   "exports": {

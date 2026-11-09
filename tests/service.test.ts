@@ -38,7 +38,7 @@ function errorCode(r: { ok: boolean; error?: { code: string } }): string {
 
 async function connect(ws: string): Promise<Client> {
   const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER, "--workspace", ws], cwd: REPO, stderr: "pipe" });
-  const client = new Client({ name: "agentlore-equivalence-test", version: "0.0.0" }, { versionNegotiation: { mode: "legacy" } });
+  const client = new Client({ name: "agentsol-equivalence-test", version: "0.0.0" }, { versionNegotiation: { mode: "legacy" } });
   await client.connect(transport);
   return client;
 }

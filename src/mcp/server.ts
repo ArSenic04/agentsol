@@ -13,12 +13,12 @@ import type { WorkspaceStore } from "../core/store.ts";
 export { DISCLOSURE, UNTRUSTED };
 
 export const INSTRUCTIONS = [
-  "Agentlore audits AI agent instruction files in projects that a person registered locally with the Agentlore CLI.",
+  "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
   "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
   "2. source_read returns numbered, redacted lines plus the current versionId.",
   "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
   "4. Report your own observations with findings_submit as POSSIBLE issues. Every finding needs exact quoted evidence (sourceId, current versionId, line range, exact text). Layered or overlapping scopes are normal; only call something a contradiction when the quoted text actually conflicts.",
-  "5. Suggest edits with change_propose. Proposals never modify files. Only the person can approve and apply them, in their own terminal, with the Agentlore CLI. There is no MCP tool for approval or apply.",
+  "5. Suggest edits with change_propose. Proposals never modify files. Only the person can approve and apply them, in their own terminal, with the Agentsol CLI. There is no MCP tool for approval or apply.",
   "6. Pass a requestKey to findings_submit and change_propose so a retry is not recorded twice.",
   "7. scope_resolve models documented client defaults and is always partial; workspace_status reports partial and stale data explicitly. Say so when you report them.",
   UNTRUSTED,
@@ -31,12 +31,12 @@ const reply = <T>(r: ServiceResult<T>) =>
     : { content: [{ type: "text" as const, text: JSON.stringify({ error: r.error }, null, 2) }], isError: true };
 
 const stderrSink: InternalErrorSink = (operation, error) => {
-  process.stderr.write(`agentlore-mcp: ${operation} internal error: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(`agentsol-mcp: ${operation} internal error: ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
 };
 
 /** Builds the MCP server. Exposes inspection, findings, proposals and status only. */
-export function createAgentloreServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink } = {}): McpServer {
-  const server = new McpServer({ name: "agentlore", version: PRODUCT_VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
+export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink } = {}): McpServer {
+  const server = new McpServer({ name: "agentsol", version: PRODUCT_VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
   const svc = createAssistantService(store, {
     reporter: () => {
       const info = server.server.getClientVersion();
@@ -47,7 +47,7 @@ export function createAgentloreServer(store: WorkspaceStore, opts: { onInternalE
   const ro = { readOnlyHint: true } as const;
   const write = { readOnlyHint: false, destructiveHint: false } as const;
 
-  server.registerTool("projects_list", { description: "List projects a person registered with Agentlore (ids and names only).", annotations: ro }, async () => reply(svc.listProjects()));
+  server.registerTool("projects_list", { description: "List projects a person registered with Agentsol (ids and names only).", annotations: ro }, async () => reply(svc.listProjects()));
   server.registerTool(
     "workspace_status",
     { description: "Read-only status per project: last scan (never, refused, or scanned and whether it was partial), present/missing/redacted sources, files not read by reason, current and stale-hidden findings, proposal counts. No file text or paths.", annotations: ro },
@@ -60,7 +60,7 @@ export function createAgentloreServer(store: WorkspaceStore, opts: { onInternalE
   );
   server.registerTool(
     "sources_scan",
-    { description: "Re-scan a registered project for supported instruction files and run deterministic checks. Reads only recognized instruction files; writes only to the local Agentlore workspace, never to project files.", inputSchema: Inputs.project, annotations: { ...write, idempotentHint: true } },
+    { description: "Re-scan a registered project for supported instruction files and run deterministic checks. Reads only recognized instruction files; writes only to the local Agentsol workspace, never to project files.", inputSchema: Inputs.project, annotations: { ...write, idempotentHint: true } },
     async (args) => reply(await svc.scan(args)),
   );
   server.registerTool(

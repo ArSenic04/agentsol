@@ -1,5 +1,5 @@
 /**
- * Freshness: has anything Agentlore already knows about changed on disk since the last
+ * Freshness: has anything Agentsol already knows about changed on disk since the last
  * scan? Metadata only (lstat); file content is never read here.
  *
  * Limits, stated in every result:
@@ -23,7 +23,7 @@ export type SourceFreshnessState =
   | "changed"
   /** The recorded file no longer exists at its path. */
   | "removed"
-  /** The path is now a symlink, not a regular file, has extra hard links, or escapes the root. Agentlore will not read it. */
+  /** The path is now a symlink, not a regular file, has extra hard links, or escapes the root. Agentsol will not read it. */
   | "unsafe"
   /** Could not be checked (no metadata from the last scan, or the check itself failed). */
   | "unknown";

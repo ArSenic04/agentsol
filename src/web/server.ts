@@ -77,7 +77,7 @@ const jsonError = (code: string, message: string): string => JSON.stringify({ er
 export function startWebServer(opts: WebServerOptions): Promise<RunningServer> {
   const files = loadStaticManifest(opts.staticDir);
   if (opts.store) files.set("/js/mode.js", { body: Buffer.from(LOCAL_MODE_MODULE), type: CONTENT_TYPES[".js"] ?? "text/javascript; charset=utf-8" });
-  const sink = opts.onInternalError ?? ((op: string, e: unknown) => process.stderr.write(`agentlore-web: ${op} internal error: ${e instanceof Error ? e.message : String(e)}\n`));
+  const sink = opts.onInternalError ?? ((op: string, e: unknown) => process.stderr.write(`agentsol-web: ${op} internal error: ${e instanceof Error ? e.message : String(e)}\n`));
   const svc: AssistantService | null = opts.store ? createAssistantService(opts.store, { reporter: () => "web-local:read-only", onInternalError: sink }) : null;
   let port = opts.port;
 

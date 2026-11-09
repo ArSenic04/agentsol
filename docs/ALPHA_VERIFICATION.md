@@ -1,5 +1,7 @@
 # Alpha verification (Nov 9, 2026)
 
+> **Current name: Agentsol** (renamed Nov 9, 2026, after npm refused `agentlore` as too similar to `agent-lore`). Sections below keep the names that were current when they were written (AgentWeave, Agentlore).
+
 _Recorded under the earlier name AgentWeave; the product is now Agentlore. Package and file names below are as they were at the time of this run (`agentweave-0.1.0.tgz`, `bin/agentweave*.mjs`). The current names are `agentlore-0.1.0.tgz` and `bin/agentlore*.mjs`._
 
 This was a local run on one Mac (Apple M1 Pro, 10 cores, 16 GiB, Node 26.8.2, darwin-arm64). Nothing was published, pushed or deployed. All fixtures are synthetic temp folders.

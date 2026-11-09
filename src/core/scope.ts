@@ -7,7 +7,7 @@ import { ok, type Result } from "./result.ts";
 export const PLATFORMS = ["codex", "claude-code", "cursor"] as const;
 export type Platform = (typeof PLATFORMS)[number];
 
-/** sourceId is null for files Agentlore knows exist but does not read (CLAUDE.local.md). */
+/** sourceId is null for files Agentsol knows exist but does not read (CLAUDE.local.md). */
 export type ScopeSource = { sourceId: SourceId | null; relPath: string; format: SourceFormat; empty: boolean };
 export type ChainEntry = { order: number; sourceId: SourceId | null; relPath: string; format: SourceFormat; when: "launch" | "on_demand"; reason: string };
 export type ScopeResolution = {
@@ -16,9 +16,9 @@ export type ScopeResolution = {
   workingDirectory: string;
   /** Launch files first, then files loaded on demand when the client reads files below the working directory. */
   chain: ChainEntry[];
-  /** Overlapping scopes are layered context, never treated as conflicts by Agentlore. */
+  /** Overlapping scopes are layered context, never treated as conflicts by Agentsol. */
   relationship: "layered";
-  /** Always partial: user, managed, rule and IDE files are outside Agentlore's view. */
+  /** Always partial: user, managed, rule and IDE files are outside Agentsol's view. */
   coverage: "partial";
   assumptions: string[];
   notInspected: string[];
@@ -79,7 +79,7 @@ export function resolveScope(args: { sources: readonly ScopeSource[]; targetPath
       for (const dir of launchDirs) {
         if (claudeAtOrAbove) {
           for (const s of inDir(dir, "claude-md")) add(s, "launch", "CLAUDE.md at or above the working directory");
-          for (const s of inDir(dir, "claude-local-md")) add(s, "launch", "CLAUDE.local.md is appended after CLAUDE.md (Agentlore does not read it)");
+          for (const s of inDir(dir, "claude-local-md")) add(s, "launch", "CLAUDE.local.md is appended after CLAUDE.md (Agentsol does not read it)");
         } else {
           for (const s of inDir(dir, "agents-md")) add(s, "launch", "No CLAUDE.md at or above the working directory, so the default setting reads AGENTS.md");
         }
