@@ -65,7 +65,7 @@ npx agentlore --workspace "$PWD/.agentlore-workspace" doctor
   - Confirms the file's sha512 did not change.
   - Records everything in `<tarball>.release.json`.
 - The repository's own `package.json` stays `"private": true`, so `npm publish` from this folder fails by design.
-- Publishing is a person's step, with npm 2FA, from a normal terminal: `npm publish artifacts/release/agentlore-<version>.tgz --tag alpha --access public`.
+- Publishing is a person's step, with npm 2FA, from a normal terminal: `npm publish ./artifacts/release/agentlore-<version>.tgz --tag alpha --access public` (npm requires the `./` prefix for a relative tarball path).
 
 ## Run
 ```sh
