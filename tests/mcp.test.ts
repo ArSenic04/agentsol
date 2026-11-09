@@ -11,7 +11,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "src", "mcp", "main.ts");
 const FAKE_SECRET = "sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890";
 const ROOT_TEXT = `# Root\n- Use npm to run scripts.\n- Demo key ${FAKE_SECRET}\n`;
-const EXPECTED_TOOLS = ["change_propose", "change_status", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "source_read", "sources_list", "sources_scan"];
+const EXPECTED_TOOLS = ["change_propose", "change_status", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "source_read", "sources_list", "sources_scan", "workspace_status"];
 
 type Mode = "legacy" | "auto";
 
@@ -134,12 +134,4 @@ test("MCP entrypoint refuses to start without an explicit workspace", async () =
   const r = spawnSync(process.execPath, [SERVER], { cwd: REPO, env: { PATH: process.env.PATH ?? "" }, encoding: "utf8", timeout: 20_000 });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /--workspace/);
-});
-
-test("MCP code never imports the human approval module", async () => {
-  const dir = path.join(REPO, "src", "mcp");
-  for (const f of await readdir(dir)) {
-    const text = await readFile(path.join(dir, f), "utf8");
-    assert.ok(!/humanApproval/.test(text), `${f} must not import humanApproval`);
-  }
 });

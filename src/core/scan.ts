@@ -28,7 +28,10 @@ export async function scanProject(store: WorkspaceStore, projectId: ProjectId, a
   if (!project) return err(`Unknown project ${projectId}`);
   const root = await verifyRegisteredRoot(project.rootReal);
   if (!root.ok) {
-    store.audit({ actor, action: "scan_refused", entityId: projectId, detail: { reason: root.error } });
+    store.transaction(() => {
+      store.recordScan(projectId, "refused", { reason: root.error });
+      store.audit({ actor, action: "scan_refused", entityId: projectId, detail: { reason: root.error } });
+    });
     return err(root.error);
   }
   const found = await discover(project.rootReal);
@@ -44,6 +47,7 @@ export async function scanProject(store: WorkspaceStore, projectId: ProjectId, a
       if (changed) newVersions += 1;
     }
     store.replaceExclusions(projectId, found.exclusions);
+    store.recordScan(projectId, "ok", { sources: found.sources.length, exclusions: found.exclusions.length, skipped: found.skipped });
     return store.markMissingExcept(projectId, new Set(found.sources.map((s) => s.relPath)));
   });
   const findings = await runChecksForProject(store, projectId);

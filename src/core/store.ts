@@ -32,7 +32,7 @@ import {
 } from "./schemas.ts";
 
 export const DB_FILE = "workspace.sqlite";
-const SCHEMA_VERSION = "2";
+const SCHEMA_VERSION = "3";
 /** Approvals expire if not used within this window. */
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const now = (): string => new Date().toISOString();
@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS approvals(
 CREATE TABLE IF NOT EXISTS apply_intents(
   proposal_id TEXT PRIMARY KEY REFERENCES proposals(id), approval_id TEXT NOT NULL REFERENCES approvals(id),
   base_raw_sha256 TEXT NOT NULL, expected_new_sha256 TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scans(
+  project_id TEXT PRIMARY KEY REFERENCES projects(id), at TEXT NOT NULL, outcome TEXT NOT NULL, summary TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS request_keys(
+  project_id TEXT NOT NULL REFERENCES projects(id), operation TEXT NOT NULL, request_key TEXT NOT NULL,
+  request_sha256 TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, operation, request_key));
 CREATE TABLE IF NOT EXISTS audit_events(
   seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL);
 `;
@@ -243,16 +249,56 @@ export class WorkspaceStore {
     this.db.close();
   }
 
+  private txDepth = 0;
+
+  /**
+   * Runs fn atomically. The outermost call takes the write lock up front
+   * (BEGIN IMMEDIATE); nested calls use savepoints so callers can compose operations.
+   */
   transaction<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
+    const depth = this.txDepth;
+    const sp = `sp_${depth}`;
+    this.db.exec(depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT ${sp}`);
+    this.txDepth += 1;
     try {
       const result = fn();
-      this.db.exec("COMMIT");
+      this.txDepth -= 1;
+      this.db.exec(depth === 0 ? "COMMIT" : `RELEASE ${sp}`);
       return result;
     } catch (e) {
-      this.db.exec("ROLLBACK");
+      this.txDepth -= 1;
+      if (depth === 0) this.db.exec("ROLLBACK");
+      else this.db.exec(`ROLLBACK TO ${sp}; RELEASE ${sp}`);
       throw e;
     }
+  }
+
+  // Scans -------------------------------------------------------------------
+  recordScan(projectId: ProjectId, outcome: "ok" | "refused", summary: unknown): void {
+    this.db
+      .prepare("INSERT INTO scans(project_id, at, outcome, summary) VALUES (?, ?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET at = excluded.at, outcome = excluded.outcome, summary = excluded.summary")
+      .run(projectId, now(), outcome, JSON.stringify(summary));
+  }
+
+  getScan(projectId: ProjectId): { at: string; outcome: "ok" | "refused"; summary: unknown } | null {
+    const row = this.db.prepare("SELECT at, outcome, summary FROM scans WHERE project_id = ?").get(projectId);
+    if (!row) return null;
+    const r = z.object({ at: z.string(), outcome: z.enum(["ok", "refused"]), summary: z.string() }).parse(row);
+    return { at: r.at, outcome: r.outcome, summary: JSON.parse(r.summary) };
+  }
+
+  // Request keys (replay protection for assistant writes) ---------------------
+  getRequestKey(projectId: ProjectId, operation: string, key: string): { requestSha256: string; response: unknown } | null {
+    const row = this.db.prepare("SELECT request_sha256, response FROM request_keys WHERE project_id = ? AND operation = ? AND request_key = ?").get(projectId, operation, key);
+    if (!row) return null;
+    const r = z.object({ request_sha256: z.string(), response: z.string() }).parse(row);
+    return { requestSha256: r.request_sha256, response: JSON.parse(r.response) };
+  }
+
+  putRequestKey(projectId: ProjectId, operation: string, key: string, requestSha256: string, response: unknown): void {
+    this.db
+      .prepare("INSERT INTO request_keys(project_id, operation, request_key, request_sha256, response, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(projectId, operation, key, requestSha256, JSON.stringify(response), now());
   }
 
   audit(args: { actor: string; action: string; entityId: string; detail?: unknown }): void {
@@ -424,6 +470,13 @@ export class WorkspaceStore {
         "INSERT INTO proposals(id, project_id, source_id, base_version_id, proposal_sha256, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
       )
       .run(body.id, body.projectId, body.sourceId, body.baseVersionId, body.proposalSha256, JSON.stringify(body), body.createdAt, body.createdAt);
+  }
+
+  findProposalByDigest(projectId: ProjectId, proposalSha256: string, status: ProposalStatus): StoredProposal | null {
+    const row = this.db.prepare("SELECT body, status, updated_at FROM proposals WHERE project_id = ? AND proposal_sha256 = ? AND status = ? ORDER BY created_at LIMIT 1").get(projectId, proposalSha256, status);
+    if (!row) return null;
+    const parsed = ProposalRow.parse(row);
+    return { body: ProposalBodySchema.parse(JSON.parse(parsed.body)), status: parsed.status, updatedAt: parsed.updated_at };
   }
 
   getProposal(id: ProposalId): StoredProposal | null {

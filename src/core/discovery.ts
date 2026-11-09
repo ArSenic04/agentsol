@@ -12,6 +12,7 @@ export type ExclusionReason =
   | "symlink_not_followed"
   | "hard_link"
   | "personal_local_file"
+  | "case_variant_name"
   | "changed_during_read"
   | "too_large"
   | "binary"
@@ -29,7 +30,16 @@ export type DiscoveredSource = {
 };
 
 /** Counts only: names of unrelated or secret-like entries are never recorded. */
-export type SkippedCounts = { secretLike: number; symlinks: number; unreadableDirs: number; limitReached: boolean };
+export type SkippedCounts = {
+  secretLike: number;
+  symlinks: number;
+  unreadableDirs: number;
+  /** Directories such as node_modules, dist or build that are not walked. */
+  skippedDirs: number;
+  /** Directories deeper than LIMITS.maxDepth that were not walked. */
+  depthLimited: number;
+  limitReached: boolean;
+};
 
 export type DiscoveryResult = {
   readonly sources: DiscoveredSource[];
@@ -44,6 +54,8 @@ const SKIP_DIRS: ReadonlySet<string> = new Set([
   "__pycache__", ".cache", "target", "coverage", ".agentweave", ".local-workspace",
 ]);
 
+const CASE_VARIANTS: ReadonlySet<string> = new Set(["agents.md", "agents.override.md", "claude.md", "claude.local.md", "skill.md"]);
+
 /** Personal files that are usually gitignored; not read unless a later opt-in adds them. */
 const PERSONAL_FORMATS: ReadonlySet<SourceFormat> = new Set(["claude-local-md"]);
 
@@ -56,7 +68,7 @@ const PERSONAL_FORMATS: ReadonlySet<SourceFormat> = new Set(["claude-local-md"])
 export async function discover(rootReal: string): Promise<DiscoveryResult> {
   const sources: DiscoveredSource[] = [];
   const exclusions: { relPath: string; reason: ExclusionReason }[] = [];
-  const skipped: SkippedCounts = { secretLike: 0, symlinks: 0, unreadableDirs: 0, limitReached: false };
+  const skipped: SkippedCounts = { secretLike: 0, symlinks: 0, unreadableDirs: 0, skippedDirs: 0, depthLimited: 0, limitReached: false };
   const queue: { rel: string; depth: number }[] = [{ rel: "", depth: 0 }];
   let entriesSeen = 0;
 
@@ -86,11 +98,16 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
       }
       if (entry.isDirectory()) {
         if (isSecretLikeDirName(entry.name)) skipped.secretLike += 1;
-        else if (!SKIP_DIRS.has(entry.name) && next.depth + 1 <= LIMITS.maxDepth) queue.push({ rel, depth: next.depth + 1 });
+        else if (SKIP_DIRS.has(entry.name)) skipped.skippedDirs += 1;
+        else if (next.depth + 1 > LIMITS.maxDepth) skipped.depthLimited += 1;
+        else queue.push({ rel, depth: next.depth + 1 });
         continue;
       }
       if (!format) {
         if (isSecretLikeFileName(entry.name)) skipped.secretLike += 1;
+        // agents.md / Claude.md: case-insensitive filesystems (macOS default) let clients
+        // open these as AGENTS.md / CLAUDE.md. AgentWeave does not read them; it reports them.
+        else if (CASE_VARIANTS.has(entry.name.toLowerCase())) exclusions.push({ relPath: rel, reason: "case_variant_name" });
         continue;
       }
       if (PERSONAL_FORMATS.has(format)) {

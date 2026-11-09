@@ -34,6 +34,8 @@ export type SemanticFindingInput = z.infer<typeof SemanticFindingInputSchema>;
 
 export type SubmitResult = {
   accepted: FindingId[];
+  /** Subset of accepted: identical to a finding already recorded, so the existing id is returned. */
+  duplicates: FindingId[];
   rejected: { index: number; errors: (EvidenceError | { code: "too_few_sources" | "secret_in_text"; message: string })[] }[];
 };
 
@@ -42,7 +44,11 @@ export function submitSemanticFindings(
   store: WorkspaceStore,
   args: { projectId: ProjectId; findings: readonly SemanticFindingInput[]; reporter: string },
 ): SubmitResult {
-  const result: SubmitResult = { accepted: [], rejected: [] };
+  const result: SubmitResult = { accepted: [], duplicates: [], rejected: [] };
+  const contentKey = (f: { checkId: string; title: string; message: string; evidence: readonly EvidenceSpan[] }): string =>
+    JSON.stringify([f.checkId, f.title, f.message, f.evidence.map((e) => [e.sourceId, e.versionId, e.startLine, e.endLine])]);
+  const known = new Map<string, FindingId>();
+  for (const f of store.listFindings(args.projectId, "semantic")) known.set(contentKey(f), f.id);
   args.findings.forEach((input, index) => {
     const spans: EvidenceSpan[] = [];
     const errors: SubmitResult["rejected"][number]["errors"] = [];
@@ -63,6 +69,13 @@ export function submitSemanticFindings(
       result.rejected.push({ index, errors });
       return;
     }
+    const key = contentKey({ checkId: input.checkId, title: input.title, message: input.message, evidence: spans });
+    const dup = known.get(key);
+    if (dup) {
+      result.accepted.push(dup);
+      result.duplicates.push(dup);
+      return;
+    }
     const finding: SemanticFinding = {
       kind: "semantic",
       id: newFindingId(),
@@ -80,6 +93,7 @@ export function submitSemanticFindings(
       store.insertFinding(args.projectId, finding);
       store.audit({ actor: args.reporter, action: "finding_submitted", entityId: finding.id, detail: { checkId: finding.checkId } });
     });
+    known.set(key, finding.id);
     result.accepted.push(finding.id);
   });
   return result;

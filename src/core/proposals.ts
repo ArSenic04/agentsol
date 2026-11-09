@@ -88,7 +88,7 @@ export function renderDiff(relPath: string, lines: readonly string[], edits: rea
 export function proposeChange(
   store: WorkspaceStore,
   args: { projectId: ProjectId; input: ProposeInput; author: string },
-): Result<{ proposal: ProposalBody; diff: string }, ProposeError[]> {
+): Result<{ proposal: ProposalBody; diff: string; duplicate: boolean }, ProposeError[]> {
   const { input } = args;
   if (!isSourceId(input.sourceId) || !isVersionId(input.baseVersionId)) return err([{ code: "bad_id", message: "sourceId/baseVersionId are malformed" }]);
   const source = store.getSource(input.sourceId);
@@ -114,18 +114,24 @@ export function proposeChange(
   if (Buffer.byteLength(applied.value.join("\n"), "utf8") > LIMITS.maxFileBytes) return err([{ code: "too_large", message: "Result would exceed the size limit" }]);
 
   const base = { projectId: args.projectId, sourceId: source.id, relPath: source.relPath, baseVersionId: version.id, baseRawSha256: version.rawSha256, edits: input.edits };
+  const digest = proposalDigest(base);
+  const diff = renderDiff(source.relPath, version.lines, input.edits);
+  // The same edits against the same base version are the same change; return the pending
+  // one instead of creating a second proposal. This says nothing about the change being right.
+  const existing = store.findProposalByDigest(args.projectId, digest, "pending");
+  if (existing) return ok({ proposal: existing.body, diff, duplicate: true });
   const proposal: ProposalBody = {
     ...base,
     id: newProposalId(),
     rationale: input.rationale,
     findingIds,
     author: args.author,
-    proposalSha256: proposalDigest(base),
+    proposalSha256: digest,
     createdAt: new Date().toISOString(),
   };
   store.transaction(() => {
     store.insertProposal(proposal);
     store.audit({ actor: args.author, action: "proposal_created", entityId: proposal.id, detail: { sourceId: source.id, baseVersionId: version.id } });
   });
-  return ok({ proposal, diff: renderDiff(source.relPath, version.lines, input.edits) });
+  return ok({ proposal, diff, duplicate: false });
 }

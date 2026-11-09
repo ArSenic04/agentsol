@@ -29,6 +29,7 @@ npm run check                                   # typecheck plus all tests
 export AGENTWEAVE_WORKSPACE="$PWD/.local-workspace"   # gitignored
 npm run cli -- project add /path/to/a/project --name demo
 npm run cli -- projects
+npm run cli -- status                # add --json for machine-readable output (also: sources, findings, scan)
 npm run cli -- scan <projectId>
 npm run cli -- findings <projectId>
 npm run cli -- review <proposalId>
@@ -44,7 +45,9 @@ Example MCP client config (stdio). Not installed automatically:
 ```
 
 ## MCP tools
-`projects_list`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `change_status`. There is no approve, apply, write or delete tool.
+`projects_list`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `change_status`, `workspace_status`. There is no approve, apply, write or delete tool.
+
+The CLI and the MCP server call the same assistant-safe service (`src/core/service/assistant.ts`), so validation, redaction and error messages are identical; `--json` output equals the MCP result. Approve, reject, apply and project registration live in a separate operator service that only the CLI imports. `findings_submit` and `change_propose` accept an optional `requestKey`: retrying with the same key returns the original result, and reusing a key for a different request is refused.
 
 ## What is protected
 - **What gets read:** only folders you register with the CLI are visible. Your home folder (and anything containing it), `/`, system folders, `~/Library` and config folders, broad folders such as `~/Documents`, secret-named folders and the workspace itself are refused.
