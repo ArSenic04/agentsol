@@ -7,7 +7,11 @@ import { randomBytes } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { detectAgentEnvironment } from "../core/agentEnv.ts";
+import type { ProjectFreshness } from "../core/freshness.ts";
+import { runDoctor } from "./doctor.ts";
 import { sanitizeForTerminal } from "../core/display.ts";
 import { isProposalId } from "../core/ids.ts";
 import { createAssistantService } from "../core/service/assistant.ts";
@@ -20,9 +24,11 @@ import { workspaceFrom } from "../core/workspaceArg.ts";
 const USAGE = `agentweave --workspace <dir> <command> [--json]
 
 Commands (human-run, local only):
+  doctor [--json]                       non-destructive preflight: Node, installed packages, workspace, terminal
   project add <path> [--name <name>]   register a project folder (never home, /, system or broad folders)
   projects                              list registered projects (with local paths)
-  status [--json]                       workspace status: scans, partial coverage, stale findings, proposals
+  status [--json]                       workspace status: last-scan snapshot, partial coverage, disk freshness, proposals
+  freshness <projectId> [--json]        per-file disk freshness since the last scan (metadata only; not proof)
   scan <projectId> [--json]             discover instruction files and run deterministic checks
   sources <projectId> [--json]          list sources and instruction files not read
   findings <projectId> [--json]         list current structural and possible (assistant-reported) findings
@@ -76,14 +82,38 @@ function show<T>(r: ServiceResult<T>, json: boolean, text: (v: T) => void): numb
   return 0;
 }
 
+const localTime = (iso: string): string => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : `${d.toLocaleString()} (local time)`;
+};
+
+function describeFreshness(f: ProjectFreshness): string {
+  switch (f.state) {
+    case "not_checked":
+      return "not checked (never scanned)";
+    case "unknown":
+      return f.reason === "root_replaced" ? "UNKNOWN: the project folder was replaced since the last scan; scan again"
+        : f.reason === "root_unavailable" ? "UNKNOWN: the project folder is missing, moved or now a symlink"
+        : "UNKNOWN: no disk metadata from the last scan (scanned with an older version); scan again";
+    default: {
+      const c = f.counts;
+      const detail = `${c.changed} changed, ${c.removed} removed, ${c.unsafe} unsafe, ${c.unknown} unknown, ${c.metadata_unchanged} with unchanged metadata`;
+      return f.state === "changes_detected" ? `CHANGES DETECTED since the last scan (${detail}); findings may be out of date, scan again`
+        : f.state === "incomplete" ? `incomplete (${detail}); scan again to refresh`
+        : `no known changes (${detail}); not proof of no change, and new files need a scan`;
+    }
+  }
+}
+
 function renderStatus(p: ProjectStatus): void {
   const scan = p.scan.state === "never_scanned" ? "never scanned: nothing is known yet"
-    : p.scan.state === "refused" ? `scan refused at ${p.scan.at}: ${p.scan.reason}`
-    : `scanned ${p.scan.at}${p.scan.partial ? " (PARTIAL)" : ""}`;
+    : p.scan.state === "refused" ? `scan refused at ${localTime(p.scan.at)}: ${p.scan.reason}`
+    : `scanned ${localTime(p.scan.at)}${p.scan.partial ? " (PARTIAL coverage)" : ""}`;
   out(`${p.projectId}  ${p.name}\n  ${scan}`);
   if (p.scan.state === "scanned") for (const r of p.scan.partialReasons) out(`    - ${r}`);
   out(`  sources: ${p.sources.present} present, ${p.sources.missing} missing, ${p.sources.withRedactedLines} with redacted lines; ${p.notRead.total} instruction file(s) not read`);
-  out(`  findings: ${p.findings.structural} structural, ${p.findings.semantic} possible, ${p.findings.staleHidden} hidden as stale`);
+  out(`  disk now: ${describeFreshness(p.freshness)}`);
+  out(`  findings (last scan): ${p.findings.structural} structural, ${p.findings.semantic} possible, ${p.findings.staleHidden} hidden as stale`);
   const pr = p.proposals;
   out(`  proposals: ${pr.pending} pending (${pr.pendingOnOldVersion} on an old version), ${pr.applying} applying, ${pr.stale} stale, ${pr.applied} applied, ${pr.rejected} rejected`);
 }
@@ -108,6 +138,21 @@ async function run(argv: string[]): Promise<number> {
   if (!command || command === "help" || command === "--help") {
     out(USAGE);
     return command ? 0 : 2;
+  }
+  if (command === "doctor") {
+    const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+    const report = runDoctor({ repo, workspace: dir, env: process.env, isTTY: isInteractive() });
+    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else {
+      for (const c of report.checks) out(`${c.status.toUpperCase().padEnd(4)}  ${c.message}`);
+      if (report.launch) {
+        out(`\nCLI:        ${report.launch.cli}`);
+        out(`MCP server: ${report.launch.mcp}`);
+        out(`MCP client config (example only; AgentWeave does not install it):\n${JSON.stringify(report.launch.mcpClientConfig, null, 2)}`);
+      }
+      out(report.ok ? "\nNo blocking problems found. This does not test any assistant client." : "\nFix the FAIL items above first.");
+    }
+    return report.ok ? 0 : 1;
   }
   if (!dir) return fail("pass --workspace <dir> or set AGENTWEAVE_WORKSPACE", 2);
   let store: WorkspaceStore;
@@ -144,7 +189,7 @@ async function run(argv: string[]): Promise<number> {
         for (const p of ops.listProjectsWithRoots()) out(`${p.id}  ${p.name}  ${p.rootReal}`);
         return 0;
       case "status":
-        return show(svc.status(), json, (s) => {
+        return show(await svc.status(), json, (s) => {
           if (s.projects.length === 0) out("No projects registered.");
           for (const p of s.projects) renderStatus(p);
           out("");
@@ -152,6 +197,12 @@ async function run(argv: string[]): Promise<number> {
         });
       case "scan":
         return show(await svc.scan({ projectId: arg }), json, (v) => out(JSON.stringify(v, null, 2)));
+      case "freshness":
+        return show(await svc.freshness({ projectId: arg }), json, (v) => {
+          out(describeFreshness(v.freshness));
+          for (const s of v.sources) out(`  ${s.state.padEnd(18)}  ${s.relPath}`);
+          for (const c of v.caveats) out(`note: ${c}`);
+        });
       case "sources":
         return show(svc.listSources({ projectId: arg }), json, (v) => {
           for (const s of v.sources) out(`${s.sourceId}  ${s.status.padEnd(7)}  ${s.format.padEnd(18)}  ${s.relPath}${s.redactedLineCount > 0 ? `  (${s.redactedLineCount} redacted line(s))` : ""}`);
@@ -167,7 +218,7 @@ async function run(argv: string[]): Promise<number> {
           }
         });
       case "proposals": {
-        const exists = svc.projectStatus({ projectId: arg });
+        const exists = await svc.projectStatus({ projectId: arg });
         if (!exists.ok) return fail(exists.error.message, 2);
         for (const p of store.listProposals(exists.value.projectId)) out(`${p.body.id}  ${p.status.padEnd(8)}  ${p.body.relPath}  by ${p.body.author}`);
         return 0;

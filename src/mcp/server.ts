@@ -13,7 +13,7 @@ export { DISCLOSURE, UNTRUSTED };
 
 export const INSTRUCTIONS = [
   "AgentWeave audits AI agent instruction files in projects that a person registered locally with the AgentWeave CLI.",
-  "1. projects_list or workspace_status, then sources_list (run sources_scan first if the list is empty or stale).",
+  "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
   "2. source_read returns numbered, redacted lines plus the current versionId.",
   "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
   "4. Report your own observations with findings_submit as POSSIBLE issues. Every finding needs exact quoted evidence (sourceId, current versionId, line range, exact text). Layered or overlapping scopes are normal; only call something a contradiction when the quoted text actually conflicts.",
@@ -50,7 +50,12 @@ export function createAgentWeaveServer(store: WorkspaceStore, opts: { onInternal
   server.registerTool(
     "workspace_status",
     { description: "Read-only status per project: last scan (never, refused, or scanned and whether it was partial), present/missing/redacted sources, files not read by reason, current and stale-hidden findings, proposal counts. No file text or paths.", annotations: ro },
-    async () => reply(svc.status()),
+    async () => reply(await svc.status()),
+  );
+  server.registerTool(
+    "sources_freshness",
+    { description: "For one project, report per recorded source whether it looks changed, removed or unsafe on disk since the last scan, using file metadata only (no content is read). metadata_unchanged is a hint, not proof; new files are not detected until sources_scan.", inputSchema: Inputs.project, annotations: ro },
+    async (args) => reply(await svc.freshness(args)),
   );
   server.registerTool(
     "sources_scan",

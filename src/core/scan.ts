@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import { runStructuralChecks, type CheckSource } from "./checks.ts";
 import { discover, type SkippedCounts } from "./discovery.ts";
 import type { ProjectId } from "./ids.ts";
@@ -34,21 +35,27 @@ export async function scanProject(store: WorkspaceStore, projectId: ProjectId, a
     });
     return err(root.error);
   }
+  const rootBefore = await lstat(project.rootReal, { bigint: true });
   const found = await discover(project.rootReal);
   let newVersions = 0;
   const missing = store.transaction(() => {
     for (const s of found.sources) {
-      const { changed } = store.recordVersion({
+      const recorded = store.recordVersion({
         projectId,
         relPath: s.relPath,
         format: s.format,
         version: versionInputFromText({ text: s.text, rawSha256: s.rawSha256, byteLength: s.byteLength, origin: "import" }),
       });
+      const changed = recorded.changed;
       if (changed) newVersions += 1;
+      store.putObservation(recorded.source.id, recorded.version.id, s.meta);
     }
+    store.putRootObservation(projectId, { dev: rootBefore.dev.toString(), ino: rootBefore.ino.toString() });
     store.replaceExclusions(projectId, found.exclusions);
     store.recordScan(projectId, "ok", { sources: found.sources.length, exclusions: found.exclusions.length, skipped: found.skipped });
-    return store.markMissingExcept(projectId, new Set(found.sources.map((s) => s.relPath)));
+    const presentPaths = new Set(found.sources.map((s) => s.relPath));
+    for (const s of store.listSources(projectId)) if (!presentPaths.has(s.relPath)) store.deleteObservation(s.id);
+    return store.markMissingExcept(projectId, presentPaths);
   });
   const findings = await runChecksForProject(store, projectId);
   store.audit({ actor, action: "scan", entityId: projectId, detail: { sources: found.sources.length, newVersions, missing } });

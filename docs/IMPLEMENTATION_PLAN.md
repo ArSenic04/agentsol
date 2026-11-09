@@ -46,10 +46,44 @@ One SQLite file (`workspace.sqlite`, through `node:sqlite`) in a workspace direc
 - No auth, server routes, web UI or multi-user support. One local OS user is the trust boundary.
 - Real MCP client walkthroughs (Claude Code, Codex, Cursor) and a human interactive approve/apply after the milestone-3 refactor remain unverified.
 
-## Next smallest unit (after milestone 3)
-Make status detect "changed since last scan" without reading content: record size and mtime per source at scan time and compare with `lstat` when status is requested, reporting `changedSinceScan` per project. Measurable: a test edits a file after scanning and status flags it; no file text is read. Separately (needs Shivam, not an agent): run the demo in one real MCP client and do one interactive approve/apply on the synthetic demo.
+## Milestone 4: honest freshness and first-run onboarding (done)
+- `src/core/fileMeta.ts` + `src/core/freshness.ts`:
+  - At scan time, each read source's `lstat` metadata (dev, ino, size, mtime ns, ctime ns, nlink) is stored in `source_observations`, and the root folder's dev and ino in `root_observations` (schema v4, additive).
+  - Metadata is taken from the open handle before the bytes are read, so a mid-read write shows up as a change later.
+  - `checkFreshness` re-runs `lstat` through the symlink-refusing path walk and never reads content.
+- States:
+  - Per source: `metadata_unchanged`, `changed`, `removed`, `unsafe`, `unknown`.
+  - Per project:
+    - `not_checked`: never scanned.
+    - `unknown`: `root_unavailable`, `root_replaced` or `no_root_metadata`.
+    - `changes_detected`, `incomplete` or `no_known_changes`.
+  - A recorded file that gains a hard link is `unsafe`. An observation recorded for a different version than the current one (for example after an apply whose rescan failed) is `unknown`.
+- Surfaces:
+  - `ProjectStatus.freshness`, plus `findings.basis = "last_scan_snapshot"`.
+  - Assistant service `freshness()`, MCP `sources_freshness`, and CLI `freshness <projectId> [--json]`. The CLI output equals MCP except `checkedAt`.
+  - `status` now returns a Promise because it performs `lstat`.
+- Freshness is not imported by `humanApproval.ts`, `proposals.ts`, `evidence.ts` or `semantic.ts`, and a test enforces that. Apply still refuses by byte hash when the size and mtime have been restored.
+- `npm run doctor` (`scripts/doctor.mjs`, then `src/cli/doctor.ts`):
+  - Checks Node (plain-JS version gate first), node:sqlite, the lockfile against installed versions of the direct dependencies, workspace existence, privacy and symlink state, the schema version (opened read-only), and whether the terminal is agent-driven.
+  - Prints the exact CLI and MCP commands and an MCP config with absolute paths.
+  - Never creates, migrates or writes the workspace. No network. Never prints environment variable values.
+- Demo:
+  - Rerunning keeps the existing demo and prints its proposals and next commands, with exit 0.
+  - `--reset` refuses while proposals exist unless `--discard-proposals` is passed.
+  - Expected refusals print one line without a stack trace.
 
-## Next smallest unit (after review pass 1)
+## Still unsupported after milestone 4
+- Freshness cannot detect new instruction files, renames into supported names, or changes to excluded files (symlinks, case variants, skipped folders) without a scan.
+- Equal metadata is not proof of equal content. A same-size rewrite with restored mtime is caught on macOS only because ctime changes; filesystems with coarse or unreliable timestamps (some network or FUSE mounts) may miss changes.
+- Workspaces created by earlier versions report `unknown` / `no_root_metadata` until each project is rescanned.
+- Doctor checks direct dependencies only (not the full tree) and does not run `npm audit` (that needs network).
+- Only Node 26.8.2 on macOS has been run. The declared `>=24` floor is untested.
+
+## Next smallest unit (after milestone 4)
+A person (Shivam) runs the walkthrough on the existing synthetic demo in a normal terminal: `npm run doctor`, `status`, `review`, `approve` and `apply` for the pending demo proposal, then `status` again. Record each command's output and any confusing step. This is the first human validation of the approval path since milestone 2 and needs no assistant client. Software follow-up (agent-doable): a `scan --if-changed` option, or a status hint, that tells the user to rescan when freshness reports changes.
+
+## Older next units
+### After review pass 1
 The workspace product needs a small "workspace service" layer in `src/core` that the CLI, the MCP server and a later hosted workspace all call. Commands such as register, scan, list and propose would go through it, with typed results, instead of each entry point calling store functions directly. Then add a read-only `status` view (projects, pending proposals, stale findings) as its first consumer.
 
 ## Earlier next unit

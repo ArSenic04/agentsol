@@ -11,7 +11,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "src", "mcp", "main.ts");
 const FAKE_SECRET = "sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890";
 const ROOT_TEXT = `# Root\n- Use npm to run scripts.\n- Demo key ${FAKE_SECRET}\n`;
-const EXPECTED_TOOLS = ["change_propose", "change_status", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "source_read", "sources_list", "sources_scan", "workspace_status"];
+const EXPECTED_TOOLS = ["change_propose", "change_status", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "source_read", "sources_freshness", "sources_list", "sources_scan", "workspace_status"];
 
 type Mode = "legacy" | "auto";
 

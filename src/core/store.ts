@@ -1,3 +1,4 @@
+import { DirIdentitySchema, FileMetaSchema, type DirIdentity, type FileMeta } from "./fileMeta.ts";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -32,7 +33,7 @@ import {
 } from "./schemas.ts";
 
 export const DB_FILE = "workspace.sqlite";
-const SCHEMA_VERSION = "3";
+export const SCHEMA_VERSION = "4";
 /** Approvals expire if not used within this window. */
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const now = (): string => new Date().toISOString();
@@ -61,6 +62,10 @@ CREATE TABLE IF NOT EXISTS apply_intents(
   base_raw_sha256 TEXT NOT NULL, expected_new_sha256 TEXT, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS scans(
   project_id TEXT PRIMARY KEY REFERENCES projects(id), at TEXT NOT NULL, outcome TEXT NOT NULL, summary TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS source_observations(
+  source_id TEXT PRIMARY KEY REFERENCES sources(id), version_id TEXT NOT NULL REFERENCES versions(id), meta TEXT NOT NULL, observed_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS root_observations(
+  project_id TEXT PRIMARY KEY REFERENCES projects(id), identity TEXT NOT NULL, observed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS request_keys(
   project_id TEXT NOT NULL REFERENCES projects(id), operation TEXT NOT NULL, request_key TEXT NOT NULL,
   request_sha256 TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL,
@@ -285,6 +290,38 @@ export class WorkspaceStore {
     if (!row) return null;
     const r = z.object({ at: z.string(), outcome: z.enum(["ok", "refused"]), summary: z.string() }).parse(row);
     return { at: r.at, outcome: r.outcome, summary: JSON.parse(r.summary) };
+  }
+
+  // Observations (metadata hints for freshness; never used as a correctness guard) ---
+  putObservation(sourceId: SourceId, versionId: VersionId, meta: FileMeta): void {
+    this.db
+      .prepare("INSERT INTO source_observations(source_id, version_id, meta, observed_at) VALUES (?, ?, ?, ?) ON CONFLICT(source_id) DO UPDATE SET version_id = excluded.version_id, meta = excluded.meta, observed_at = excluded.observed_at")
+      .run(sourceId, versionId, JSON.stringify(meta), now());
+  }
+
+  getObservation(sourceId: SourceId): { versionId: string; meta: FileMeta } | null {
+    const row = this.db.prepare("SELECT version_id, meta FROM source_observations WHERE source_id = ?").get(sourceId);
+    if (!row) return null;
+    const r = z.object({ version_id: z.string(), meta: z.string() }).parse(row);
+    const meta = FileMetaSchema.safeParse(JSON.parse(r.meta));
+    return meta.success ? { versionId: r.version_id, meta: meta.data } : null;
+  }
+
+  deleteObservation(sourceId: SourceId): void {
+    this.db.prepare("DELETE FROM source_observations WHERE source_id = ?").run(sourceId);
+  }
+
+  putRootObservation(projectId: ProjectId, identity: DirIdentity): void {
+    this.db
+      .prepare("INSERT INTO root_observations(project_id, identity, observed_at) VALUES (?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET identity = excluded.identity, observed_at = excluded.observed_at")
+      .run(projectId, JSON.stringify(identity), now());
+  }
+
+  getRootObservation(projectId: ProjectId): DirIdentity | null {
+    const row = this.db.prepare("SELECT identity FROM root_observations WHERE project_id = ?").get(projectId);
+    if (!row) return null;
+    const parsed = DirIdentitySchema.safeParse(JSON.parse(z.object({ identity: z.string() }).parse(row).identity));
+    return parsed.success ? parsed.data : null;
   }
 
   // Request keys (replay protection for assistant writes) ---------------------

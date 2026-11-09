@@ -3,9 +3,10 @@
  * stdio the way an assistant would: list, scan, read, submit a finding, propose a change.
  * It never touches real projects and never approves or applies anything.
  *
- *   npm run demo                 # creates $TMPDIR/agentweave-demo
+ *   npm run demo                 # creates $TMPDIR/agentweave-demo, or shows the existing demo and its next steps
  *   npm run demo -- --dir <dir>  # somewhere else (must be empty or an earlier demo)
- *   npm run demo -- --reset      # delete an earlier demo folder first
+ *   npm run demo -- --reset      # recreate an earlier demo; refuses if it holds proposals
+ *   npm run demo -- --reset --discard-proposals   # recreate even though proposals would be lost
  */
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
@@ -15,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { validateProjectRoot } from "../src/core/projectRoots.ts";
-import { WorkspaceStore } from "../src/core/store.ts";
+import { DB_FILE, WorkspaceStore } from "../src/core/store.ts";
 import { DEMO_FILES, DEMO_MARKER } from "./demoFixture.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,20 +24,55 @@ const say = (s: string): void => {
   process.stdout.write(`${s}\n`);
 };
 
-function parseArgs(argv: string[]): { dir: string; reset: boolean } {
+type Args = { dir: string; reset: boolean; discardProposals: boolean };
+function parseArgs(argv: string[]): Args {
   const i = argv.indexOf("--dir");
   const dir = i >= 0 ? argv[i + 1] : undefined;
-  return { dir: path.resolve(dir ?? path.join(tmpdir(), "agentweave-demo")), reset: argv.includes("--reset") };
+  return { dir: path.resolve(dir ?? path.join(tmpdir(), "agentweave-demo")), reset: argv.includes("--reset"), discardProposals: argv.includes("--discard-proposals") };
 }
 
-async function prepare(dir: string, reset: boolean): Promise<void> {
+const cliFor = (wsDir: string): string => `npm run cli -- --workspace "${wsDir}"`;
+
+function printNextSteps(wsDir: string, proposalIds: string[]): void {
+  const cli = cliFor(wsDir);
+  say("Next, as a person in your own terminal (not through an assistant):");
+  say(`  ${cli} status`);
+  for (const id of proposalIds) {
+    say(`  ${cli} review ${id}`);
+    say(`  ${cli} approve ${id}     # shows the diff again, then asks you to type a one-time code`);
+    say(`  ${cli} apply ${id}       # writes the synthetic demo file; a backup is kept`);
+  }
+  say(`\nCheck your setup:  npm run doctor -- --workspace "${wsDir}"`);
+  say(`MCP server command (for a client you configure yourself; nothing is installed for you):\n  ${process.execPath} ${path.join(REPO, "src/mcp/main.ts")} --workspace "${wsDir}"`);
+}
+
+/** What an earlier demo holds, read through the same services the CLI uses. Never modifies it except schema upgrade. */
+type Existing = { proposals: { id: string; status: string }[] };
+function inspectExisting(wsDir: string): Existing {
+  if (!existsSync(path.join(wsDir, DB_FILE))) return { proposals: [] };
+  const store = WorkspaceStore.open(wsDir);
+  try {
+    const proposals = store.listProjects().flatMap((p) => store.listProposals(p.id).map((x) => ({ id: x.body.id, status: x.status })));
+    return { proposals };
+  } finally {
+    store.close();
+  }
+}
+
+/** Returns "created" when a new demo folder was prepared, or "existing" when an earlier demo was kept. */
+async function prepare(args: Args): Promise<"created" | "existing"> {
+  const { dir, reset } = args;
   if (existsSync(dir)) {
     const isDemo = existsSync(path.join(dir, DEMO_MARKER));
     if (!isDemo) {
-      if (readdirSync(dir).length > 0) throw new Error(`${dir} exists and is not an AgentWeave demo folder; refusing to touch it`);
-    } else if (!reset) {
-      throw new Error(`${dir} already holds a demo; rerun with --reset to recreate it`);
+      if (readdirSync(dir).length > 0) throw new UserFacing(`${dir} exists and is not an AgentWeave demo folder; refusing to touch it. Pick another folder with --dir.`);
     } else {
+      const existing = inspectExisting(path.join(dir, "workspace"));
+      if (!reset) return "existing";
+      if (existing.proposals.length > 0 && !args.discardProposals) {
+        const list = existing.proposals.map((p) => `${p.id} (${p.status})`).join(", ");
+        throw new UserFacing(`The demo at ${dir} holds ${existing.proposals.length} proposal(s): ${list}. --reset would delete them, so nothing was changed. Review them first, or rerun with --reset --discard-proposals to start over.`);
+      }
       await rm(dir, { recursive: true, force: true });
     }
   }
@@ -47,6 +83,23 @@ async function prepare(dir: string, reset: boolean): Promise<void> {
     await mkdir(path.dirname(abs), { recursive: true });
     await writeFile(abs, content, { flag: "wx" });
   }
+  return "created";
+}
+
+/** An expected, explained refusal: printed without a stack trace. */
+class UserFacing extends Error {}
+
+async function showExisting(dirReal: string, custom: boolean): Promise<void> {
+  const wsDir = path.join(dirReal, "workspace");
+  const { proposals } = inspectExisting(wsDir);
+  say(`A demo already exists at ${dirReal}; it was kept as is (nothing reset).`);
+  say(`Demo project:   ${path.join(dirReal, "project")}`);
+  say(`Demo workspace: ${wsDir}\n`);
+  if (proposals.length === 0) say("It has no proposals yet.");
+  for (const p of proposals) say(`  proposal ${p.id}: ${p.status}`);
+  say("");
+  printNextSteps(wsDir, proposals.filter((p) => p.status === "pending").map((p) => p.id));
+  say(`\nStart over: npm run demo --${custom ? ` --dir "${dirReal}"` : ""} --reset${proposals.length > 0 ? " --discard-proposals   (deletes the proposals listed above)" : ""}`);
 }
 
 type ToolText = { data: any; isError: boolean };
@@ -58,9 +111,10 @@ async function call(client: Client, name: string, args: Record<string, unknown>)
 }
 
 async function main(): Promise<void> {
-  const { dir, reset } = parseArgs(process.argv.slice(2));
-  await prepare(dir, reset);
-  const dirReal = await realpath(dir);
+  const args = parseArgs(process.argv.slice(2));
+  const prepared = await prepare(args);
+  const dirReal = await realpath(args.dir);
+  if (prepared === "existing") return showExisting(dirReal, process.argv.includes("--dir"));
   const projectDir = path.join(dirReal, "project");
   const wsDir = path.join(dirReal, "workspace");
 
@@ -68,7 +122,7 @@ async function main(): Promise<void> {
   let projectId: string;
   try {
     const root = await validateProjectRoot({ candidate: projectDir, homeReal: await realpath(homedir()), workspaceDir: wsDir });
-    if (!root.ok) throw new Error(root.error);
+    if (!root.ok) throw new UserFacing(root.error);
     projectId = store.addProject({ name: "paper-lantern-demo", rootReal: root.value }).id;
     store.audit({ actor: "demo-script", action: "project_registered", entityId: projectId });
   } finally {
@@ -118,19 +172,15 @@ async function main(): Promise<void> {
     if (proposal.isError) throw new Error(JSON.stringify(proposal.data));
     say(`\nProposed change (nothing written yet):\n${proposal.data.diff}\n`);
     const id = proposal.data.proposalId;
-    const cli = `npm run cli -- --workspace "${wsDir}"`;
-    say("Next, as a person in your own terminal (not through an assistant):");
-    say(`  ${cli} review ${id}`);
-    say(`  ${cli} approve ${id}`);
-    say(`  ${cli} apply ${id}`);
-    say(`\nTo connect an MCP client yourself later, it would run:\n  node ${path.join(REPO, "src/mcp/main.ts")} --workspace "${wsDir}"`);
-    say(`\nDelete the demo any time: rm -rf "${dirReal}"  (or: npm run demo -- --reset)`);
+    printNextSteps(wsDir, [id]);
+    say(`\nDelete the demo any time: rm -rf "${dirReal}"`);
   } finally {
     await client.close();
   }
 }
 
 main().catch((e: unknown) => {
-  process.stderr.write(`demo: ${e instanceof Error ? e.message : String(e)}\n`);
+  if (e instanceof UserFacing) process.stderr.write(`demo: ${e.message}\n`);
+  else process.stderr.write(`demo: unexpected failure: ${e instanceof Error ? e.message : String(e)}\nRun: npm run doctor\n`);
   process.exitCode = 1;
 });

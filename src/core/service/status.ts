@@ -1,4 +1,5 @@
 import { currentFindings } from "../findingsView.ts";
+import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness } from "../freshness.ts";
 import type { ProjectId } from "../ids.ts";
 import type { WorkspaceStore } from "../store.ts";
 
@@ -13,8 +14,11 @@ export type ProjectStatus = {
   scan: ScanState;
   sources: { present: number; missing: number; withRedactedLines: number };
   notRead: { total: number; byReason: Record<string, number> };
-  findings: { structural: number; semantic: number; staleHidden: number };
+  /** Counted from the last scan's snapshot, not re-checked against the disk. */
+  findings: { basis: "last_scan_snapshot"; structural: number; semantic: number; staleHidden: number };
   proposals: { pending: number; pendingOnOldVersion: number; applying: number; stale: number; applied: number; rejected: number };
+  /** Observed on disk now (metadata only). Independent of scan.partial. */
+  freshness: ProjectFreshness;
 };
 
 export type WorkspaceStatus = { projects: ProjectStatus[]; caveats: string[] };
@@ -23,7 +27,8 @@ export const STATUS_CAVEATS = [
   "Only files named AGENTS.md, AGENTS.override.md, CLAUDE.md (including .claude/CLAUDE.md) and SKILL.md are inspected. Zero findings does not mean the instructions are correct or complete.",
   "User-level, managed, .claude/rules, .cursor/rules files and @import targets are not inspected.",
   "Findings that cite older file versions are counted in staleHidden and not shown as current.",
-  "Counts reflect the last scan; files may have changed since.",
+  "Sources, findings and proposal counts are a snapshot of the last scan. 'freshness' is what was observed on disk when you asked; 'scan.partial' is about what the last scan could not cover. They are separate.",
+  ...FRESHNESS_CAVEATS,
 ];
 
 type Skipped = { secretLike?: number; symlinks?: number; unreadableDirs?: number; skippedDirs?: number; depthLimited?: number; limitReached?: boolean };
@@ -41,7 +46,7 @@ function partialReasons(skipped: Skipped, byReason: Record<string, number>): str
 }
 
 /** Read-only status. Contains no file text and no absolute paths. */
-export function projectStatus(store: WorkspaceStore, projectId: ProjectId): ProjectStatus | null {
+export async function projectStatus(store: WorkspaceStore, projectId: ProjectId): Promise<ProjectStatus | null> {
   const project = store.getProject(projectId);
   if (!project) return null;
   const sources = store.listSources(projectId);
@@ -77,15 +82,16 @@ export function projectStatus(store: WorkspaceStore, projectId: ProjectId): Proj
     scan,
     sources: { present: present.length, missing: sources.length - present.length, withRedactedLines },
     notRead: { total: Object.values(byReason).reduce((a, b) => a + b, 0), byReason },
-    findings: { structural: structural.findings.length, semantic: semantic.findings.length, staleHidden: structural.staleHidden + semantic.staleHidden },
+    findings: { basis: "last_scan_snapshot", structural: structural.findings.length, semantic: semantic.findings.length, staleHidden: structural.staleHidden + semantic.staleHidden },
     proposals,
+    freshness: (await checkFreshness(store, projectId))?.project ?? { state: "not_checked", reason: "never_scanned" },
   };
 }
 
-export function workspaceStatus(store: WorkspaceStore): WorkspaceStatus {
+export async function workspaceStatus(store: WorkspaceStore): Promise<WorkspaceStatus> {
   const projects: ProjectStatus[] = [];
   for (const p of store.listProjects()) {
-    const s = projectStatus(store, p.id);
+    const s = await projectStatus(store, p.id);
     if (s) projects.push(s);
   }
   return { projects, caveats: STATUS_CAVEATS };

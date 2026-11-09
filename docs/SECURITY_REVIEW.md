@@ -55,3 +55,18 @@ Scope: the code and tests in this repository. Every fixed defect has a regressio
 - Symlinks (files and folders) are never followed, including the common `CLAUDE.md -> AGENTS.md` pattern. They are reported as `symlink_not_followed`, and `scope_resolve` lists them as presence-only, so a client that does load them is not misrepresented as loading nothing.
 - `@import` lines are never followed. `.claude/AGENTS.md` is not a documented Claude Code location and is not read.
 - Not fixed: hard-linked instruction files are refused at read time (`nlink > 1`), which also hides legitimate hard links some tools create.
+
+## Milestone 4 review: freshness and onboarding (Nov 9, 2026)
+- **Freshness is a hint, not a guard.**
+  - Metadata equality is never used for evidence or apply; those still compare SHA-256 of bytes. A test rewrites a file with the same size and restored mtime and checks that apply refuses with `stale_on_disk`.
+  - A source-level test asserts that the guard modules do not reference freshness.
+- **No new read paths.**
+  - Freshness only `lstat`s files the last scan recorded, through the same component-by-component walk that refuses symlinks and paths outside the root. It never opens files.
+  - Results contain source ids, relative paths of already-listed sources, and enum states. They contain no absolute paths, error strings or content (tested).
+- **Roots.**
+  - A missing root, a root that is now a symlink, or a root folder replaced by a new directory (different dev or inode) gives `unknown`, never "no changes" (tested for all three).
+  - Residual: a root replaced by a different real directory at the same path passes `verifyRegisteredRoot`, so **a rescan will read the new folder**. Freshness flags `root_replaced` until then, but nothing blocks the rescan. Accepted for now because the user registered that path and anyone able to replace it could also edit files inside it. Possible follow-up: require `project add` again when the root identity changes.
+- **Hard links.** A recorded file that gains a second link is `unsafe`, consistent with scan and apply refusing hard-linked files.
+- **Doctor** opens the workspace database with `readOnly: true`, never creates the workspace folder (tested), and reports environment variable *names* only (tested with a fake secret in the environment). It prints absolute local paths, because it runs only in the user's own terminal.
+- **Demo safety.** `--reset` no longer deletes a demo that holds proposals unless `--discard-proposals` is given (tested). The default demo path is still under `$TMPDIR`, which the OS may clean.
+- **Residual:** freshness and status run `lstat` for up to `LIMITS.maxSources` files per project on every status call. That is a bounded cost, with no caching.

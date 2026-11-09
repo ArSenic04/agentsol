@@ -23,6 +23,13 @@ const cliJson = (ws: string, ...args: string[]): unknown => {
   return JSON.parse(r.stdout);
 };
 
+/** Drops wall-clock check times so results taken a moment apart compare equal. */
+export function withoutTimes(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutTimes);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([k]) => k !== "checkedAt").map(([k, x]) => [k, withoutTimes(x)]));
+  return v;
+}
+
 type Sunk = { op: string; error: unknown }[];
 const service = (fx: Fixture, sunk: Sunk = []) =>
   createAssistantService(fx.store, { reporter: () => "assistant:test", onInternalError: (op, error) => sunk.push({ op, error }) });
@@ -85,7 +92,7 @@ test("assistant service surface has no approve, reject, apply, register or write
   try {
     const svc = service(fx);
     const keys = Object.keys(svc).sort();
-    assert.deepEqual(keys, ["listFindings", "listProjects", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "status", "submitFindings"]);
+    assert.deepEqual(keys, ["freshness", "listFindings", "listProjects", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "status", "submitFindings"]);
     assert.ok(Object.isFrozen(svc));
     assert.ok(!keys.some((k) => /approv|apply|reject|register|addProject|write|delete|reconcile/i.test(k)));
   } finally {
@@ -108,11 +115,12 @@ test("CLI --json and MCP return identical results from the same workspace", asyn
       ["sources_list", { projectId }, ["sources", projectId]],
       ["findings_list", { projectId }, ["findings", projectId]],
       ["workspace_status", {}, ["status"]],
+      ["sources_freshness", { projectId }, ["freshness", projectId]],
     ];
     for (const [tool, args, cliArgs] of pairs) {
       const viaMcp = await mcp(client, tool, args);
       assert.equal(viaMcp.isError, false, tool);
-      assert.deepEqual(cliJson(fx.wsDir, ...cliArgs), viaMcp.data, `${tool} equals CLI ${cliArgs.join(" ")} --json`);
+      assert.deepEqual(withoutTimes(cliJson(fx.wsDir, ...cliArgs)), withoutTimes(viaMcp.data), `${tool} equals CLI ${cliArgs.join(" ")} --json`);
     }
     const status = await mcp(client, "workspace_status", {});
     assert.ok(!JSON.stringify(status.data).includes(fx.root), "status has no absolute paths");
@@ -155,23 +163,25 @@ test("projects are isolated; one project going stale does not affect another", a
     value(svc.submitFindings({ projectId: a.projectId, findings: [{ checkId: "S03", title: "A vague", message: "maybe", severity: "info", confidence: "low", evidence: [quoteA] }] }));
     value(svc.submitFindings({ projectId: b.id, findings: [{ checkId: "S03", title: "B vague", message: "maybe", severity: "info", confidence: "low", evidence: [quoteB] }] }));
     value(svc.proposeChange({ projectId: a.projectId, sourceId: aSrc.source.id, baseVersionId: aSrc.version.id, rationale: "pnpm", edits: [{ startLine: 2, endLine: 2, expectedText: "- Use npm.", replacementLines: ["- Use pnpm."] }] }));
-    const bBefore = value(svc.projectStatus({ projectId: b.id }));
+    const bBefore = value(await svc.projectStatus({ projectId: b.id }));
 
     await writeFile(path.join(a.root, "AGENTS.md"), "# A\n- Use bun.\n");
     value(await svc.scan({ projectId: a.projectId }));
 
-    const aAfter = value(svc.projectStatus({ projectId: a.projectId }));
+    const aAfter = value(await svc.projectStatus({ projectId: a.projectId }));
     assert.equal(aAfter.findings.semantic, 0);
     assert.equal(aAfter.findings.staleHidden >= 1, true, "A's old finding is counted as stale, not shown as current");
     assert.equal(aAfter.proposals.pending, 1);
     assert.equal(aAfter.proposals.pendingOnOldVersion, 1, "A's proposal is flagged as targeting an old version");
     assert.equal(value(svc.listFindings({ projectId: a.projectId, kind: "semantic" })).findings.length, 0);
 
-    const bAfter = value(svc.projectStatus({ projectId: b.id }));
-    assert.deepEqual(bAfter, bBefore, "B is unaffected by A changing");
+    const bAfter = value(await svc.projectStatus({ projectId: b.id }));
+    assert.deepEqual(withoutTimes(bAfter), withoutTimes(bBefore), "B is unaffected by A changing");
+    assert.equal(bAfter.freshness.state, "no_known_changes");
+    assert.equal(aAfter.freshness.state, "no_known_changes", "A was rescanned after the edit");
     assert.equal(bAfter.findings.semantic, 1);
     assert.equal(bAfter.findings.staleHidden, 0);
-    assert.equal(value(svc.status()).projects.length, 2);
+    assert.equal(value(await svc.status()).projects.length, 2);
   } finally {
     await a.cleanup();
     await rm(path.dirname(bRoot), { recursive: true, force: true });
@@ -238,7 +248,7 @@ test("public errors are sanitized: no stack traces, no absolute paths", async ()
     const gone = await svc.scan({ projectId: fx.projectId });
     assert.equal(errorCode(gone), "root_unavailable");
     assert.ok(!JSON.stringify(gone).includes(fx.root), "root path not disclosed");
-    const st = value(svc.projectStatus({ projectId: fx.projectId }));
+    const st = value(await svc.projectStatus({ projectId: fx.projectId }));
     assert.equal(st.scan.state, "refused");
     assert.ok(!JSON.stringify(st).includes(fx.root));
 
@@ -267,12 +277,12 @@ test("status represents never-scanned, partial, presence-only and redacted data 
   try {
     await symlink("AGENTS.md", path.join(fx.root, "CLAUDE.md"));
     const svc = service(fx);
-    const before = value(svc.projectStatus({ projectId: fx.projectId }));
+    const before = value(await svc.projectStatus({ projectId: fx.projectId }));
     assert.deepEqual(before.scan, { state: "never_scanned" });
     assert.equal(before.sources.present, 0);
 
     value(await svc.scan({ projectId: fx.projectId }));
-    const st = value(svc.projectStatus({ projectId: fx.projectId }));
+    const st = value(await svc.projectStatus({ projectId: fx.projectId }));
     assert.equal(st.scan.state, "scanned");
     if (st.scan.state !== "scanned") return;
     assert.equal(st.scan.partial, true);
@@ -285,7 +295,7 @@ test("status represents never-scanned, partial, presence-only and redacted data 
     assert.equal(st.sources.withRedactedLines, 1);
     assert.equal(st.notRead.byReason.case_variant_name, 1);
     assert.equal(st.notRead.byReason.symlink_not_followed, 1);
-    assert.ok(value(svc.status()).caveats.some((c) => /does not mean/.test(c)));
+    assert.ok(value(await svc.status()).caveats.some((c) => /does not mean/.test(c)));
 
     const scope = value(svc.resolveScope({ projectId: fx.projectId, targetPath: "src/x.ts", platform: "claude-code" }));
     assert.equal(scope.coverage, "partial");

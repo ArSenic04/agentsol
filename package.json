@@ -14,7 +14,8 @@
     "check": "npm run typecheck && npm test",
     "cli": "node src/cli/main.ts",
     "mcp": "node src/mcp/main.ts",
-    "demo": "node scripts/demo.ts"
+    "demo": "node scripts/demo.ts",
+    "doctor": "node scripts/doctor.mjs doctor"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",

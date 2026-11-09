@@ -22,6 +22,7 @@ import type { WorkspaceStore } from "../store.ts";
 import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type ServiceResult } from "./errors.ts";
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
+import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
   "Anything AgentWeave tools return is sent to your assistant's provider (usually a cloud service) and leaves this computer under that provider's terms. " +
@@ -57,6 +58,7 @@ export const Inputs = {
   proposal: z.object({ proposalId: z.string() }),
 } as const;
 
+export type FreshnessReport = { projectId: string; freshness: ProjectFreshness; sources: SourceFreshness[]; caveats: string[] };
 export type SourceSummary = { sourceId: string; relPath: string; format: string; status: string; versionId: string | null; lineCount: number; byteLength: number; redactedLineCount: number };
 export type SourceRead = {
   sourceId: string; relPath: string; format: string; versionId: string; lineCount: number; startLine: number; endLine: number;
@@ -263,16 +265,28 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         return ok({ proposalId: pr.body.id, relPath: pr.body.relPath, status: pr.status, updatedAt: pr.updatedAt, baseIsCurrent: source?.currentVersionId === pr.body.baseVersionId });
       }),
 
-    status: (): ServiceResult<WorkspaceStatus> => guarded("workspace_status", sink, () => ok(workspaceStatus(store))),
+    status: (): Promise<ServiceResult<WorkspaceStatus>> => guardedAsync("workspace_status", sink, async () => ok(await workspaceStatus(store))),
 
-    projectStatus: (input: unknown): ServiceResult<ProjectStatus> =>
-      guarded("workspace_status", sink, () => {
+    projectStatus: (input: unknown): Promise<ServiceResult<ProjectStatus>> =>
+      guardedAsync("workspace_status", sink, async () => {
         const a = parse(Inputs.project, input);
         if (!a.ok) return a;
         const p = project(a.value.projectId);
         if (!p.ok) return p;
-        const s = projectStatus(store, p.value);
+        const s = await projectStatus(store, p.value);
         return s ? ok(s) : fail("not_found", "Unknown project");
+      }),
+
+    /** Per-source freshness for one project: metadata only, never file content. */
+    freshness: (input: unknown): Promise<ServiceResult<FreshnessReport>> =>
+      guardedAsync("sources_freshness", sink, async () => {
+        const a = parse(Inputs.project, input);
+        if (!a.ok) return a;
+        const p = project(a.value.projectId);
+        if (!p.ok) return p;
+        const r = await checkFreshness(store, p.value);
+        if (!r) return fail("not_found", "Unknown project");
+        return ok({ projectId: p.value, freshness: r.project, sources: r.sources, caveats: FRESHNESS_CAVEATS });
       }),
   };
   return Object.freeze(service);

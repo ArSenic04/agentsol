@@ -1,5 +1,6 @@
 import { constants as fsConstants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
+import { fileMetaFrom, type FileMeta } from "./fileMeta.ts";
 import { resolveExistingInsideRoot } from "./paths.ts";
 import { err, ok, type Result } from "./result.ts";
 
@@ -41,7 +42,7 @@ export async function readRegularFileNoFollow(
 }
 
 export type InsideReadErrorCode = ReadErrorCode | "path_rejected" | "hard_link" | "swapped";
-export type InsideRead = { bytes: Buffer; mode: number; dev: number; ino: number; absPath: string };
+export type InsideRead = { bytes: Buffer; mode: number; dev: number; ino: number; absPath: string; meta: FileMeta };
 export type InsideReadError = { readonly code: InsideReadErrorCode; readonly message: string };
 
 /**
@@ -77,9 +78,12 @@ export async function readFileInsideRoot(
     if (!post.ok) return err({ code: "swapped", message: "Path changed while reading; not read" });
     const now = await lstat(post.value);
     if (now.dev !== st.dev || now.ino !== st.ino) return err({ code: "swapped", message: "Path changed while reading; not read" });
+    // Metadata is taken before the bytes: if the file changes mid-read, the recorded
+    // metadata is older than the content and the next freshness check reports a change.
+    const meta = fileMetaFrom(await handle.stat({ bigint: true }));
     const bytes = await handle.readFile();
     if (bytes.length > maxBytes) return err({ code: "too_large", message: `File is larger than ${maxBytes} bytes` });
-    return ok({ bytes, mode: st.mode & 0o777, dev: st.dev, ino: st.ino, absPath: post.value });
+    return ok({ bytes, mode: st.mode & 0o777, dev: st.dev, ino: st.ino, absPath: post.value, meta });
   } catch (e) {
     return err({ code: "io", message: `Could not read file (${errorCode(e) ?? "unknown error"})` });
   } finally {

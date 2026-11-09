@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -22,10 +23,29 @@ test("demo creates a synthetic project, proposes over real MCP stdio, and writes
   assert.ok(!r.stdout.includes(".env.local ("), "secret-like file is not listed by name");
   for (const [rel, content] of Object.entries(DEMO_FILES)) assert.equal(await readFile(path.join(dir, "project", rel), "utf8"), content, rel);
 
+  const id = /review (chg_[0-9a-f]{16})/.exec(r.stdout)?.[1];
+  assert.ok(id, "first run prints the proposal to review");
+  assert.match(r.stdout, /npm run doctor -- --workspace/);
+
+  // Rerunning keeps the demo and its proposal, and explains what to do next.
   const again = demo("--dir", dir);
-  assert.equal(again.status, 1);
-  assert.match(again.stderr, /--reset/);
-  assert.equal(demo("--dir", dir, "--reset").status, 0);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /already exists .* kept as is/);
+  assert.match(again.stdout, new RegExp(`proposal ${id}: pending`));
+  assert.match(again.stdout, new RegExp(`review ${id}`));
+  assert.equal(again.stderr, "");
+
+  // --reset alone refuses because it would delete a proposal; nothing changes.
+  const reset = demo("--dir", dir, "--reset");
+  assert.equal(reset.status, 1);
+  assert.match(reset.stderr, /--discard-proposals/);
+  assert.ok(!/\n\s+at /.test(reset.stderr), "no stack trace for an expected refusal");
+  assert.match(demo("--dir", dir).stdout, new RegExp(`proposal ${id}: pending`), "proposal survived the refused reset");
+
+  const discard = demo("--dir", dir, "--reset", "--discard-proposals");
+  assert.equal(discard.status, 0, discard.stderr);
+  assert.ok(!discard.stdout.includes(id), "a fresh demo has a new proposal");
+  await rm(base, { recursive: true, force: true });
 });
 
 test("demo refuses a non-empty folder that is not an earlier demo", async () => {
@@ -37,4 +57,38 @@ test("demo refuses a non-empty folder that is not an earlier demo", async () => 
   assert.equal(r.status, 1);
   assert.match(r.stderr, /not an AgentWeave demo folder/);
   assert.equal(await readFile(path.join(dir, "AGENTS.md"), "utf8"), "# Someone's real project\n");
+  await rm(base, { recursive: true, force: true });
+});
+
+test("doctor is non-destructive, reports workspace problems, and prints no environment values", async () => {
+  const base = await tempDir("doctor");
+  const doctor = (...args: string[]) =>
+    spawnSync(process.execPath, [path.join(REPO, "scripts", "doctor.mjs"), "doctor", ...args, "--json"], {
+      cwd: REPO, encoding: "utf8", timeout: 30_000,
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CURSOR_AGENT: "1", AGENTWEAVE_TEST_SECRET: "sk-DOCTORFAKEFAKEFAKEFAKE1234" },
+    });
+  const missing = path.join(base, "not-created");
+  const r1 = doctor("--workspace", missing);
+  assert.equal(r1.status, 0, r1.stderr);
+  const report = JSON.parse(r1.stdout);
+  assert.equal(report.ok, true);
+  assert.ok(report.checks.some((c: { id: string; status: string }) => c.id === "dependencies" && c.status === "ok"));
+  assert.ok(report.checks.some((c: { id: string; status: string; message: string }) => c.id === "terminal" && c.status === "warn" && /CURSOR_AGENT/.test(c.message)));
+  assert.deepEqual(report.launch.mcpClientConfig.args.slice(-2), ["--workspace", missing]);
+  assert.equal(existsSync(missing), false, "doctor never creates the workspace");
+  assert.ok(!r1.stdout.includes("sk-DOCTORFAKE"), "environment values are never printed");
+
+  const open = path.join(base, "too-open");
+  await mkdir(open, { mode: 0o755 });
+  await chmod(open, 0o755);
+  const r2 = doctor("--workspace", open);
+  assert.equal(r2.status, 1);
+  assert.match(r2.stdout, /chmod 700/);
+
+  const linked = path.join(base, "linked");
+  await symlink(open, linked);
+  const r3 = doctor("--workspace", linked);
+  assert.equal(r3.status, 1);
+  assert.match(r3.stdout, /symlink/);
+  await rm(base, { recursive: true, force: true });
 });

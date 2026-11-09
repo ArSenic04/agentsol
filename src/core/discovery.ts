@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { detectFormat, type SourceFormat } from "./formats.ts";
+import type { FileMeta } from "./fileMeta.ts";
 import { readFileInsideRoot } from "./fsSafe.ts";
 import { sha256Hex } from "./hash.ts";
 import { LIMITS } from "./limits.ts";
@@ -27,6 +28,8 @@ export type DiscoveredSource = {
   readonly text: string;
   readonly rawSha256: string;
   readonly byteLength: number;
+  /** Metadata at read time, for freshness hints only (never a correctness guard). */
+  readonly meta: FileMeta;
 };
 
 /** Counts only: names of unrelated or secret-like entries are never recorded. */
@@ -139,7 +142,7 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
         exclusions.push({ relPath: rel, reason: decoded.error.code });
         continue;
       }
-      sources.push({ relPath: rel, format, text: decoded.value, rawSha256: sha256Hex(read.value.bytes), byteLength: read.value.bytes.length });
+      sources.push({ relPath: rel, format, text: decoded.value, rawSha256: sha256Hex(read.value.bytes), byteLength: read.value.bytes.length, meta: read.value.meta });
     }
   }
   return { sources, exclusions, skipped };
