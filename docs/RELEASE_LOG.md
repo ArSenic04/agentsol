@@ -25,3 +25,9 @@
   - https://docs.npmjs.com/requiring-2fa-for-package-publishing-and-settings-modification/
   - https://docs.npmjs.com/about-access-tokens/
   - https://docs.npmjs.com/trusted-publishers/
+
+### Publish attempt 1: refused by npm, nothing published (Nov 9, 2026, 4:55 PM EST)
+- Signed in as `shivam0411` (`npm whoami`). The release file was re-verified first: same sha256 `11f761a9…a54af`, and `release:check --existing` passed on Node 24.0.0, 24.22.2 and 26.8.2, plus the dry run.
+- `npm publish ./artifacts/release/agentlore-0.1.0-alpha.1.tgz --tag alpha --access public` returned `E403 Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.`
+- `npm profile get "two-factor auth"` reports `disabled`. Afterwards the registry still returned 404 for `agentlore` and for `agentlore@0.1.0-alpha.1`, and the tarball was unchanged.
+- Human step: turn on 2FA on npmjs.com (Account → Two-Factor Authentication → Enable 2FA; https://docs.npmjs.com/configuring-two-factor-authentication), then publish the same file again with its 2FA prompt.
