@@ -31,3 +31,9 @@
 - `npm publish ./artifacts/release/agentlore-0.1.0-alpha.1.tgz --tag alpha --access public` returned `E403 Two-factor authentication or granular access token with bypass 2fa enabled is required to publish packages.`
 - `npm profile get "two-factor auth"` reports `disabled`. Afterwards the registry still returned 404 for `agentlore` and for `agentlore@0.1.0-alpha.1`, and the tarball was unchanged.
 - Human step: turn on 2FA on npmjs.com (Account → Two-Factor Authentication → Enable 2FA; https://docs.npmjs.com/configuring-two-factor-authentication), then publish the same file again with its 2FA prompt.
+
+### Publish attempt 2: needs an interactive 2FA prompt, nothing published (Nov 9, 2026, 5:01 PM EST)
+- `npm whoami`: `shivam0411`; 2FA mode `auth-and-writes`. Registry returned 404 for `agentlore`; tarball sha256 unchanged (`11f761a9…a54af`).
+- `npm publish` returned `EOTP: This operation requires a one-time password` and exited, because the agent's shell has no terminal for npm to wait on. It printed a one-time browser sign-in link and a token-retrieval link. The agent did not open either, and did not retrieve any token.
+- Registry still 404 afterwards; tarball unchanged.
+- Human step: run the same publish command in your own Terminal (see below); npm then waits for the browser approval or the code itself.
