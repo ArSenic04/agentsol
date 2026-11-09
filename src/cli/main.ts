@@ -32,7 +32,7 @@ Commands (human-run, local only):
   scan <projectId> [--json]             discover instruction files and run deterministic checks
   sources <projectId> [--json]          list sources and instruction files not read
   findings <projectId> [--json]         list current structural and possible (assistant-reported) findings
-  proposals <projectId>                 list proposals
+  proposals <projectId> [--json]        list proposals with diffs (read-only)
   review <proposalId>                   show a proposal's diff and fingerprint
   approve <proposalId>                  approve (interactive terminal only; type the one-time code shown)
   reject <proposalId>                   reject a proposal (interactive terminal only)
@@ -217,12 +217,10 @@ async function run(argv: string[]): Promise<number> {
             out(`${f.id}  ${f.checkId}  ${f.severity.padEnd(5)}  ${label}\n    ${f.title}\n    ${f.message}\n    evidence: ${where}`);
           }
         });
-      case "proposals": {
-        const exists = await svc.projectStatus({ projectId: arg });
-        if (!exists.ok) return fail(exists.error.message, 2);
-        for (const p of store.listProposals(exists.value.projectId)) out(`${p.body.id}  ${p.status.padEnd(8)}  ${p.body.relPath}  by ${p.body.author}`);
-        return 0;
-      }
+      case "proposals":
+        return show(svc.listProposals({ projectId: arg }), json, (v) => {
+          for (const p of v.proposals) out(`${p.proposalId}  ${p.status.padEnd(8)}  ${p.relPath}  by ${p.author}${p.baseIsCurrent ? "" : "  (file changed since)"}`);
+        });
       case "review": {
         const r = ops.review(arg);
         if (!r.ok) return fail(r.error.message, 2);

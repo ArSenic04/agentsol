@@ -46,3 +46,10 @@ export const sourceByPath = (store: WorkspaceStore, projectId: ProjectId, relPat
   if (!v) throw new Error("fixture version missing");
   return { source: s, version: v };
 };
+
+/** Drops wall-clock check times so results taken a moment apart compare equal. */
+export function withoutTimes(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(withoutTimes);
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([k]) => k !== "checkedAt").map(([k, x]) => [k, withoutTimes(x)]));
+  return v;
+}

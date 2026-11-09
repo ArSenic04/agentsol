@@ -9,13 +9,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.web.json && tsc -p tsconfig.e2e.json",
     "test": "node --test --test-concurrency=1 \"tests/**/*.test.ts\"",
     "check": "npm run typecheck && npm test",
     "cli": "node src/cli/main.ts",
     "mcp": "node src/mcp/main.ts",
     "demo": "node scripts/demo.ts",
-    "doctor": "node scripts/doctor.mjs doctor"
+    "doctor": "node scripts/doctor.mjs doctor",
+    "web:build": "node scripts/buildWeb.ts",
+    "web:preview": "node src/web/main.ts --static-only",
+    "web:local": "node src/web/main.ts",
+    "web:dev": "node scripts/buildWeb.ts && node src/web/main.ts --static-only",
+    "test:web": "node scripts/buildWeb.ts && node --test --test-concurrency=1 \"tests/e2e/**/*.e2e.ts\"",
+    "check:web": "npm run check && npm run test:web"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
@@ -25,6 +31,7 @@
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "26.6.6",
+    "playwright-core": "1.62.1",
     "typescript": "6.0.3"
   }
 }

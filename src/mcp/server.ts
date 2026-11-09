@@ -98,6 +98,11 @@ export function createAgentWeaveServer(store: WorkspaceStore, opts: { onInternal
     async (args) => reply(svc.proposeChange(args)),
   );
   server.registerTool(
+    "changes_list",
+    { description: "List proposals for a project with status and diff (redacted lines). Read-only; approval and apply happen only in the person's terminal.", inputSchema: Inputs.project, annotations: ro },
+    async (args) => reply(svc.listProposals(args)),
+  );
+  server.registerTool(
     "change_status",
     { description: "Status of a proposal (pending, applying, applied, rejected, stale) and whether its base version is still current.", inputSchema: Inputs.proposal, annotations: ro },
     async (args) => reply(svc.proposalStatus(args)),

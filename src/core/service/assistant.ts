@@ -58,6 +58,11 @@ export const Inputs = {
   proposal: z.object({ proposalId: z.string() }),
 } as const;
 
+/** Read-only proposal view. Never includes the proposal digest that a person confirms when approving. */
+export type ProposalSummary = {
+  proposalId: string; relPath: string; status: string; author: string; rationale: string; findingIds: string[];
+  createdAt: string; updatedAt: string; baseIsCurrent: boolean; diff: string; contentIsUntrusted: true;
+};
 export type FreshnessReport = { projectId: string; freshness: ProjectFreshness; sources: SourceFreshness[]; caveats: string[] };
 export type SourceSummary = { sourceId: string; relPath: string; format: string; status: string; versionId: string | null; lineCount: number; byteLength: number; redactedLineCount: number };
 export type SourceRead = {
@@ -263,6 +268,27 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         if (!pr) return fail("not_found", "Unknown proposal");
         const source = store.getSource(pr.body.sourceId);
         return ok({ proposalId: pr.body.id, relPath: pr.body.relPath, status: pr.status, updatedAt: pr.updatedAt, baseIsCurrent: source?.currentVersionId === pr.body.baseVersionId });
+      }),
+
+    /** Lists proposals with their diffs (built from stored, redacted lines). Read-only. */
+    listProposals: (input: unknown): ServiceResult<{ proposals: ProposalSummary[]; note: string }> =>
+      guarded("changes_list", sink, () => {
+        const a = parse(Inputs.project, input);
+        if (!a.ok) return a;
+        const p = project(a.value.projectId);
+        if (!p.ok) return p;
+        const proposals: ProposalSummary[] = [];
+        for (const pr of store.listProposals(p.value)) {
+          const base = store.getVersion(pr.body.baseVersionId);
+          const source = store.getSource(pr.body.sourceId);
+          proposals.push({
+            proposalId: pr.body.id, relPath: pr.body.relPath, status: pr.status, author: pr.body.author, rationale: pr.body.rationale,
+            findingIds: [...pr.body.findingIds], createdAt: pr.body.createdAt, updatedAt: pr.updatedAt,
+            baseIsCurrent: source?.currentVersionId === pr.body.baseVersionId,
+            diff: base ? renderDiff(pr.body.relPath, base.lines, pr.body.edits) : "", contentIsUntrusted: true,
+          });
+        }
+        return ok({ proposals, note: "Only a person can approve or apply a proposal, in their own terminal with the AgentWeave CLI." });
       }),
 
     status: (): Promise<ServiceResult<WorkspaceStatus>> => guardedAsync("workspace_status", sink, async () => ok(await workspaceStatus(store))),

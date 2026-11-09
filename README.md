@@ -57,6 +57,25 @@ Example MCP client config (stdio). Not installed automatically. GUI clients ofte
 { "command": "/ABSOLUTE/PATH/TO/node", "args": ["/ABSOLUTE/PATH/agentweave/src/mcp/main.ts", "--workspace", "/ABSOLUTE/PATH/agentweave/.local-workspace"] }
 ```
 
+## Website and read-only workspace view
+
+The product site and the workspace view are one static app in `web/` (no framework, no runtime dependencies), built into `dist/web/`.
+
+```
+npm run web:build                                   # builds dist/web and records the synthetic demo data
+npm run web:preview                                 # static site + demo at http://127.0.0.1:4318/ (no API)
+npm run web:dev                                     # build, then preview
+npm run web:local -- --workspace "<workspace dir>"  # adds your workspace, read-only, at http://127.0.0.1:4317/
+npm run test:web                                    # build, then browser tests (needs the local Playwright Chromium)
+```
+
+- **Demo** (`#/demo`) shows real AgentWeave output recorded from the synthetic demo project when you build. The "possible" finding and the proposed change were prewritten by the demo script. No AI wrote them.
+- **Workspace** (`#/workspace`) works only under `web:local`. That bridge binds to 127.0.0.1 only and serves GET requests from the existing shared service. It cannot scan, edit, approve, apply or register folders. Approval stays in your terminal: the page shows the CLI commands to run.
+- `web:local` opens only the workspace folder you name, and it must already contain `workspace.sqlite`. It never browses your home folder or projects. There is no `--host` option.
+- The site loads nothing from other servers: no analytics, cookies, external fonts, CDNs or third-party scripts. A strict Content Security Policy blocks inline scripts.
+- Under the static preview the page probes `/api/health`, gets a 404 (logged once in the browser console) and shows the "no local workspace connected" state.
+- `dist/web` can be served by any static host later, after review. The local bridge (`src/web/`) must never be exposed to a network or run on a shared machine.
+
 ## MCP tools
 `projects_list`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `change_status`, `workspace_status`, `sources_freshness`. There is no approve, apply, write or delete tool.
 
@@ -84,6 +103,8 @@ Matching metadata does **not** prove a file is unchanged, and new files are not 
 - **The approval guards are not authentication.** Approve, apply and reject refuse known coding-agent environments and non-interactive input. A program running as your user account can get around those checks. See `docs/SECURITY_REVIEW.md`.
 
 ## Known limitations
+
+- The website is an early local prototype. It has not been tested with a screen reader, has had no formal accessibility audit and has not been reviewed for public hosting. The static demo has not been published anywhere.
 - Text returned by MCP tools goes to your assistant provider. It is redacted by pattern, and patterns can miss secrets.
 - Backups in `<workspace>/backups` keep original bytes, secrets included. The workspace must be private (`chmod 700`).
 - `scope_resolve` models documented defaults for a given working directory and always reports `coverage: "partial"`.

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="AgentWeave finds and checks the AGENTS.md, CLAUDE.md and SKILL.md files in a project, cites exact lines, and keeps every suggested edit waiting for your approval. Early local prototype.">
+  <title>AgentWeave: read your agent instructions together</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-head">
+    <div class="wrap head-inner">
+      <a class="wordmark" href="#/" data-nav="" aria-label="AgentWeave home">
+        <svg class="mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7h18M3 12h18M3 17h18" /><path class="warp" d="M7 3v18M12 3v18M17 3v18" /></svg>
+        <span>AgentWeave</span>
+      </a>
+      <span class="tag">Early local prototype</span>
+      <nav aria-label="Main">
+        <ul class="nav">
+          <li><a href="#/demo" data-nav="demo">Demo</a></li>
+          <li><a href="#/workspace" data-nav="workspace">Workspace</a></li>
+          <li><a href="#/setup" data-nav="setup">Run locally</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main" class="wrap" tabindex="-1" aria-busy="true">
+    <noscript><p class="state state-error">This site needs JavaScript for the demo. The setup steps are in README.md.</p></noscript>
+  </main>
+  <footer class="site-foot">
+    <div class="wrap foot-inner">
+      <p>AgentWeave is an early local prototype. It is not a hosted service and makes no security guarantee.</p>
+      <p class="muted">No analytics, cookies, external fonts or third-party scripts.</p>
+    </div>
+  </footer>
+</body>
+</html>

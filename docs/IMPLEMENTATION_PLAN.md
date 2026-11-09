@@ -82,6 +82,25 @@ One SQLite file (`workspace.sqlite`, through `node:sqlite`) in a workspace direc
 ## Next smallest unit (after milestone 4)
 A person (Shivam) runs the walkthrough on the existing synthetic demo in a normal terminal: `npm run doctor`, `status`, `review`, `approve` and `apply` for the pending demo proposal, then `status` again. Record each command's output and any confusing step. This is the first human validation of the approval path since milestone 2 and needs no assistant client. Software follow-up (agent-doable): a `scan --if-changed` option, or a status hint, that tells the user to rescan when freshness reports changes.
 
+## Website milestone: product site and read-only workspace view (done, local only)
+
+- `web/`: framework-free TypeScript site (landing, interactive synthetic demo, read-only workspace view, setup guide). It uses type-only imports from the core via `web/src/contract.ts`.
+- `scripts/buildWeb.ts`: transpiles into `dist/web`, records demo data by running the real core on the synthetic demo files, and audits the output for private paths, secret-like tokens and external loads. It refuses to delete a folder it did not build.
+- `src/web/`: loopback bridge (`api.ts`, `server.ts`, `main.ts`) over the assistant service. It is GET/HEAD only, checks Host and Origin and Sec-Fetch-Site, sends no CORS headers, marks API responses no-store/private, uses a strict CSP, serves static files from a startup manifest without symlinks, and sanitizes errors. It does not import the operator or humanApproval modules (enforced by the import-graph test).
+- New read-only service method `listProposals` and MCP tool `changes_list` (no digest exposed). The CLI `proposals` command uses it.
+- Tests: `tests/web/*.test.ts` (in `npm run check`) and `tests/e2e/site.e2e.ts` (browser, `npm run test:web`).
+
+## Still unsupported after the website milestone
+
+- No hosted deployment, accounts, payments, waitlist, contact form or public download. No repository link until one exists.
+- No scanning from the browser; scanning stays in the CLI so GET stays side-effect free.
+- No validation inside Claude Code, Codex, Cursor or other assistant apps.
+- No screen-reader or formal WCAG audit; checks so far are automated (keyboard, focus, reduced motion, overflow) plus visual review.
+
+## Next smallest unit (after the website milestone)
+
+A human review of the site copy and screenshots, then an accessibility pass with VoiceOver, then a decision on a static host for `dist/web` only.
+
 ## Older next units
 ### After review pass 1
 The workspace product needs a small "workspace service" layer in `src/core` that the CLI, the MCP server and a later hosted workspace all call. Commands such as register, scan, list and propose would go through it, with typed results, instead of each entry point calling store functions directly. Then add a read-only `status` view (projects, pending proposals, stale findings) as its first consumer.

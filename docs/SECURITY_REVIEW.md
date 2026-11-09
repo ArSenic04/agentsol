@@ -70,3 +70,21 @@ Scope: the code and tests in this repository. Every fixed defect has a regressio
 - **Doctor** opens the workspace database with `readOnly: true`, never creates the workspace folder (tested), and reports environment variable *names* only (tested with a fake secret in the environment). It prints absolute local paths, because it runs only in the user's own terminal.
 - **Demo safety.** `--reset` no longer deletes a demo that holds proposals unless `--discard-proposals` is given (tested). The default demo path is still under `$TMPDIR`, which the OS may clean.
 - **Residual:** freshness and status run `lstat` for up to `LIMITS.maxSources` files per project on every status call. That is a bounded cost, with no caching.
+
+## Website milestone review: local bridge and static site (Nov 9, 2026)
+
+Threat model: a hostile web page in the same browser (DNS rebinding, cross-site requests), hostile instruction text inside a scanned project (XSS, link injection) and accidental exposure of private data in the static build.
+
+Defenses, each covered by tests:
+- The bridge binds 127.0.0.1 only. Host must be `127.0.0.1:<port>` or `localhost:<port>`, otherwise 421, which defeats DNS rebinding. Any Origin other than the bridge's own gets 403, and cross-site `Sec-Fetch-Site` gets 403. Non-GET/HEAD requests get 405. There are no CORS headers.
+- There are no routes for scan, propose, approve, apply, root registration, shell or file paths. Unknown routes and traversal attempts get 404. The import-graph test proves the bridge cannot reach the operator or human-approval code.
+- API responses are `no-store, private` and never include absolute paths or proposal digests. Internal errors return a generic message.
+- Rendering uses text nodes only (no `innerHTML`; the build test scans for it). Links come from a fixed allowlist of routes and three documentation URLs, never from instruction text. The e2e test checks that `<img onerror>` and `<script>` in files and rationales stay text.
+- The CSP is `default-src 'none'` with self-hosted scripts and styles only. The build audit fails on external URLs, private paths or `sk-`-style tokens.
+
+Residual risks (not fixed):
+- Any process running as the same user can read the bridge, just as it can read the workspace file directly.
+- Browser extensions with page access can read what the page shows.
+- `localhost` is accepted as a Host alias; a system with an unusual hosts file could map it elsewhere, but the socket still only listens on 127.0.0.1.
+- Secret detection is pattern-based. Redacted content is safer, not guaranteed clean.
+- The static site has not been reviewed for public hosting, and no host's headers have been checked. A host must send the same CSP and security headers.

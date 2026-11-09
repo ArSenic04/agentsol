@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { LIMITS } from "../src/core/limits.ts";
 import { createAssistantService } from "../src/core/service/assistant.ts";
-import { fixture, sourceByPath, tempDir, writeTree, type Fixture } from "./helpers.ts";
+import { fixture, sourceByPath, tempDir, withoutTimes, writeTree, type Fixture } from "./helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(REPO, "src", "cli", "main.ts");
@@ -22,13 +22,6 @@ const cliJson = (ws: string, ...args: string[]): unknown => {
   const r = cli(ws, ...args, "--json");
   return JSON.parse(r.stdout);
 };
-
-/** Drops wall-clock check times so results taken a moment apart compare equal. */
-export function withoutTimes(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(withoutTimes);
-  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).filter(([k]) => k !== "checkedAt").map(([k, x]) => [k, withoutTimes(x)]));
-  return v;
-}
 
 type Sunk = { op: string; error: unknown }[];
 const service = (fx: Fixture, sunk: Sunk = []) =>
@@ -73,7 +66,7 @@ async function importGraph(entry: string): Promise<Set<string>> {
   return seen;
 }
 
-test("approve/apply code is unreachable from the MCP entrypoint and the assistant service", async () => {
+test("approve/apply code is unreachable from the MCP entrypoint, the web bridge and the assistant service", async () => {
   const forbidden = [path.join(REPO, "src/core/humanApproval.ts"), path.join(REPO, "src/core/service/operator.ts")];
   const fromMcp = await importGraph(SERVER);
   const fromAssistant = await importGraph(path.join(REPO, "src/core/service/assistant.ts"));
@@ -83,6 +76,9 @@ test("approve/apply code is unreachable from the MCP entrypoint and the assistan
     assert.ok(!fromMcp.has(f), `${path.relative(REPO, f)} reachable from MCP`);
     assert.ok(!fromAssistant.has(f), `${path.relative(REPO, f)} reachable from the assistant service`);
   }
+  const fromWeb = await importGraph(path.join(REPO, "src/web/main.ts"));
+  assert.ok(fromWeb.has(path.join(REPO, "src/core/service/assistant.ts")));
+  for (const f of forbidden) assert.ok(!fromWeb.has(f), `${path.relative(REPO, f)} reachable from the local web bridge`);
   const fromCli = await importGraph(CLI);
   assert.ok(forbidden.every((f) => fromCli.has(f)), "the CLI is where human decisions live");
 });
@@ -92,7 +88,7 @@ test("assistant service surface has no approve, reject, apply, register or write
   try {
     const svc = service(fx);
     const keys = Object.keys(svc).sort();
-    assert.deepEqual(keys, ["freshness", "listFindings", "listProjects", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "status", "submitFindings"]);
+    assert.deepEqual(keys, ["freshness", "listFindings", "listProjects", "listProposals", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "status", "submitFindings"]);
     assert.ok(Object.isFrozen(svc));
     assert.ok(!keys.some((k) => /approv|apply|reject|register|addProject|write|delete|reconcile/i.test(k)));
   } finally {
