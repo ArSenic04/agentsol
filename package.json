@@ -1,6 +1,6 @@
 {
   "name": "agentlore",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
   "type": "module",
@@ -16,7 +16,7 @@
   "exports": {
     "./package.json": "./package.json"
   },
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=24"
   },
@@ -38,7 +38,8 @@
     "prepack": "node scripts/buildPackage.ts",
     "pack:check": "node scripts/packCheck.ts",
     "install:check": "node scripts/installCheck.ts",
-    "load:test": "node scripts/loadTest.ts"
+    "load:test": "node scripts/loadTest.ts",
+    "release:check": "node scripts/releaseCheck.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
@@ -50,5 +51,20 @@
     "@types/node": "26.6.6",
     "playwright-core": "1.62.1",
     "typescript": "6.0.3"
-  }
+  },
+  "publishConfig": {
+    "tag": "alpha",
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "keywords": [
+    "agents-md",
+    "claude-md",
+    "skill-md",
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "instructions",
+    "audit"
+  ]
 }

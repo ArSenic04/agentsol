@@ -115,13 +115,20 @@ A human review of the site copy and screenshots, then an accessibility pass with
 - Package and binaries: `agentlore`, `agentlore-mcp`; MCP server name `agentlore`; `AGENTLORE_WORKSPACE` with `AGENTWEAVE_WORKSPACE` as a fallback. The demo, web-build and package-build markers accept the old names. The database is unchanged.
 - Not renamed: the source folder, git history and historical notes.
 
-## Alpha gates (all need a person)
+## Alpha release preparation: 0.1.0-alpha.1 (Nov 9, 2026)
 
-1. Choose a licence. It is `UNLICENSED` today.
-2. Confirm the package name and npm account. The product is now Agentlore (`agentlore` returned 404 on npm on Nov 9, 2026; not reserved). `agentweave` is taken.
-3. Publish from your own account, removing `"private": true` on purpose. No agent publishes.
-4. Connect one real MCP client (for example Claude Code) by hand to the installed tarball, and record what it shows.
-5. Run approve and apply yourself, in a normal terminal, on the pending demo proposal.
+- Licence: MIT (`LICENSE`, copyright 2026 Shivam Ardeshna), chosen on the owner's behalf by their assistant at the owner's request.
+- Version `0.1.0-alpha.1` in `src/core/version.ts`, `package.json` and the lockfile (a test keeps them equal). `agentlore --version` and the MCP server report it. `publishConfig.tag` is `alpha`.
+- `npm run release:check` packs a staged copy without `"private"` into `artifacts/release/` (never overwritten), runs the install check per Node runtime and `npm publish --dry-run` on that exact file, and records `<tarball>.release.json`.
+- The installed package passed on Node 24.0.0, 24.22.2 and 26.8.2 (macOS arm64). The source checkout's test suite runs on 26.8.2 only.
+
+## Alpha gates
+
+1. ~~Licence~~: MIT.
+2. Package name `agentlore`: not on npm when checked (404). npm can still refuse it at publish time.
+3. A person signs in to npm on the Mac (`npm login`, browser sign-in with 2FA) and runs the publish command with the 2FA prompt.
+4. After publishing, fetch the registry metadata and install `agentlore@alpha` from the registry into a clean folder.
+5. Still open after publishing: connect one real MCP client by hand; a person runs approve/apply end to end.
 
 ## Still unsupported after alpha verification
 

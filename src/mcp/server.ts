@@ -4,6 +4,7 @@
  * to service methods. It must never import humanApproval.ts or service/operator.ts.
  */
 import { McpServer } from "@modelcontextprotocol/server";
+import { PRODUCT_VERSION } from "../core/version.ts";
 import { LIMITS } from "../core/limits.ts";
 import { createAssistantService, DISCLOSURE, Inputs, UNTRUSTED } from "../core/service/assistant.ts";
 import type { InternalErrorSink, ServiceResult } from "../core/service/errors.ts";
@@ -35,7 +36,7 @@ const stderrSink: InternalErrorSink = (operation, error) => {
 
 /** Builds the MCP server. Exposes inspection, findings, proposals and status only. */
 export function createAgentloreServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink } = {}): McpServer {
-  const server = new McpServer({ name: "agentlore", version: "0.1.0" }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
+  const server = new McpServer({ name: "agentlore", version: PRODUCT_VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
   const svc = createAssistantService(store, {
     reporter: () => {
       const info = server.server.getClientVersion();

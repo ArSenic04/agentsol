@@ -109,3 +109,11 @@ Still open: risks 1–8 above (except that root replacement is now handled), plu
 - The 50,000-entries-per-directory limit and file counts above about 5,000 were not tested.
 - Node 24 (the declared minimum) was not tested; only Node 26.8.2 on macOS arm64.
 - No real assistant client has used the installed package. Grok Bot cannot attach a stdio server on this Mac today (see `docs/ALPHA_VERIFICATION.md`).
+
+## Alpha release review: 0.1.0-alpha.1 (Nov 9, 2026)
+
+- The tarball is made from a staged copy, so the repository keeps `"private": true`. The staged manifest drops `scripts` and `devDependencies`, so the published package declares no lifecycle scripts at all.
+- Release files in `artifacts/release/` are never overwritten. The sha512 is recorded before the install checks and the dry run and compared after them. The publish command names that exact file.
+- Contents: `package.json`, `README.md`, `LICENSE`, 2 bins and the compiled `build/**/*.js`. There are no sources, tests, workspaces, databases, backups or git data.
+- Auth policy followed (npm docs, read Nov 9, 2026): publishing needs 2FA or a granular token. No token was created, read or stored by an agent; the person signs in and answers 2FA themselves.
+- Not claimed: real-client compatibility; a person running approve/apply end to end; Windows or Linux support.

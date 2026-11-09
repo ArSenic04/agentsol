@@ -20,8 +20,10 @@ import { createOperatorService, type Review } from "../core/service/operator.ts"
 import type { ProjectStatus } from "../core/service/status.ts";
 import { WorkspaceStore } from "../core/store.ts";
 import { workspaceFrom } from "../core/workspaceArg.ts";
+import { PRODUCT_VERSION } from "../core/version.ts";
 
 const USAGE = `agentlore --workspace <dir> <command> [--json]
+agentlore --version
 
 Commands (human-run, local only):
   doctor [--json]                       non-destructive preflight: Node, installed packages, workspace, terminal
@@ -135,6 +137,10 @@ async function run(argv: string[]): Promise<number> {
   const json = withFlags.includes("--json");
   const rest = withFlags.filter((a) => a !== "--json");
   const [command, ...args] = rest;
+  if (command === "--version" || command === "version") {
+    out(`agentlore ${PRODUCT_VERSION} (early alpha; approve/apply have not yet been run end to end by a person through this CLI)`);
+    return 0;
+  }
   if (!command || command === "help" || command === "--help") {
     out(USAGE);
     return command ? 0 : 2;

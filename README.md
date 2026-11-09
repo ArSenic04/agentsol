@@ -4,10 +4,16 @@ _Renamed from AgentWeave on Nov 9, 2026. Older workspaces, demos and the `AGENTW
 
 Agentlore audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 
-Status: an early local prototype. There is no hosted service and no published package; a local tarball can be built for testing (below), but it is not on npm. Passing tests do not make it production-ready.
+> **Alpha (0.1.0-alpha.1). Read this first.**
+> - **A person has not yet run approve and apply end to end through this CLI.** Those steps are covered by automated core tests only. Try them on the synthetic demo before any real project, and keep your files in version control.
+> - **No real assistant app has been validated.** Claude Code, Codex, Cursor and others are untested. Only the official MCP TypeScript SDK client has been used, in automated tests.
+> - Tested only on macOS (arm64) with Node 24.0.0, 24.22.2 and 26.8.2. There is no hosted service. Passing tests do not make it production-ready.
+
+Licence: MIT (see `LICENSE`).
 
 ## Requirements
-Node.js with built-in TypeScript support. `package.json` declares Node 24 or later, but only **Node 26.8.2 on macOS** has been tested. Run `npm ci` inside this folder; nothing is installed globally. `npm run doctor` checks this for you.
+- **Installed package:** Node 24 or later. The installed package (compiled JavaScript) passed its install check on Node 24.0.0, 24.22.2 and 26.8.2 on macOS arm64. Windows and Linux are untested.
+- **From source (this folder):** Node with built-in TypeScript support. The source checkout and its test suite have only been run on Node 26.8.2. Run `npm ci` inside this folder; nothing is installed globally. `npm run doctor` checks this for you.
 
 ## Before you use it: what leaves your computer
 - Anything the MCP tools return goes to your assistant's provider (usually a cloud service), under that provider's terms.
@@ -36,15 +42,30 @@ Run every step from this folder, in your own terminal.
 
 **What has and has not been validated.** The tests and the demo are *protocol smoke tests*: they use the official MCP TypeScript SDK client over a real stdio process. No real assistant client (Claude Code, Claude Desktop, Codex, Cursor) has been validated yet, and the interactive approve/apply flow has only been exercised through core unit tests, not by a person through the CLI after the latest changes.
 
-## Local package tarball (alpha testing only, not published)
-`npm run pack:check` compiles `src/core`, `src/cli` and `src/mcp` to JavaScript in `build/` and writes `artifacts/pack/agentlore-<version>.tgz` with a strict file allowlist: `package.json`, `README.md`, `bin/agentlore.mjs`, `bin/agentlore-mcp.mjs` and `build/**/*.js`. It fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports. `npm run install:check` installs that tarball into a fresh temp folder with scripts disabled and runs help, doctor, scan, findings and an MCP stdio handshake against the installed copy only.
+## Install the alpha from npm
+The alpha is published under the `alpha` tag, never `latest`. If `npm view agentlore@alpha version` prints nothing, it has not been published yet.
 
-To try the tarball yourself, in an empty folder: `npm install --ignore-scripts /path/to/agentlore-0.1.0.tgz`, then `npx agentlore help`. The MCP server is `npx agentlore-mcp --workspace <dir>`; `npx agentlore doctor --workspace <dir>` prints a config that points at the installed files.
+```sh
+mkdir agentlore-try && cd agentlore-try && npm init -y
+npm install agentlore@alpha            # installs into this folder only, not globally
+npx agentlore --version
+npx agentlore --workspace "$PWD/.agentlore-workspace" doctor
+```
 
-Not decided yet, so it is not published:
-- **Name.** The package is named `agentlore`. On Nov 9, 2026 the public npm registry returned 404 (not found) for `agentlore`, but nothing has been reserved or published, and npm can still refuse a name that is too similar to an existing one. Until it is published, `npm install agentlore` installs nothing (or, if someone else takes the name, their package).
-- **Licence.** `package.json` says `UNLICENSED` and there is no LICENSE file, so no one else has permission to use the code yet.
-- `package.json` keeps `"private": true` so an accidental `npm publish` fails.
+- Commands: `npx agentlore ...` (the CLI) and `npx agentlore-mcp --workspace <dir>` (the MCP server over stdio).
+- `npx agentlore --workspace <dir> doctor` prints an MCP client config with absolute paths to the installed files. Add it to your assistant yourself; Agentlore never edits any assistant's config.
+- The package has no install scripts. It ships compiled JavaScript, this README and `LICENSE`, and depends on `@modelcontextprotocol/server`, `yaml` and `zod`.
+
+## Release checks (maintainers)
+- `npm run pack:check`: preview tarball in `artifacts/pack/`. It uses a strict file allowlist, fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports, and requires `"private": true`.
+- `npm run install:check -- [--tarball <file>] [--node <path>]`: clean install into a temp folder with scripts disabled, then the CLI and an MCP stdio handshake against the installed copy only.
+- `npm run release:check -- --node <node24>`:
+  - Packs a staged copy without `"private"` into `artifacts/release/`, and never overwrites an existing release file.
+  - Runs the install check once per Node runtime, then `npm publish --dry-run` on that exact file.
+  - Confirms the file's sha512 did not change.
+  - Records everything in `<tarball>.release.json`.
+- The repository's own `package.json` stays `"private": true`, so `npm publish` from this folder fails by design.
+- Publishing is a person's step, with npm 2FA, from a normal terminal: `npm publish artifacts/release/agentlore-<version>.tgz --tag alpha --access public`.
 
 ## Run
 ```sh

@@ -3,7 +3,9 @@
  * into a fresh temp folder OUTSIDE the repository with install scripts disabled, then
  * drives the INSTALLED binaries only: help, doctor, project add, scan, findings, and a real
  * MCP stdio handshake + tool calls. Synthetic data only; nothing is published.
- * Usage: node scripts/installCheck.ts [--keep]
+ * Usage: node scripts/installCheck.ts [--tarball <file.tgz>] [--node <path/to/node>] [--keep]
+ *   --tarball  check this exact file (default: the single tarball in artifacts/pack/)
+ *   --node     run the installed binaries and MCP server with this Node (e.g. a local Node 24)
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -15,9 +17,20 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const tarballs = readdirSync(path.join(REPO, "artifacts", "pack")).filter((f) => f.endsWith(".tgz"));
-if (tarballs.length !== 1) throw new Error("run npm run pack:check first (expected exactly one tarball)");
-const TARBALL = path.join(REPO, "artifacts", "pack", tarballs[0] ?? "");
+const argValue = (flag: string): string | undefined => {
+  const i = process.argv.indexOf(flag);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+};
+const TARBALL = ((): string => {
+  const explicit = argValue("--tarball");
+  if (explicit) return path.resolve(explicit);
+  const tarballs = readdirSync(path.join(REPO, "artifacts", "pack")).filter((f) => f.endsWith(".tgz"));
+  if (tarballs.length !== 1) throw new Error("run npm run pack:check first (expected exactly one tarball)");
+  return path.join(REPO, "artifacts", "pack", tarballs[0] ?? "");
+})();
+const NODE = path.resolve(argValue("--node") ?? process.execPath);
+const nodeVersion = spawnSync(NODE, ["--version"], { encoding: "utf8" }).stdout.trim();
+const tarballSha512 = createHash("sha512").update(readFileSync(TARBALL)).digest("base64");
 
 const results: { step: string; ok: boolean; detail: string }[] = [];
 const record = (step: string, ok: boolean, detail = ""): void => {
@@ -65,7 +78,12 @@ try {
   record("installed top-level packages", true, top.join(" "));
 
   const bin = (name: string): string => path.join(nm, ".bin", name);
-  const run = (args: string[]) => spawnSync(bin("agentlore"), args, { cwd: app, encoding: "utf8", env: { ...process.env, AGENTLORE_WORKSPACE: "", AGENTWEAVE_WORKSPACE: "" } });
+  // Run the installed bin file with the chosen Node explicitly (not through PATH), so --node really tests that runtime.
+  const run = (args: string[]) => spawnSync(NODE, [path.join(nm, "agentlore", "bin", "agentlore.mjs"), ...args], { cwd: app, encoding: "utf8", env: { ...process.env, AGENTLORE_WORKSPACE: "", AGENTWEAVE_WORKSPACE: "" } });
+  record("installed .bin links exist", existsSync(bin("agentlore")) && existsSync(bin("agentlore-mcp")));
+  const installedPkg = JSON.parse(readFileSync(path.join(nm, "agentlore", "package.json"), "utf8"));
+  const ver = run(["--version"]);
+  record("installed `agentlore --version` matches package.json", ver.status === 0 && ver.stdout.startsWith(`agentlore ${installedPkg.version} `), `${ver.stdout.trim().split(" (")[0]} on Node ${nodeVersion}`);
   const help = run(["help"]);
   record("installed `agentlore help`", help.status === 0 && help.stdout.includes("Commands"), `exit ${help.status}`);
 
@@ -100,12 +118,12 @@ try {
   record("installed `findings`", findings.status === 0 && ids.length > 0, [...new Set(ids.map((s) => s.slice(11, 14)))].sort().join(" "));
 
   // MCP stdio handshake against the installed server binary, from the install folder.
-  const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(nm, "agentlore", "bin", "agentlore-mcp.mjs"), "--workspace", ws], cwd: app, stderr: "pipe" });
+  const transport = new StdioClientTransport({ command: NODE, args: [path.join(nm, "agentlore", "bin", "agentlore-mcp.mjs"), "--workspace", ws], cwd: app, stderr: "pipe" });
   const client = new Client({ name: "agentlore-install-check", version: "0.0.0" }, { versionNegotiation: { mode: "auto" } });
   await client.connect(transport);
   const info = client.getServerVersion();
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-  record("MCP handshake with the installed server", info?.name === "agentlore", `server ${info?.name} ${info?.version}, protocol ${client.getNegotiatedProtocolVersion()}`);
+  record("MCP handshake with the installed server", info?.name === "agentlore" && info?.version === installedPkg.version, `server ${info?.name} ${info?.version}, protocol ${client.getNegotiatedProtocolVersion()}`);
   record("MCP tools exposed (no approve/apply)", tools.length === 13 && !tools.some((t) => /approve|apply|reject|register|shell/.test(t)), tools.join(" "));
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await client.callTool({ name, arguments: args });
@@ -132,11 +150,12 @@ try {
   const installedText = manifests.filter((m) => m.includes(`${path.sep}agentlore${path.sep}`)).length;
   const grep = spawnSync("grep", ["-rl", REPO, path.join(nm, "agentlore")], { encoding: "utf8" });
   record("installed package contains no repository path", grep.stdout.trim() === "", `${installedText} manifest(s) checked`);
+  record("tarball unchanged by the install check", createHash("sha512").update(readFileSync(TARBALL)).digest("base64") === tarballSha512, `sha512-${tarballSha512.slice(0, 16)}…`);
 } catch (e) {
   record("unexpected error", false, e instanceof Error ? e.message.replace(base, "<tmp>") : String(e));
 } finally {
   if (!process.argv.includes("--keep")) rmSync(base, { recursive: true, force: true });
 }
 const failed = results.filter((r) => !r.ok).length;
-process.stdout.write(`\n${results.length - failed}/${results.length} install checks passed\n`);
+process.stdout.write(`\n${results.length - failed}/${results.length} install checks passed (Node ${nodeVersion}, ${path.basename(TARBALL)})\n`);
 process.exit(failed ? 1 : 0);
