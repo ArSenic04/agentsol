@@ -482,7 +482,7 @@ function commandChecks(s: Step, ctx: Ctx, out: Found[]): void {
   if (kind) f("A02", "error", `The command line contains ${secretLabel(kind)}. It is now in the transcript on disk and was sent to the model provider. Rotate it.`);
   const tempVars = new Set([...c.matchAll(/\b([A-Za-z_]\w*)=["']?\$\(\s*mktemp\b/g)].map((m) => m[1]));
 
-  if (/\b(curl|wget|iwr|Invoke-WebRequest)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(python3?|node|perl|ruby|iex)\b|\b(ba|z)?sh\s+<\(\s*(curl|wget)|\b(ba|z)?sh\s+-c\s+["']?\$\(\s*(curl|wget)/.test(unquoted(c))) {
+  if (/\b(curl|wget|iwr|Invoke-WebRequest)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(python3?|node|perl|ruby|iex)\b(?!\s+(-[a-z]*[ecp]|--eval|--print)\b)|\b(ba|z)?sh\s+<\(\s*(curl|wget)|\b(ba|z)?sh\s+-c\s+["']?\$\(\s*(curl|wget)/.test(unquoted(c))) {
     f("A04", "error", "Downloaded a script and ran it straight away, without saving or reading it first.");
   }
   if (/\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i.test(c)) f("A01", "error", "Dropped or truncated a database table.");
@@ -564,7 +564,7 @@ function commandChecks(s: Step, ctx: Ctx, out: Found[]): void {
     const install = installKind(cmd, args);
     if (install) f("A10", install === "global" ? "warn" : "info", install === "global" ? `Installed packages for the whole machine with ${cmd}.` : `Added project dependencies with ${cmd}.`);
 
-    if (/^(claude|codex|gemini|cursor|code)$/.test(cmd) && args[0] === "mcp" && /^(add|add-json|remove|install)$/.test(args[1] ?? "") || cmd === "code" && args.some((a) => a === "--add-mcp")) f("A08", "warn", "Changed which MCP servers an assistant loads.");
+    if (/^(claude|codex|gemini|cursor|code)$/.test(cmd) && args[0] === "mcp" && /^(add|add-json|remove|install)$/.test(args[1] ?? "") && !args.some((a) => a === "--help" || a === "-h") || cmd === "code" && args.some((a) => a === "--add-mcp")) f("A08", "warn", "Changed which MCP servers an assistant loads.");
     if (cmd === "crontab" && !args.includes("-l")) f("A08", "warn", "Changed scheduled jobs (crontab).");
     if (cmd === "launchctl" && /^(load|bootstrap|enable)$/.test(args[0] ?? "")) f("A08", "warn", "Registered a background service with launchctl.");
   }
@@ -600,7 +600,7 @@ function fileChecks(s: Step, ctx: Ctx, out: Found[]): void {
     else if (AI_CONFIG.some((re) => re.test(rel))) f("A08", "warn", `Changed ${show(p)}, which controls what an assistant may do or which MCP servers it starts.`, p);
     else if (PERSISTENCE.some((re) => re.test(rel))) f("A08", "warn", `Changed ${show(p)}, which runs again later on its own (shell startup, git hook or background service).`, p);
   }
-  const countRe = (ls: readonly string[], re: RegExp): number => ls.filter((l) => re.test(l)).length;
+  const countRe = (ls: readonly string[], re: RegExp): number => ls.filter((l) => re.test(l.replace(/(["'`])(?:\\.|(?!\1).)*\1/g, '""'))).length;
   const skips = countRe(s.added, SKIP_ADDED) - countRe(s.removed, SKIP_ADDED);
   if (skips > 0) f("A06", "warn", `Added ${skips} skipped or focused test${skips === 1 ? "" : "s"} (.skip, .only, xit, @pytest.mark.skip and similar), so part of the test suite no longer runs.`, all[0]);
   const supp = countRe(s.added, SUPPRESS_ADDED) - countRe(s.removed, SUPPRESS_ADDED);

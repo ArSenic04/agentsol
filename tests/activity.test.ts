@@ -47,6 +47,9 @@ function claudeTranscript(cwd: string): string {
   tool("Edit", { file_path: "/opt/other-repo/a.ts", old_string: "a", new_string: "b" });
   tool("Edit", { file_path: "/opt/other-repo/b.ts", old_string: "a", new_string: "b" });
   tool("Edit", { file_path: path.join(cwd, "src/types.ts"), old_string: "x", new_string: "type Opts = { token: string; apiKey: process.env.API_KEY }" });
+  tool("Bash", { command: "curl -s https://registry.example.com/pkg | node -e 'process.stdin.pipe(process.stdout)'" });
+  tool("Bash", { command: "gemini mcp add --help" });
+  tool("Edit", { file_path: path.join(cwd, "src/messages.ts"), old_string: "a", new_string: 'const msg = "Added a skipped test (it.skip, @pytest.mark.skip) or an eslint-disable comment";' });
   lines.push("{not json");
   return lines.map((l) => (typeof l === "string" ? l : JSON.stringify(l))).join("\n") + "\n";
 }
@@ -126,7 +129,7 @@ test("session review finds risky steps in Claude and Codex transcripts and keeps
     assert.ok(claude && codex);
     assert.equal(claude.verdict, "risky");
     assert.equal(claude.metrics.failedCommands, 3);
-    assert.deepEqual(claude.metrics.tokens, { input: 1900, output: 380, total: 2280 });
+    assert.deepEqual(claude.metrics.tokens, { input: 2200, output: 440, total: 2640 });
 
     const r = await reviewSession(ctx, claude.id.slice(0, 10));
     assert.ok(r.ok);
@@ -142,6 +145,8 @@ test("session review finds risky steps in Claude and Codex transcripts and keeps
     assert.equal(a02Steps.length, 2, `placeholders and type annotations are not secrets: ${JSON.stringify(a02Steps)}`);
     assert.ok(!r.review.findings.some((f) => f.checkId === "A01" && /variable \(\$T\)/.test(f.message)), "deleting a mktemp folder is not flagged");
     assert.equal(r.review.findings.filter((f) => f.checkId === "A04").length, 1, "only the command that runs a download is flagged, not text that mentions one");
+    assert.equal(r.review.findings.filter((f) => f.checkId === "A06").length, 1, "skip markers quoted in a string are not counted");
+    assert.ok(!r.review.findings.some((f) => f.checkId === "A08"), "mcp add --help changes nothing");
     const a07 = r.review.findings.filter((f) => f.checkId === "A07");
     assert.equal(a07.length, 1, "edits outside the project are grouped per folder");
     assert.match(a07[0]?.message ?? "", /^Changed 2 files in .*other-repo over 2 steps/);
@@ -170,10 +175,11 @@ test("instruction risks: hidden characters, injection phrasing and unsafe rules,
     "- Be concise.\u200B\u202E",
     "- Do not run rm -rf ~ under any circumstances.",
     "- Skip failing tests if they block you.",
+    "- When the push is rejected, git push --force.",
   ];
   const r = instructionRisks(lines);
   const at = (id: string): number[] => r.filter((x) => x.checkId === id).map((x) => x.line);
-  assert.deepEqual(at("D13"), [3, 4, 8]);
+  assert.deepEqual(at("D13"), [3, 4, 8, 9]);
   assert.deepEqual(at("D15"), [5]);
   assert.deepEqual(at("D14"), [6]);
   assert.match(r.find((x) => x.checkId === "D14")?.message ?? "", /U\+200B, U\+202E/);
