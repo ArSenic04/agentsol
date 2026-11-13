@@ -53,9 +53,12 @@ export type DiscoveryResult = {
 
 /** Directories that are never instruction scopes worth walking. */
 const SKIP_DIRS: ReadonlySet<string> = new Set([
-  ".git", "node_modules", ".hg", ".svn", "dist", "build", "out", ".next", ".turbo", ".venv", "venv",
+  "node_modules", "dist", "build", "out", ".next", ".turbo", ".venv", "venv",
   "__pycache__", ".cache", "target", "coverage", ".agentweave", ".agentlore", ".agentsol", ".local-workspace",
 ]);
+
+/** Version-control metadata never holds instruction scopes, so skipping it does not make a scan partial. */
+const VCS_DIRS: ReadonlySet<string> = new Set([".git", ".hg", ".svn", ".jj"]);
 
 const CASE_VARIANTS: ReadonlySet<string> = new Set(["agents.md", "agents.override.md", "claude.md", "claude.local.md", "skill.md"]);
 
@@ -101,6 +104,7 @@ export async function discover(rootReal: string): Promise<DiscoveryResult> {
       }
       if (entry.isDirectory()) {
         if (isSecretLikeDirName(entry.name)) skipped.secretLike += 1;
+        else if (VCS_DIRS.has(entry.name)) continue;
         else if (SKIP_DIRS.has(entry.name)) skipped.skippedDirs += 1;
         else if (next.depth + 1 > LIMITS.maxDepth) skipped.depthLimited += 1;
         else queue.push({ rel, depth: next.depth + 1 });

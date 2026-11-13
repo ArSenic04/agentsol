@@ -342,7 +342,7 @@ async function promptCmd(store: WorkspaceStore, svc: AssistantService, ops: Retu
   return 0;
 }
 
-type ClientSetup = { id: string; name: string; how: string; lines: string[] };
+type ClientSetup = { id: string; name: string; how: string; lines: string[]; note?: string };
 function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
   const env = ws.isDefault ? null : path.resolve(ws.dir);
   const npx = `npx ${MCP_ARGS.join(" ")}`;
@@ -352,7 +352,7 @@ function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
   return [
     { id: "claude-code", name: "Claude Code", how: "run once:", lines: [`claude mcp add agentsol -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
     { id: "codex", name: "Codex (CLI, IDE and ChatGPT desktop share it)", how: "run once:", lines: [`codex mcp add agentsol${env ? ` --env AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
-    { id: "gemini", name: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`] },
+    { id: "gemini", name: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`], note: "Gemini CLI loads MCP servers only in folders you trust. If agentsol shows as disabled, trust the folder when Gemini asks." },
     { id: "vscode", name: "VS Code (Copilot agent mode)", how: "run once:", lines: [`code --add-mcp '${vs}'`] },
     { id: "cursor", name: "Cursor", how: "add to ~/.cursor/mcp.json:", lines: json() },
     { id: "claude-desktop", name: "Claude Desktop", how: `add to ${desktop}:`, lines: json() },
@@ -370,6 +370,7 @@ function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string
     raw();
     raw(`  ${heading(t, c.name, [["muted", c.how]])}`);
     for (const l of c.lines) raw(render(t, ["    ", ["agent", l]]));
+    if (c.note) raw(render(t, ["    ", ["muted", c.note]]));
   }
   raw();
   raw(`  ${heading(t, "Web chats (ChatGPT, Gemini, Claude.ai, Grok…)", [["muted", "they cannot start local servers"]])}`);

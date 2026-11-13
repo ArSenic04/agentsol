@@ -60,7 +60,7 @@ test("synthetic monorepo: layered scopes, every edge case reported, nothing sile
       "edge/symlink/AGENTS.md": "symlink_not_followed",
     });
     assert.equal(scan.skipped.depthLimited, 1);
-    assert.ok(scan.skipped.skippedDirs >= 2, "node_modules and .git counted");
+    assert.ok(scan.skipped.skippedDirs >= 1, "node_modules counted");
     assert.equal(scan.skipped.secretLike, 1);
     // Every instruction-named entry we created is read or reported, except the one below the depth limit (counted in skipped.depthLimited).
     assert.equal(scan.sources + [...reasons].length + 1, fx.stats.instructionFiles, "every instruction file is either read or reported");

@@ -43,6 +43,7 @@ test("discovery reads only supported instruction files and reports every exclusi
       "link/AGENTS.md": "symlink_not_followed",
     }, "only instruction-file names are recorded; .env, credentials.json, .ssh and linkdir are counted, not named");
     assert.ok(r.ok && r.value.skipped.secretLike === 3 && r.value.skipped.symlinks === 1, JSON.stringify(r.ok && r.value.skipped));
+    assert.ok(r.ok && r.value.skipped.skippedDirs === 1, "node_modules counts as skipped; .git does not make the scan partial");
     for (const s of fx.store.listSources(fx.projectId)) {
       const v = s.currentVersionId ? fx.store.getVersion(s.currentVersionId) : null;
       assert.ok(v);
