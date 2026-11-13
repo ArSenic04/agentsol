@@ -8,11 +8,12 @@
  * Commands and paths are returned masked, shortened and capped in length.
  */
 import { createHash } from "node:crypto";
-import { closeSync, createReadStream, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
-import { redactLines, type SecretKind } from "./secrets.ts";
+import { codeRisks, INJECTION } from "./risks.ts";
+import { secretKinds, secretLabel, type SecretKind } from "./secrets.ts";
 import { maskLaunch } from "./setup.ts";
 
 export const SESSION_CHECKS = {
@@ -29,6 +30,7 @@ export const SESSION_CHECKS = {
   A11: "Stuck retrying a failing command",
   A12: "Edits never verified",
   A13: "Possible prompt injection in tool output",
+  A14: "Added insecure code",
 } as const;
 export type SessionCheckId = keyof typeof SESSION_CHECKS;
 export type Severity = "error" | "warn" | "info";
@@ -90,11 +92,9 @@ const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const lines = (s: string | null): string[] => (s ? s.split(/\r?\n/) : []);
 
-const INJECTION = /\b(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|rules|directions)|\byou are now (a|an|in)\b|\bnew (system )?instructions\s*:|<\/?(system|im_start|im_end)>|<\|im_start\|>|\bdo not (tell|inform|alert) the user\b|\bwithout (telling|asking|informing) the user\b/i;
-
 function scanOutput(step: Step, text: string): void {
   const t = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text;
-  for (const r of redactLines(t.split(/\r?\n/)).redacted) for (const k of r.kinds) if (!step.outSecrets.includes(k)) step.outSecrets.push(k);
+  for (const k of secretKinds(t)) if (!step.outSecrets.includes(k)) step.outSecrets.push(k);
   if (INJECTION.test(t)) step.outInjection = true;
 }
 
@@ -139,7 +139,7 @@ class Builder {
     const t = text.trim();
     if (!t || t.startsWith("<")) return;
     this.userTurns += 1;
-    for (const r of redactLines(t.slice(0, MAX_SCAN_CHARS).split(/\r?\n/)).redacted) for (const k of r.kinds) if (!this.userSecrets.includes(k)) this.userSecrets.push(k);
+    for (const k of secretKinds(t.slice(0, MAX_SCAN_CHARS))) if (!this.userSecrets.includes(k)) this.userSecrets.push(k);
   }
 }
 
@@ -469,13 +469,20 @@ function hostOf(words: readonly string[]): string | null {
   return null;
 }
 
+/** The command with heredoc bodies and quoted strings blanked, except the script given to `sh -c`. */
+function unquoted(c: string): string {
+  const noHeredoc = c.replace(/<<-?\s*(["']?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2\s*(\n|$)/g, "<<heredoc\n");
+  return noHeredoc.replace(/(-c\s+)?(["'])((?:\\.|(?!\2)[\s\S])*)\2/g, (m: string, dashC: string | undefined) => (dashC ? m : '""'));
+}
+
 function commandChecks(s: Step, ctx: Ctx, out: Found[]): void {
   const c = s.command ?? "";
   const f = (checkId: SessionCheckId, severity: Severity, message: string): void => { out.push({ checkId, severity, step: s.n, message, excerpt: showCommand(c, ctx) }); };
-  const kinds = redactLines(c.split(/\r?\n/)).redacted.flatMap((r) => r.kinds);
-  if (kinds.length > 0) f("A02", "error", `The command line contains a secret (${kinds[0]?.replace(/_/g, " ")}). It is now in the transcript on disk and was sent to the model provider. Rotate it.`);
+  const kind = secretKinds(c)[0];
+  if (kind) f("A02", "error", `The command line contains ${secretLabel(kind)}. It is now in the transcript on disk and was sent to the model provider. Rotate it.`);
+  const tempVars = new Set([...c.matchAll(/\b([A-Za-z_]\w*)=["']?\$\(\s*mktemp\b/g)].map((m) => m[1]));
 
-  if (/\b(curl|wget|iwr|Invoke-WebRequest)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(python3?|node|perl|ruby|iex)\b|\b(ba|z)?sh\s+<\(\s*(curl|wget)|\b(ba|z)?sh\s+-c\s+["']?\$\(\s*(curl|wget)/.test(c)) {
+  if (/\b(curl|wget|iwr|Invoke-WebRequest)\b[^|;&]*\|\s*(sudo\s+)?(ba|z|da)?sh\b|\b(curl|wget)\b[^|;&]*\|\s*(sudo\s+)?(python3?|node|perl|ruby|iex)\b|\b(ba|z)?sh\s+<\(\s*(curl|wget)|\b(ba|z)?sh\s+-c\s+["']?\$\(\s*(curl|wget)/.test(unquoted(c))) {
     f("A04", "error", "Downloaded a script and ran it straight away, without saving or reading it first.");
   }
   if (/\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+TABLE)\b/i.test(c)) f("A01", "error", "Dropped or truncated a database table.");
@@ -498,7 +505,8 @@ function commandChecks(s: Step, ctx: Ctx, out: Found[]): void {
       const targets = args.filter((a) => !a.startsWith("-"));
       for (const t of targets) {
         const p = expand(t, s.cwd, ctx.home);
-        if (p === null) { if (!/^\$\{?(TMPDIR|TMP|TEMP)\b/.test(t)) f("A01", "warn", `Recursively deleted a path built from a variable (${maskLaunch(t, ctx.home, 60)}). If the variable is empty or wrong, this deletes the wrong folder.`); continue; }
+        const v = /^\$\{?([A-Za-z_]\w*)\}?(\/|$)/.exec(t)?.[1];
+        if (p === null) { if (!/^\$\{?(TMPDIR|TMP|TEMP)\b/.test(t) && !(v && tempVars.has(v))) f("A01", "warn", `Recursively deleted a path built from a variable (${maskLaunch(t, ctx.home, 60)}). If the variable is empty or wrong, this deletes the wrong folder.`); continue; }
         const catastrophic = p === "/" || p === ctx.home || (ctx.cwd !== null && within(ctx.cwd, p)) || /^(\*|\.\/?\*?|\.\.\/?)$/.test(t);
         if (catastrophic) f("A01", "error", `Recursively deleted ${p === "/" ? "the whole disk root" : p === ctx.home ? "your home folder" : "the project folder or a folder above it"}.`);
         else if (!(ctx.cwd && within(p, ctx.cwd)) && !isTmp(ctx, p)) f("A01", "warn", `Recursively deleted ${showPath(p, ctx)}, which is outside the project.`);
@@ -585,7 +593,7 @@ function fileChecks(s: Step, ctx: Ctx, out: Found[]): void {
   if (s.kind === "read" || s.kind === "search") return;
 
   const outside = all.filter((p) => ctx.cwd && !within(p, ctx.cwd) && !isTmp(ctx, p) && ![".claude/plans", ".claude/todos", ".claude/projects", ".codex/sessions"].some((d) => within(p, path.join(ctx.home, d))));
-  if (outside[0]) f("A07", "warn", `Changed ${show(outside[0])}${outside.length > 1 ? ` and ${outside.length - 1} more` : ""}, outside the project folder.`, outside[0]);
+  if (outside[0]) out.push({ checkId: "A07", severity: "warn", step: s.n, message: "", excerpt: outside[0] });
   for (const p of all) {
     const rel = p.split(path.sep).join("/");
     if (INSTRUCTION_FILE.test(path.basename(p))) f("A08", "info", `Edited ${show(p)}, an instruction file assistants follow.`, p);
@@ -597,21 +605,53 @@ function fileChecks(s: Step, ctx: Ctx, out: Found[]): void {
   if (skips > 0) f("A06", "warn", `Added ${skips} skipped or focused test${skips === 1 ? "" : "s"} (.skip, .only, xit, @pytest.mark.skip and similar), so part of the test suite no longer runs.`, all[0]);
   const supp = countRe(s.added, SUPPRESS_ADDED) - countRe(s.removed, SUPPRESS_ADDED);
   if (supp > 0) f("A06", "info", `Added ${supp} lint or type-check suppression${supp === 1 ? "" : "s"} (eslint-disable, @ts-ignore, noqa and similar).`, all[0]);
+  if (s.added.length > 0) {
+    const code = s.files.filter((p) => CODE_FILE.test(p) && !TEST_FILE.test(p.split(path.sep).join("/")));
+    const before = new Set(codeRisks(s.removed));
+    const risks = code.length > 0 ? codeRisks(s.added).filter((r) => !before.has(r)) : [];
+    if (risks.length > 0) f("A14", "warn", `Added code to ${show(code[0] ?? "")} that ${risks.join("; ")}. Check it before it ships.`, code[0]);
+    const written = secretKinds(s.added.join("\n")).filter((k) => !secretKinds(s.removed.join("\n")).includes(k))[0];
+    if (written) f("A02", "error", `Wrote ${secretLabel(written)} into ${show(all[0] ?? "")}. It is now in the file (and in git history once committed). Move it to an environment variable and rotate it.`, all[0]);
+  }
   const deletedTests = s.deleted.filter((p) => TEST_FILE.test(p.split(path.sep).join("/")));
   if (deletedTests[0]) f("A06", "warn", `Deleted ${deletedTests.length} test file${deletedTests.length === 1 ? "" : "s"}.`, deletedTests[0]);
 }
 
 const normalize = (c: string): string => c.replace(/\s+/g, " ").trim();
 
+/** Folds per-edit A07 placeholders into one warning per outside folder (its git root when there is one). */
+function groupOutside(out: Found[], ctx: Ctx): void {
+  const groups = new Map<string, { first: Found; steps: number; files: Set<string> }>();
+  const rootOf = (file: string): string => {
+    for (let d = path.dirname(file); d !== path.dirname(d) && d !== ctx.home; d = path.dirname(d)) if (existsSync(path.join(d, ".git"))) return d;
+    return path.dirname(file);
+  };
+  const keep = out.filter((f) => {
+    if (f.checkId !== "A07" || f.message !== "") return true;
+    const file = f.excerpt ?? "";
+    const root = rootOf(file);
+    const g = groups.get(root);
+    if (g) { g.steps += 1; g.files.add(file); return false; }
+    groups.set(root, { first: f, steps: 1, files: new Set([file]) });
+    return true;
+  });
+  out.splice(0, out.length, ...keep);
+  for (const [root, g] of groups) {
+    const n = g.files.size;
+    g.first.message = `Changed ${n} file${n === 1 ? "" : "s"} in ${showPath(root, ctx)} over ${g.steps} step${g.steps === 1 ? "" : "s"}, outside the folder the session started in (${ctx.cwd ? showPath(ctx.cwd, { ...ctx, cwd: null }) : "unknown"}). Fine if you asked for it; otherwise check those edits.`;
+    g.first.excerpt = showPath(root, ctx);
+  }
+}
+
 function analyze(p: Parsed, ctx: Ctx): Found[] {
   const out: Found[] = [];
   for (const s of p.steps) {
     if (s.kind === "command") commandChecks(s, ctx, out);
     else fileChecks(s, ctx, out);
-    if (s.outSecrets.length > 0) out.push({ checkId: "A02", severity: "error", step: s.n, message: `The output of this step contained a secret (${s.outSecrets[0]?.replace(/_/g, " ")}). The assistant saw it and it was sent to the model provider. Rotate it.`, excerpt: showTarget(s, ctx) });
+    if (s.outSecrets.length > 0) out.push({ checkId: "A02", severity: "error", step: s.n, message: `The output of this step contained ${s.outSecrets[0] ? secretLabel(s.outSecrets[0]) : "a secret"}. The assistant saw it and it was sent to the model provider. Rotate it.`, excerpt: showTarget(s, ctx) });
     if (s.outInjection) out.push({ checkId: "A13", severity: "warn", step: s.n, message: "The output of this step contains text that tries to give the assistant new instructions. Check what the assistant did right after it.", excerpt: showTarget(s, ctx) });
   }
-  if (p.userSecrets.length > 0) out.push({ checkId: "A02", severity: "warn", step: null, message: `A message you typed contained a secret (${p.userSecrets[0]?.replace(/_/g, " ")}). It was sent to the model provider and is saved in the transcript. Rotate it if it is real.`, excerpt: null });
+  if (p.userSecrets.length > 0) out.push({ checkId: "A02", severity: "warn", step: null, message: `A message you typed contained ${p.userSecrets[0] ? secretLabel(p.userSecrets[0]) : "a secret"}. It was sent to the model provider and is saved in the transcript. Rotate it if it is real.`, excerpt: null });
 
   const commands = p.steps.filter((s) => s.kind === "command");
   const failures = new Map<string, Step[]>();
@@ -628,6 +668,7 @@ function analyze(p: Parsed, ctx: Ctx): Found[] {
     out.push({ checkId: "A12", severity: "info", step: lastEdit.n, message: lastVerify ? "Code changed after the last test, build or lint run, so the final state was not checked." : "Changed code but never ran tests, a build or a linter.", excerpt: showTarget(lastEdit, ctx) });
   }
 
+  groupOutside(out, ctx);
   const seen = new Set<string>();
   return out.filter((x) => { const k = `${x.checkId}:${x.step}:${x.message}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
@@ -750,18 +791,26 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
   const notes: string[] = [];
   let skipped = 0;
   let large = 0;
+  const parents = new Map<string, number>();
   for (const c of candidates(ctx)) {
     if (c.mtimeMs < since || sessions.length >= limit) break;
     if (c.size > MAX_FILE_BYTES) { large += 1; continue; }
     const cwd = headCwd(c.file);
     const resolved = cwd ? path.resolve(cwd) : null;
-    if (opts.cwdWithin && !(resolved && within(resolved, path.resolve(opts.cwdWithin)))) continue;
+    if (opts.cwdWithin && !(resolved && within(resolved, path.resolve(opts.cwdWithin)))) {
+      if (!opts.requireProject && resolved && within(path.resolve(opts.cwdWithin), resolved)) parents.set(resolved, (parents.get(resolved) ?? 0) + 1);
+      continue;
+    }
     if (opts.requireProject && !lookup(resolved)) { skipped += 1; continue; }
     try {
       sessions.push((await load(c, ctx, lookup)).summary);
     } catch {
       notes.push(`One transcript could not be read (${c.id}).`);
     }
+  }
+  for (const [dir, n] of parents) {
+    const shown = dir === ctx.home ? "~" : dir.startsWith(ctx.home + path.sep) ? `~${dir.slice(ctx.home.length)}` : dir;
+    notes.push(`${n} session${n === 1 ? "" : "s"} started in ${shown}, a parent of this folder, and ${n === 1 ? "is" : "are"} not listed. ${n === 1 ? "It" : "They"} may still have changed files here; list ${n === 1 ? "it" : "them"} with: sessions ${shown}`);
   }
   if (large > 0) notes.push(`${large} transcript${large === 1 ? " is" : "s are"} larger than 64 MB and ${large === 1 ? "was" : "were"} skipped.`);
   return { sessions, skipped, notes };

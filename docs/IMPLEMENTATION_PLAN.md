@@ -11,7 +11,7 @@ Goal: the smallest end-to-end loop someone can verify. Import instruction files,
 - [x] Exclusions recorded with a reason: secret-like names, symlinks, binary, invalid UTF-8, too large, limits reached
 - [x] Secret redaction before storage (only redacted text and the raw hash are stored), with line numbers preserved
 - [x] Source versions (a new version only when the bytes change); missing files marked missing
-- [x] Structural checks: D00 empty; D01–D04 skill frontmatter, name, description, compatibility; D07 size; D08 precedence; D09 CLAUDE imports; D10 duplicates ("not a conflict"); D12 secrets
+- [x] Structural checks: D00 empty; D01–D04 skill frontmatter, name, description, compatibility; D07 size; D08 precedence; D09 CLAUDE imports; D10 duplicates ("not a conflict"); D12 secrets; D13 unsafe instructions, D14 invisible characters, D15 prompt-injection phrasing
 - [x] Scope resolution for Codex, Claude Code (default setting) and Cursor (AGENTS.md only), always reported as "layered"
 - [x] Evidence validation for assistant findings: ids, project, current version, line range, exact quote
 - [x] Proposals as structured line edits with expected text; never written to disk at proposal time

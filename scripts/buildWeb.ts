@@ -42,7 +42,7 @@ async function prepareOut(out: string): Promise<void> {
 }
 
 /** Core modules that are pure (no node: imports) and shared with the browser checker. */
-const SHARED_CORE = ["secrets.ts", "claudeImports.ts", "handoff.ts"];
+const SHARED_CORE = ["secrets.ts", "claudeImports.ts", "handoff.ts", "risks.ts"];
 const PUBLIC_FILES = ["index.html", "styles.css", "favicon.svg", "og.png", "llms.txt", "robots.txt"];
 
 function toBrowserModule(input: string, name: string): string {

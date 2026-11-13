@@ -37,7 +37,7 @@ export const EvidenceSpanSchema = z.object({
 });
 export type EvidenceSpan = z.infer<typeof EvidenceSpanSchema>;
 
-export const STRUCTURAL_CHECK_IDS = ["D00", "D01", "D02", "D03", "D04", "D07", "D08", "D09", "D10", "D12"] as const;
+export const STRUCTURAL_CHECK_IDS = ["D00", "D01", "D02", "D03", "D04", "D07", "D08", "D09", "D10", "D12", "D13", "D14", "D15"] as const;
 export type StructuralCheckId = (typeof STRUCTURAL_CHECK_IDS)[number];
 export const SEMANTIC_CHECK_IDS = ["S01", "S02", "S03", "S04", "S05"] as const;
 export type SemanticCheckId = (typeof SEMANTIC_CHECK_IDS)[number];

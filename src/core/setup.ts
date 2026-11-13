@@ -6,9 +6,8 @@
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { redactLines, type SecretKind } from "./secrets.ts";
+import { redactLines, secretKinds, secretLabel, type SecretKind } from "./secrets.ts";
 
-const article = (kind: string): string => { const w = kind.replace(/_/g, " "); return `${/^[aeiou]/i.test(w) ? "an" : "a"} ${w}`; };
 
 export const SETUP_CHECKS = {
   C01: "Secret saved in plain text in an AI app's settings",
@@ -269,7 +268,7 @@ export function literalSecretKind(key: string, value: string): SecretKind | null
   const v = value.trim();
   if (!v || REFERENCE.test(v) || PLACEHOLDER.test(v)) return null;
   const hit = redactLines([v]).redacted[0];
-  if (hit) return hit.kinds[0] ?? "assignment";
+  if (hit) return hit.real[0] ?? null;
   return SECRET_KEY.test(key) && v.length >= 8 && !/\s/.test(v) && !/^(https?:)?\/\//.test(v) && !path.isAbsolute(v) ? "assignment" : null;
 }
 
@@ -334,7 +333,7 @@ function secretsIn(ctx: Ctx, client: string, file: string, server: string | null
   for (const [k, v] of Object.entries(values ?? {})) {
     const s = str(v);
     const kind = s === null ? null : literalSecretKind(k, s);
-    if (kind) add(ctx, "C01", "error", client, file, server, `${where}.${k} holds ${article(kind)} in plain text. Anyone or anything that can read this file can use it. Move it to an environment variable or the app's secret input and rotate it.`, `${where}.${k} = [REDACTED:${kind}]`);
+    if (kind) add(ctx, "C01", "error", client, file, server, `${where}.${k} holds ${secretLabel(kind)} in plain text. Anyone or anything that can read this file can use it. Move it to an environment variable or the app's secret input and rotate it.`, `${where}.${k} = [REDACTED:${kind}]`);
   }
 }
 
@@ -356,10 +355,10 @@ function auditServer(ctx: Ctx, client: string, file: string, scope: McpServerInf
   args.forEach((a, i) => {
     const flag = /^--?(api[-_]?key|token|secret|password|access[-_]?key|auth)$/i.test(a);
     const next = args[i + 1];
-    const kind = flag && next ? literalSecretKind("token", next) : redactLines([a]).redacted[0]?.kinds[0] ?? null;
-    if (kind) add(ctx, "C01", "error", client, file, name, `An argument holds ${article(kind)} in plain text, and process lists show arguments to other programs. Pass it through an environment variable instead and rotate it.`, `args[${flag ? i + 1 : i}] = [REDACTED:${kind}]`);
+    const kind = flag && next ? literalSecretKind("token", next) : secretKinds(a)[0] ?? null;
+    if (kind) add(ctx, "C01", "error", client, file, name, `An argument holds ${secretLabel(kind)} in plain text, and process lists show arguments to other programs. Pass it through an environment variable instead and rotate it.`, `args[${flag ? i + 1 : i}] = [REDACTED:${kind}]`);
   });
-  if (url && redactLines([url]).redacted.length > 0) add(ctx, "C01", "error", client, file, name, "The server URL contains a credential. Send it as a header from an environment variable instead and rotate it.", maskLaunch(url, ctx.home));
+  if (url && secretKinds(url).length > 0) add(ctx, "C01", "error", client, file, name, "The server URL contains a credential. Send it as a header from an environment variable instead and rotate it.", maskLaunch(url, ctx.home));
 
   if (url) {
     try {

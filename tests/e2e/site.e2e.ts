@@ -4,6 +4,7 @@
  * needs a browser binary.
  */
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -391,12 +392,13 @@ test("hero session: decorative, labelled for screen readers, honest about suppor
 });
 
 test("browser checker runs the checks locally, masks secrets and builds a prompt for any AI", async () => {
+  const token = randomBytes(12).toString("hex");
   const { page, problems, apiRequests } = await openPage({ clipboard: true });
   await page.goto(`${staticSrv.url}#/check`);
   await page.locator("#page-title").waitFor();
   await page.locator("#pick-files").setInputFiles([
     { name: "CLAUDE.md", mimeType: "text/markdown", buffer: Buffer.from("# Notes\n\n@AGENTS.md\n@.env.local\n- Always run the unit tests before you commit.\n") },
-    { name: "AGENTS.md", mimeType: "text/markdown", buffer: Buffer.from("# Synthetic\n\n- Always run the unit tests before you commit.\n- token: FAKEFAKEFAKE12345\n") },
+    { name: "AGENTS.md", mimeType: "text/markdown", buffer: Buffer.from(`# Synthetic\n\n- Always run the unit tests before you commit.\n- token: ${token}\n`) },
   ]);
   await page.locator("#results-title").waitFor();
   const text = await page.locator(".results").innerText();
@@ -405,14 +407,14 @@ test("browser checker runs the checks locally, masks secrets and builds a prompt
   assert.match(text, /D10/);
   assert.match(text, /D08/);
   assert.match(text, /REDACTED:assignment/);
-  assert.ok(!text.includes("FAKEFAKEFAKE12345"), "secret-like value never shown");
+  assert.ok(!text.includes(token), "secret-like value never shown");
   const prompt = page.locator(".handoff-box");
   await prompt.getByRole("button", { name: "Copy" }).click();
   await prompt.getByText("Copied").waitFor();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   assert.match(copied, /POSSIBLE issues/);
   assert.match(copied, /### AGENTS\.md/);
-  assert.ok(!copied.includes("FAKEFAKEFAKE12345"));
+  assert.ok(!copied.includes(token));
 
   await page.locator("#paste-name").selectOption("SKILL.md");
   await page.locator("#paste-text").fill("---\nname: Release-Notes\n---\nBody.\n");

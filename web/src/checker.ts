@@ -1,5 +1,6 @@
 import { findClaudeImports } from "../../src/core/claudeImports.ts";
 import { handoffPrompt } from "../../src/core/handoff.ts";
+import { instructionRisks } from "../../src/core/risks.ts";
 import { isSecretLikeDirName, isSecretLikeFileName, redactLines } from "../../src/core/secrets.ts";
 import { h, plural, replace, route } from "./dom.ts";
 import { codeBlock } from "./workspace.ts";
@@ -109,6 +110,7 @@ function check(sources: readonly Src[], known: ReadonlySet<string> | null): Resu
       const claude = sources.find((o) => (o.format === "claude-md" || o.format === "claude-local-md") && isSameOrBelow(dir, scopeDir(o)));
       if (claude) add({ checkId: "D08", severity: "info", message: `By default Claude Code reads CLAUDE.md instead of AGENTS.md here (\`${claude.relPath}\` applies). Codex and Cursor still read this file.`, relPath: s.relPath, line: 1 });
     }
+    for (const r of instructionRisks(s.lines)) add({ checkId: r.checkId, severity: r.severity, message: r.message, relPath: s.relPath, line: r.line });
     if (s.redacted.length) add({ checkId: "D12", severity: "warn", message: `${plural(s.redacted.length, "line")} contain secret-like text (masked below). Every assistant that reads this file sees the original.`, relPath: s.relPath, line: s.redacted[0] ?? 1 });
   }
   const seen = new Map<string, { relPath: string; line: number }[]>();

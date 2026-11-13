@@ -5,6 +5,7 @@ import { readFrontmatter } from "./frontmatter.ts";
 import { sha256Hex } from "./hash.ts";
 import { findingIdFromDigest, type SourceId, type VersionId } from "./ids.ts";
 import { normalizeRelPath, resolveExistingInsideRoot } from "./paths.ts";
+import { instructionRisks } from "./risks.ts";
 import type { EvidenceSpan, Severity, StructuralCheckId, StructuralFinding } from "./schemas.ts";
 import { isSecretLikeDirName, isSecretLikeFileName } from "./secrets.ts";
 
@@ -33,6 +34,9 @@ export const STRUCTURAL_CHECKS: Record<StructuralCheckId, string> = {
   D09: "CLAUDE.md @import cannot be resolved inside the project",
   D10: "Identical line appears in more than one instruction file",
   D12: "Secret-like text found (redacted)",
+  D13: "Instruction tells assistants to do something unsafe",
+  D14: "Invisible characters in an instruction file",
+  D15: "Prompt-injection phrasing in an instruction file",
 };
 
 const CODEX_MAX_BYTES = 32 * 1024;
@@ -41,6 +45,7 @@ const SKILL_BODY_LINE_GUIDE = 500;
 const SKILL_NAME = /^[\p{Ll}\p{Nd}]+(?:-[\p{Ll}\p{Nd}]+)*$/u;
 const MIN_DUPLICATE_LENGTH = 24;
 const MAX_DUPLICATE_FINDINGS = 25;
+const RISK_DOC = "https://genai.owasp.org/llmrisk/llm01-prompt-injection/";
 
 export function span(src: CheckSource, startLine: number, endLine: number): EvidenceSpan {
   const total = Math.max(1, src.lines.length);
@@ -251,6 +256,7 @@ export async function runStructuralChecks(ctx: CheckContext): Promise<Structural
     if (src.format === "skill-md") out.push(...skillChecks(src, ctx.rootReal));
     if (src.format === "claude-md" || src.format === "claude-local-md") out.push(...(await claudeImportChecks(src, ctx.rootReal)));
     out.push(...precedenceChecks(src, ctx.sources), ...sizeChecks(src), ...secretChecks(src));
+    for (const r of instructionRisks(src.lines)) out.push(finding({ checkId: r.checkId, severity: r.severity, message: r.message, evidence: [span(src, r.line, r.line)], docUrl: RISK_DOC }));
   }
   out.push(...duplicateChecks(ctx.sources));
   const unique = new Map(out.map((f) => [f.id, f]));
