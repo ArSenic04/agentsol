@@ -24,11 +24,13 @@ import { createAssistantService, type AssistantService } from "../core/service/a
 import type { ServiceResult } from "../core/service/errors.ts";
 import { createOperatorService, type Review } from "../core/service/operator.ts";
 import type { ProjectStatus } from "../core/service/status.ts";
+import { listSessions, overallScore, parseSince, reviewSession, RUBRIC_KEYS, SESSION_CHECKS, SessionIdSchema, StoredGradeSchema, type SessionSummary, type Verdict } from "../core/sessions.ts";
+import { auditSetup, SETUP_CHECKS, type SetupReport } from "../core/setup.ts";
 import { WorkspaceStore, type Project } from "../core/store.ts";
 import { resolveWorkspace } from "../core/workspaceArg.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
 import { PROMPT_NAMES, TOOL_NAMES } from "../mcp/server.ts";
-import { banner, detectTerm, heading, pairs, panel, render, withSpinner, wrapWords, type Seg, type Term } from "./tui.ts";
+import { banner, detectTerm, fit, heading, pairs, panel, render, withSpinner, wrapWords, type Seg, type Term } from "./tui.ts";
 
 const USAGE = `agentsol [--workspace <dir>] <command> [--json]
 agentsol --version
@@ -39,9 +41,14 @@ Start here:
   check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
   connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
   prompt [path]                         print one masked prompt to paste into any chat AI
+  sessions [path] [--since 7d] [--limit N] [--json]
+                                        what your AI agents did lately (Claude Code, Codex), with risky steps flagged
+  session <id> [--timeline] [--from N] [--json]
+                                        one session in detail: findings, metrics, grades, step timeline
 
 Commands (human-run, local only):
-  doctor [--json]                       non-destructive preflight: Node, installed packages, workspace, terminal
+  doctor [--json] [--strict]            preflight (Node, packages, workspace, terminal) plus an audit of your AI apps'
+                                        settings: plaintext secrets, MCP servers, permissions, hooks
   project add <path> [--name <name>]   register a project folder (never home, /, system or broad folders)
   projects                              list registered projects (with local paths)
   status [--json]                       workspace status: last-scan snapshot, partial coverage, disk freshness, proposals
@@ -197,7 +204,7 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
   const toolRows = wrapWords([...TOOL_NAMES], w - 4 - L, " · ");
   raw();
   for (const l of banner(t)) raw(l);
-  raw(render(t, ["  ", ["muted", "Audit the instructions your AI agents follow. Runs on the AI you already use."]]));
+  raw(render(t, ["  ", ["muted", "Reviews your AI agents' work: the rules they follow, what they did, how they are set up."]]));
   raw();
   for (const l of panel(t, [["bold", "agentsol"], " ", ["muted", `${PRODUCT_VERSION} · free · MIT · local-first`]], [
     ...pairs([
@@ -209,7 +216,7 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
     [],
     ...toolRows.map((r, i): Seg[] => [["muted", (i === 0 ? `Tools (${TOOL_NAMES.length})` : "").padEnd(L)], ["agent", r]]),
     [["muted", "Prompts".padEnd(L)], ["agent", PROMPT_NAMES.map((p) => `/${p}`).join("  ")], ["muted", "  · agentsol://guide"]],
-    [["muted", "Checks".padEnd(L)], `${Object.keys(STRUCTURAL_CHECKS).length} structural`, ["muted", " + "], `${Object.keys(SEMANTIC_CHECKS).length} for your AI to judge`],
+    [["muted", "Checks".padEnd(L)], `${Object.keys(STRUCTURAL_CHECKS).length} instruction`, ["muted", " · "], `${Object.keys(SESSION_CHECKS).length} activity`, ["muted", " · "], `${Object.keys(SETUP_CHECKS).length} setup`, ["muted", " + "], `${Object.keys(SEMANTIC_CHECKS).length} for your AI to judge`],
     [["muted", "Guardrails".padEnd(L)], ["muted", "secrets masked · lines cited · diffs only · you approve"]],
   ], w)) raw(`  ${l}`);
   raw();
@@ -218,8 +225,9 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
     ["check [path]", "scan a project (default: this folder) and show cited findings"],
     ["connect [app]", "one-line MCP setup for your assistant"],
     ["prompt [path]", "one masked prompt for ChatGPT, Gemini, Claude.ai or any chat"],
+    ["sessions", "what your AI agents did: risky commands, exposed secrets, skipped tests"],
+    ["doctor", "preflight plus your AI apps' setup: secrets, MCP servers, permissions"],
     ["review <id>", "read a proposed diff, then approve and apply it yourself"],
-    ["doctor", "preflight: Node, package, workspace, terminal"],
     ["help", "every command"],
   ];
   for (const [c, d] of cmds) raw(render(t, ["    ", ["bold", c.padEnd(16)], ["muted", d]]));
@@ -382,6 +390,155 @@ function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string
   return 0;
 }
 
+const machine = () => ({ home: homedir(), env: process.env, platform: process.platform });
+const flagValue = (args: readonly string[], name: string): string | undefined => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
+const positional = (args: readonly string[], valued: readonly string[]): string[] => args.filter((a, i) => !a.startsWith("--") && !valued.includes(args[i - 1] ?? ""));
+const VERDICT: Record<Verdict, Seg> = { risky: ["bad", "✗ risky "], review: ["warn", "▲ review"], clean: ["ok", "✓ clean "] };
+const fmtTokens = (v: number): string => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : String(v));
+const fmtDuration = (ms: number | null): string => {
+  if (ms === null) return "?";
+  const m = Math.round(ms / 60_000);
+  return ms < 60_000 ? `${Math.round(ms / 1000)}s` : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
+};
+const ago = (iso: string | null): string => {
+  if (!iso) return "unknown time";
+  const d = Date.now() - Date.parse(iso);
+  const h = d / 3_600_000;
+  return h < 1 ? `${Math.max(1, Math.round(d / 60_000))}m ago` : h < 48 ? `${Math.round(h)}h ago` : `${Math.round(h / 24)}d ago`;
+};
+const projectLookup = (store: WorkspaceStore) => {
+  const list = store.listProjects();
+  return (cwd: string | null) => {
+    if (!cwd) return null;
+    let real = cwd;
+    try { real = realpathSync(cwd); } catch { /* moved or deleted since */ }
+    const p = projectFor(list, real);
+    return p ? { projectId: p.id, name: p.name } : null;
+  };
+};
+
+function renderSetup(t: Term, r: SetupReport): void {
+  const w = Math.min(t.width - 2, 96);
+  raw(`  ${heading(t, "AI setup", [["bad", n(r.summary.errors, "error")], ["muted", " · "], ["warn", n(r.summary.warnings, "warning")], ["muted", " · "], ["info", n(r.summary.notes, "note")]])}`);
+  if (r.clients.length === 0) { raw(render(t, ["    ", ["muted", "No assistant settings files found (Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf, Gemini CLI)."]])); raw(); return; }
+  raw(render(t, ["    ", ["muted", "Apps   "], r.clients.map((c) => c.client).join(" · ")]));
+  const servers = r.servers.filter((s) => !s.disabled);
+  raw(render(t, ["    ", ["muted", "MCP    "], `${n(servers.length, "server")}`, ["muted", servers.length ? `  ${[...new Set(servers.map((s) => s.name))].slice(0, 8).join(", ")}` : ""]]));
+  for (const i of r.instructions) raw(render(t, ["    ", ["muted", "Rules  "], `${i.file}`, ["muted", `  ~${fmtTokens(i.tokens)} tokens in every ${i.client} session`]]));
+  for (const f of r.findings.slice(0, 25)) {
+    const [icon, label] = ICON[f.severity] ?? ICON["info"]!;
+    raw();
+    raw(render(t, ["    ", icon, " ", label, "  ", ["bold", f.checkId], "  ", ["agent", `${f.client}${f.server ? ` · ${f.server}` : ""}`], "  ", ["muted", f.file]]));
+    for (const l of wrapWords(f.message.split(" "), w - 8, " ")) raw(render(t, ["      ", l]));
+    if (f.excerpt) raw(render(t, ["      ", ["muted", f.excerpt.length > w - 8 ? `${f.excerpt.slice(0, w - 9)}…` : f.excerpt]]));
+  }
+  if (r.findings.length > 25) raw(render(t, ["\n    ", ["muted", `… ${r.findings.length - 25} more in ${CMD} doctor --json`]]));
+  if (r.findings.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "Nothing risky found in these settings."]));
+  raw();
+  raw(render(t, ["    ", ["muted", "Agentsol only read these files; it changed nothing. Ask your AI to explain them: "], ["sun", "/setup"]]));
+  raw();
+}
+
+function sessionRow(t: Term, s: SessionSummary, w: number): string {
+  const m = s.metrics;
+  const where = s.project ? s.project.name : s.cwd ?? "?";
+  const counts = s.counts.errors + s.counts.warnings > 0 ? ` · ${s.counts.errors}✗ ${s.counts.warnings}▲` : "";
+  return render(t, fit(["    ", VERDICT[s.verdict], "  ", ["bold", s.id.padEnd(21)], ["muted", `${(s.client === "codex" ? "Codex" : "Claude").padEnd(7)}${ago(s.endedAt).padEnd(8)}`], where.length > 22 ? `…${where.slice(-21)}` : where.padEnd(22), ["muted", `  ${m.steps} steps · ${m.filesEdited} edited${m.tokens ? ` · ${fmtTokens(m.tokens.total)} tok` : ""}${counts}`]], w));
+}
+
+async function sessionsCmd(t: Term, store: WorkspaceStore, args: readonly string[], json: boolean): Promise<number> {
+  const since = parseSince(flagValue(args, "--since"));
+  if (!since) return fail("--since must look like 24h, 7d, 2w or a date", 2);
+  const limit = Number(flagValue(args, "--limit") ?? 20);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return fail("--limit must be 1-100", 2);
+  const target = positional(args, ["--since", "--limit"])[0];
+  let within: string | null = null;
+  if (target) {
+    try { within = await realpath(path.resolve(target)); } catch { return fail(`no such folder: ${target}`, 2); }
+  }
+  const r = flagValue(args, "--since") === undefined && !json && t.tty
+    ? await withSpinner(t, "Reading recent assistant sessions…", () => listSessions(machine(), { since, limit, project: projectLookup(store), cwdWithin: within }))
+    : await listSessions(machine(), { since, limit, project: projectLookup(store), cwdWithin: within });
+  if (json) { raw(JSON.stringify(r, null, 2)); return 0; }
+  const w = Math.min(t.width - 2, 110);
+  raw();
+  raw(render(t, ["  ", ["agent", "◉ "], ["bold", "agentsol sessions"], "  ", ["muted", `since ${since.toLocaleDateString()}${within ? ` · in ${tilde(within)}` : ""} · Claude Code and Codex`]]));
+  raw();
+  if (r.sessions.length === 0) raw(render(t, ["    ", ["muted", "No sessions found. Agentsol reads ~/.claude/projects and ~/.codex/sessions; other assistants do not keep readable transcripts."]]));
+  for (const s of r.sessions) raw(sessionRow(t, s, w));
+  for (const note of r.notes) raw(render(t, ["    ", ["muted", note]]));
+  raw();
+  const risky = r.sessions.find((s) => s.verdict !== "clean") ?? r.sessions[0];
+  if (risky) {
+    for (const l of panel(t, [["bold", "Next"]], [
+      [["agent", "1 "], "Open one:  ", ["bold", `${CMD} session ${risky.id}`]],
+      [["agent", "2 "], "Have your AI grade them:  ", ["sun", "/review"], ["muted", " or “Use agentsol to review what my agents did this week.”"]],
+    ], Math.min(t.width - 2, 96))) raw(`  ${l}`);
+    raw();
+  }
+  return 0;
+}
+
+async function sessionCmd(t: Term, store: WorkspaceStore, args: readonly string[], json: boolean): Promise<number> {
+  const id = SessionIdSchema.safeParse(positional(args, ["--from"])[0] ?? "");
+  if (!id.success) return fail(`session needs an id from ${CMD} sessions, such as claude-1a2b3c4d5e6f`, 2);
+  const from = Number(flagValue(args, "--from") ?? 1);
+  const r = await reviewSession(machine(), id.data, { fromStep: Number.isInteger(from) && from > 0 ? from : 1, project: projectLookup(store) });
+  if (!r.ok) return fail(r.reason === "ambiguous" ? "several sessions start with this id; use the full id" : r.reason === "too_large" ? "this transcript is larger than 64 MB and is not reviewed" : `no session ${id.data}; list them with ${CMD} sessions --since 30d`, 2);
+  const v = r.review;
+  const grades = store.listSessionGrades(v.id).flatMap((g) => {
+    const b = StoredGradeSchema.safeParse(g.body);
+    return b.success ? [{ gradeId: g.id, grader: g.grader, createdAt: g.createdAt, overall: overallScore(b.data), body: b.data, label: "assistant judgment" }] : [];
+  });
+  if (json) { raw(JSON.stringify({ ...v, grades }, null, 2)); return 0; }
+  const w = Math.min(t.width - 2, 96);
+  const m = v.metrics;
+  raw();
+  raw(render(t, ["  ", ["agent", "◉ "], ["bold", `session ${v.id}`], "  ", VERDICT[v.verdict], "  ", ["muted", v.client === "codex" ? "Codex" : "Claude Code"]]));
+  raw();
+  for (const l of panel(t, [["bold", v.project ? v.project.name : v.cwd ?? "unknown folder"]], pairs([
+    ["Folder", [v.cwd ?? "unknown"]],
+    ["When", [v.startedAt ? localTime(v.startedAt) : "unknown", ["muted", ` · ran ${fmtDuration(m.durationMs)}`]]],
+    ["Model", [v.model ?? "unknown"]],
+    ["Activity", [`${m.steps} steps · ${m.commands} commands`, m.failedCommands ? ["warn", ` (${m.failedCommands} failed)`] : "", ` · ${m.filesEdited} files edited · ${m.filesRead} read`]],
+    ["Also", [`${n(m.userTurns, "message")} from you · ${(m.webFetches === 1 ? "1 web fetch" : `${m.webFetches} web fetches`)} · ${n(m.mcpCalls, "MCP call")}`]],
+    ["Tokens", m.tokens ? [`${fmtTokens(m.tokens.total)}`, ["muted", ` (${fmtTokens(m.tokens.input)} in · ${fmtTokens(m.tokens.output)} out)`]] : [["muted", "not recorded"]]],
+  ], 12), w)) raw(`  ${l}`);
+  raw();
+  raw(`  ${heading(t, "Findings", [["bad", n(v.counts.errors, "error")], ["muted", " · "], ["warn", n(v.counts.warnings, "warning")], ["muted", " · "], ["info", n(v.counts.notes, "note")]])}`);
+  if (v.findings.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "Nothing flagged by the activity checks."]));
+  for (const f of v.findings.slice(0, 40)) {
+    const [icon, label] = ICON[f.severity] ?? ICON["info"]!;
+    raw();
+    raw(render(t, ["    ", icon, " ", label, "  ", ["bold", f.checkId], "  ", f.title, f.step ? ["muted", `  · step ${f.step}`] : ""]));
+    for (const l of wrapWords(f.message.split(" "), w - 8, " ")) raw(render(t, ["      ", l]));
+    if (f.excerpt) raw(render(t, ["      ", ["agent", f.excerpt.length > w - 8 ? `${f.excerpt.slice(0, w - 9)}…` : f.excerpt]]));
+  }
+  if (v.findings.length > 40) raw(render(t, ["\n    ", ["muted", `… ${v.findings.length - 40} more in --json`]]));
+  raw();
+  if (grades.length > 0) {
+    raw(`  ${heading(t, "Grades", [["muted", "assistant judgment, shown next to the facts"]])}`);
+    for (const g of grades) {
+      raw(render(t, ["    ", ["sun", `${g.overall.toFixed(1)}/5`], "  ", ["muted", `${g.grader} · ${localTime(g.createdAt)}`]]));
+      raw(render(t, ["      ", ...RUBRIC_KEYS.flatMap((k): Seg[] => [["muted", `${k} `], ["bold", String(g.body.scores[k].score)], "   "])]));
+      for (const l of wrapWords(g.body.summary.split(" "), w - 8, " ")) raw(render(t, ["      ", ["muted", l]]));
+    }
+    raw();
+  }
+  if (args.includes("--timeline")) {
+    raw(`  ${heading(t, "Timeline", [["muted", `steps ${v.timeline.fromStep}-${v.timeline.steps.at(-1)?.n ?? v.timeline.fromStep} of ${r.steps}`]])}`);
+    for (const s of v.timeline.steps) {
+      raw(render(t, fit(["    ", ["muted", String(s.n).padStart(4)], " ", s.failed ? ["bad", "✗"] : " ", " ", ["agent", s.kind.padEnd(8)], s.target || ["muted", s.tool]], w)));
+    }
+    if (v.timeline.nextFromStep) raw(render(t, ["    ", ["muted", `more: ${CMD} session ${v.id} --timeline --from ${v.timeline.nextFromStep}`]]));
+    raw();
+  } else raw(render(t, ["  ", ["muted", `Every step: ${CMD} session ${v.id} --timeline · Grade it with your AI: `], ["sun", "/review"]]));
+  for (const note of v.notes) raw(render(t, ["  ", ["muted", note]]));
+  raw(render(t, ["  ", ["muted", "Read from the transcript on this machine. Nothing was changed, and nothing was sent anywhere."]]));
+  raw();
+  return 0;
+}
+
 async function run(argv: string[]): Promise<number> {
   const ws = resolveWorkspace(argv, process.env, homedir());
   const { dir, rest: withFlags } = ws;
@@ -408,7 +565,9 @@ async function run(argv: string[]): Promise<number> {
     const here = fileURLToPath(import.meta.url);
     const install = { kind: here.endsWith(".js") ? "package" : "repo", root: path.resolve(path.dirname(here), "../..") } as const;
     const report = runDoctor({ install, workspace: dir, env: process.env, isTTY: isInteractive() });
-    if (json) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    const setup = auditSetup({ ...machine(), projectRoots: [process.cwd()] });
+    const setupFailed = strict && setup.summary.errors > 0;
+    if (json) process.stdout.write(`${JSON.stringify({ ...report, setup }, null, 2)}\n`);
     else {
       for (const c of report.checks) out(`${c.status.toUpperCase().padEnd(4)}  ${c.message}`);
       if (report.launch) {
@@ -417,8 +576,10 @@ async function run(argv: string[]): Promise<number> {
         out(`MCP client config (example only; Agentsol does not install it):\n${JSON.stringify(report.launch.mcpClientConfig, null, 2)}`);
       }
       out(report.ok ? "\nNo blocking problems found. This does not test any assistant client." : "\nFix the FAIL items above first.");
+      raw();
+      renderSetup(term, setup);
     }
-    return report.ok ? 0 : 1;
+    return report.ok && !setupFailed ? 0 : 1;
   }
   let store: WorkspaceStore;
   try {
@@ -439,6 +600,10 @@ async function run(argv: string[]): Promise<number> {
         return await check(term, store, svc, ops, arg || ".", { json, strict });
       case "prompt":
         return await promptCmd(store, svc, ops, arg || ".");
+      case "sessions":
+        return await sessionsCmd(term, store, args, json);
+      case "session":
+        return await sessionCmd(term, store, args, json);
       case "project": {
         if (args[0] !== "add") return fail("usage: project add <path> [--name <name>]", 2);
         const rest2 = args.slice(1);

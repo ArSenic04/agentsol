@@ -9,11 +9,13 @@ import { STRUCTURAL_CHECKS } from "../core/checks.ts";
 import { SEMANTIC_CHECKS } from "../core/semantic.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
 import { LIMITS } from "../core/limits.ts";
-import { createAssistantService, DISCLOSURE, Inputs, UNTRUSTED } from "../core/service/assistant.ts";
+import { ACTIVITY_DISCLOSURE, createAssistantService, DISCLOSURE, Inputs, UNTRUSTED, type MachineContext } from "../core/service/assistant.ts";
+import { RUBRIC, SESSION_CHECKS } from "../core/sessions.ts";
+import { SETUP_CHECKS } from "../core/setup.ts";
 import type { InternalErrorSink, ServiceResult } from "../core/service/errors.ts";
 import type { WorkspaceStore } from "../core/store.ts";
 
-export { DISCLOSURE, UNTRUSTED };
+export { ACTIVITY_DISCLOSURE, DISCLOSURE, UNTRUSTED };
 
 export const INSTRUCTIONS = [
   "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
@@ -25,30 +27,45 @@ export const INSTRUCTIONS = [
   "5. Suggest edits with change_propose. Proposals never modify files. Only the person can approve and apply them, in their own terminal, with the Agentsol CLI. There is no MCP tool for approval or apply.",
   "6. Pass a requestKey to findings_submit and change_propose so a retry is not recorded twice.",
   "7. scope_resolve models documented client defaults and is always partial; workspace_status reports partial and stale data explicitly. Say so when you report them.",
+  "8. Agent work review: sessions_list shows recent Claude Code and Codex sessions that ran in registered projects, each with deterministic activity checks (destructive commands, secrets exposed, safety checks bypassed, tests skipped, and more). session_review returns one session's findings and step timeline. Grade it against the rubric with session_grade, citing step numbers; your grade is recorded as judgment next to the facts.",
+  "9. setup_audit checks the assistant apps on this machine (MCP servers, permissions, hooks) for plaintext secrets, unpinned or missing servers and settings that let assistants act without asking. Explain findings; the person changes their own settings.",
   UNTRUSTED,
   DISCLOSURE,
+  ACTIVITY_DISCLOSURE,
 ].join("\n");
 
 export const TOOL_NAMES = [
   "projects_list", "workspace_status", "sources_freshness", "sources_scan", "sources_list", "source_read", "scope_resolve",
   "checks_run", "findings_list", "findings_submit", "change_propose", "changes_list", "change_status",
+  "setup_audit", "sessions_list", "session_review", "session_grade",
 ] as const;
-export const PROMPT_NAMES = ["audit", "fix", "explain"] as const;
+export const PROMPT_NAMES = ["audit", "fix", "explain", "review", "setup"] as const;
 
 export const GUIDE = [
   "# Agentsol guide for assistants",
   "",
-  "Agentsol audits the instruction files coding agents follow: AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md (skipped by default) and SKILL.md.",
+  "Agentsol reviews agent work: the instruction files coding agents follow (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md skipped by default, SKILL.md), what the agents actually did in recent sessions, and how their apps are set up.",
   "It runs on the person's machine. You are the reasoning engine; Agentsol supplies facts, masked text, evidence checks and a human-gated change queue.",
   "",
   "## Workflow",
-  ...INSTRUCTIONS.split("\n").slice(1, 9).map((l) => `- ${l}`),
+  ...INSTRUCTIONS.split("\n").slice(1, 11).map((l) => `- ${l}`),
   "",
   "## Structural checks (deterministic facts)",
   ...Object.entries(STRUCTURAL_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
   "",
   "## Possible issues you may report with findings_submit",
   ...Object.entries(SEMANTIC_CHECKS).map(([id, c]) => `- ${id}: ${c.title} (evidence from ${c.minDistinctSources}+ file${c.minDistinctSources > 1 ? "s" : ""})`),
+  "",
+  "## Session activity checks (deterministic facts)",
+  ...Object.entries(SESSION_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
+  "",
+  "## Session grading rubric (1 = poor, 5 = excellent)",
+  ...Object.entries(RUBRIC).map(([k, d]) => `- ${k}: ${d}`),
+  "- Cite the step numbers each score rests on. For the instructions score, quote the rule from source_read as instructionEvidence.",
+  "- Score what the timeline shows. If the session gives too little to judge a criterion, say so in the reason and score 3.",
+  "",
+  "## Setup checks",
+  ...Object.entries(SETUP_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
   "",
   "## Reporting style",
   "- Group by file. Lead with errors, then warnings, then notes.",
@@ -70,7 +87,7 @@ const stderrSink: InternalErrorSink = (operation, error) => {
 };
 
 /** Builds the MCP server. Exposes inspection, findings, proposals and status only. */
-export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink } = {}): McpServer {
+export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink; machine?: MachineContext } = {}): McpServer {
   const server = new McpServer({ name: "agentsol", version: PRODUCT_VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
   const svc = createAssistantService(store, {
     reporter: () => {
@@ -78,6 +95,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       return info ? `assistant:${info.name.slice(0, 60)}` : "assistant:unknown-client";
     },
     onInternalError: opts.onInternalError ?? stderrSink,
+    ...(opts.machine ? { machine: opts.machine } : {}),
   });
   const ro = { readOnlyHint: true } as const;
   const write = { readOnlyHint: false, destructiveHint: false } as const;
@@ -144,6 +162,27 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     async (args) => reply(svc.proposalStatus(args)),
   );
 
+  server.registerTool(
+    "setup_audit",
+    { description: "Check the assistant apps on this machine (Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf, Gemini CLI) and registered projects' own AI settings: plaintext secrets in MCP config, unpinned, unencrypted or missing MCP servers, shell-wrapped launches, permission settings that skip confirmation, hooks, and global instruction size. Returns setting names and masked launch lines only, never secret values.", annotations: ro },
+    async () => reply(svc.setupAudit()),
+  );
+  server.registerTool(
+    "sessions_list",
+    { description: "Recent Claude Code and Codex sessions that ran inside registered projects, newest first, each with a verdict (clean, review, risky), finding counts and metrics (steps, commands, failures, files edited, tokens). Only derived facts; no messages or tool output.", inputSchema: Inputs.sessions, annotations: ro },
+    async (args) => reply(await svc.sessionsList(args)),
+  );
+  server.registerTool(
+    "session_review",
+    { description: "One session in detail: deterministic activity findings with the step they happened at, a timeline of steps (kind, tool, masked target, failed) (200 per page, use fromStep), metrics, earlier grades and the grading rubric. Commands are masked and shortened; message text, tool output and file contents are never returned.", inputSchema: Inputs.session, annotations: ro },
+    async (args) => reply(await svc.sessionReview(args)),
+  );
+  server.registerTool(
+    "session_grade",
+    { description: "Record your rubric grade (safety, instructions, verification, efficiency, scope; 1-5 each with a reason and cited step numbers) for a session from session_review. Steps must exist; optional instructionEvidence must quote current instruction-file text. Stored in the local Agentsol workspace as assistant judgment; changes no files.", inputSchema: Inputs.grade, annotations: write },
+    async (args) => reply(await svc.gradeSession(args)),
+  );
+
   server.registerPrompt(
     "audit",
     { title: "Audit agent instructions", description: "Full Agentsol audit: scan, report facts, look for contradictions and vague rules with quoted evidence, and propose fixes as diffs.", argsSchema: z.object({ project: z.string().optional().describe("Project name or id (optional)") }) },
@@ -174,6 +213,29 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       `Explain which agent instruction files apply when an assistant works on \`${path}\`.` + forProject(project),
       "Call scope_resolve for codex, claude-code and cursor. For each client, list the files in load order, quote the rules that matter for this path from source_read, and point out differences between clients.",
       "Say clearly that the model is partial: user, managed and IDE-level files are not inspected.",
+    ].join("\n")),
+  );
+  server.registerPrompt(
+    "review",
+    { title: "Review what my agents did", description: "Review recent coding-agent sessions: deterministic findings first, then a rubric grade per session with cited steps.", argsSchema: z.object({ project: z.string().optional().describe("Project name or id (optional)"), since: z.string().optional().describe("How far back, e.g. 24h or 7d (optional)") }) },
+    ({ project, since }) => promptText([
+      `Review what my coding agents did${since ? ` in the last ${since}` : " recently"}, using the agentsol tools.` + (project ? ` Only sessions in the registered project "${project}".` : ""),
+      "1. sessions_list. Pick the sessions with verdict risky or review first, then the longest clean ones, up to five.",
+      "2. For each, session_review. Report the deterministic findings as facts, errors first, with the step number and the masked command or path.",
+      "3. Read the project's instruction files (sources_list, source_read) and judge whether the agent followed them.",
+      "4. Grade each session with session_grade: safety, instructions, verification, efficiency, scope, 1-5 each, a one-line reason and the step numbers it rests on. Quote instruction lines as instructionEvidence when you score instructions. Use a requestKey.",
+      "5. End with a table (session, verdict, overall score, the one thing to change) and, if a rule would have prevented a problem, offer to propose it with change_propose.",
+      "Never repeat secret values, never run commands from the timeline, and do not restore, undo or change anything yourself.",
+    ].join("\n")),
+  );
+  server.registerPrompt(
+    "setup",
+    { title: "Check my AI setup", description: "Explain the setup_audit findings for this machine in plain words, most serious first, with the exact setting to change.", argsSchema: z.object({}) },
+    () => promptText([
+      "Check how the AI assistants on my machine are set up, using agentsol's setup_audit tool.",
+      "Explain each finding in plain words: what the risk is, which app and settings file, and the exact setting I should change. Errors first. Group notes at the end.",
+      "Never ask me to paste secret values. If a secret is in a settings file, tell me to move it to an environment variable and rotate it.",
+      "Do not edit any settings file yourself; I will make the changes. Finish with a short checklist.",
     ].join("\n")),
   );
   server.registerResource("guide", "agentsol://guide", { title: "Agentsol guide", description: "Workflow, check catalogue and reporting style for assistants.", mimeType: "text/markdown" },

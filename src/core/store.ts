@@ -6,11 +6,14 @@ import { z } from "zod";
 import type { SourceFormat } from "./formats.ts";
 import {
   newApprovalId,
+  isGradeId,
+  newGradeId,
   newProjectId,
   newSourceId,
   newVersionId,
   type ApprovalId,
   type FindingId,
+  type GradeId,
   type ProjectId,
   type ProposalId,
   type SourceId,
@@ -33,7 +36,7 @@ import {
 } from "./schemas.ts";
 
 export const DB_FILE = "workspace.sqlite";
-export const SCHEMA_VERSION = "4";
+export const SCHEMA_VERSION = "5";
 /** Approvals expire if not used within this window. */
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
 const now = (): string => new Date().toISOString();
@@ -70,11 +73,15 @@ CREATE TABLE IF NOT EXISTS request_keys(
   project_id TEXT NOT NULL REFERENCES projects(id), operation TEXT NOT NULL, request_key TEXT NOT NULL,
   request_sha256 TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL,
   PRIMARY KEY(project_id, operation, request_key));
+CREATE TABLE IF NOT EXISTS session_grades(
+  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, project_id TEXT NOT NULL REFERENCES projects(id), grader TEXT NOT NULL,
+  rubric_version TEXT NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_events(
   seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL);
 `;
 const MIGRATION_INDEXES = `
 CREATE UNIQUE INDEX IF NOT EXISTS approvals_one_active ON approvals(proposal_id) WHERE state = 'active';
+CREATE INDEX IF NOT EXISTS session_grades_by_session ON session_grades(session_id, created_at);
 `;
 
 export type Project = { id: ProjectId; name: string; rootReal: string; createdAt: string };
@@ -113,6 +120,7 @@ export type Approval = {
   consumedAt: string | null;
   expiresAt: string;
 };
+export type SessionGrade = { id: GradeId; sessionId: string; projectId: ProjectId; grader: string; rubricVersion: string; body: unknown; createdAt: string };
 export type ApplyIntent = { proposalId: ProposalId; approvalId: ApprovalId; baseRawSha256: string; expectedNewSha256: string | null; createdAt: string };
 export type StoredProposal = { body: ProposalBody; status: ProposalStatus; updatedAt: string };
 export type NewVersionInput = {
@@ -498,6 +506,23 @@ export class WorkspaceStore {
       ? this.db.prepare("SELECT body FROM findings WHERE project_id = ? AND kind = ? ORDER BY kind, created_at, id").all(projectId, kind)
       : this.db.prepare("SELECT body FROM findings WHERE project_id = ? ORDER BY kind, created_at, id").all(projectId);
     return rows.map((r) => FindingSchema.parse(JSON.parse(BodyRow.parse(r).body)));
+  }
+
+  // Session grades (assistant judgment, validated by the service) ------------
+  insertSessionGrade(args: { sessionId: string; projectId: ProjectId; grader: string; rubricVersion: string; body: unknown }): SessionGrade {
+    const grade: SessionGrade = { id: newGradeId(), ...args, createdAt: now() };
+    this.db
+      .prepare("INSERT INTO session_grades(id, session_id, project_id, grader, rubric_version, body, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(grade.id, grade.sessionId, grade.projectId, grade.grader, grade.rubricVersion, JSON.stringify(grade.body), grade.createdAt);
+    return grade;
+  }
+
+  listSessionGrades(sessionId: string): SessionGrade[] {
+    const rows = this.db.prepare("SELECT id, session_id, project_id, grader, rubric_version, body, created_at FROM session_grades WHERE session_id = ? ORDER BY created_at, id").all(sessionId);
+    return rows.map((row) => {
+      const r = z.object({ id: z.custom<GradeId>(isGradeId), session_id: z.string(), project_id: ProjectIdSchema, grader: z.string(), rubric_version: z.string(), body: z.string(), created_at: z.string() }).parse(row);
+      return { id: r.id, sessionId: r.session_id, projectId: r.project_id, grader: r.grader, rubricVersion: r.rubric_version, body: JSON.parse(r.body), createdAt: r.created_at };
+    });
   }
 
   // Proposals --------------------------------------------------------------

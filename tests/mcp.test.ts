@@ -12,7 +12,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "src", "mcp", "main.ts");
 const FAKE_SECRET = "sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890";
 const ROOT_TEXT = `# Root\n- Use npm to run scripts.\n- Demo key ${FAKE_SECRET}\n`;
-const EXPECTED_TOOLS = ["change_propose", "change_status", "changes_list", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "source_read", "sources_freshness", "sources_list", "sources_scan", "workspace_status"];
+const EXPECTED_TOOLS = ["change_propose", "change_status", "changes_list", "checks_run", "findings_list", "findings_submit", "projects_list", "scope_resolve", "session_grade", "session_review", "sessions_list", "setup_audit", "source_read", "sources_freshness", "sources_list", "sources_scan", "workspace_status"];
 
 type Mode = "legacy" | "auto";
 
@@ -52,6 +52,11 @@ for (const mode of ["legacy", "auto"] as const) {
       assert.match(auditText, /findings_submit/);
       assert.match(auditText, /npx agentsol review/);
       assert.ok(!/approve|apply/.test(auditText.replace(/approval/g, "")), "prompts never ask the assistant to approve or apply");
+      for (const name of ["review", "setup"]) {
+        const prompt = await client.getPrompt({ name, arguments: {} });
+        const text: string = JSON.stringify(prompt.messages);
+        assert.ok(!/approve|apply/.test(text), `${name} prompt never asks the assistant to approve or apply`);
+      }
       const guide = await client.readResource({ uri: "agentsol://guide" });
       const guideText = JSON.stringify(guide.contents);
       assert.match(guideText, /D09/);

@@ -6,7 +6,7 @@ import { SERVED_BY } from "./mode.ts";
 import { renderSetup } from "./setup.ts";
 import { codeBlock, renderWorkspace } from "./workspace.ts";
 
-const TITLES: Record<string, string> = { "": "Agentsol: audit the instructions your AI agents follow", check: "Browser checker · Agentsol", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Install · Agentsol" };
+const TITLES: Record<string, string> = { "": "Agentsol: review your AI agents' rules, work and setup", check: "Browser checker · Agentsol", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Install · Agentsol" };
 
 function currentRoute(): string {
   const m = /^#\/([a-z-]*)$/.exec(window.location.hash);

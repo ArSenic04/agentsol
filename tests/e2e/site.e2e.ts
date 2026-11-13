@@ -53,7 +53,7 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   const { page, problems } = await openPage();
   await page.goto(staticSrv.url);
   await page.getByRole("heading", { level: 1 }).waitFor();
-  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Make sure they make sense/);
+  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Agentsol checks it/);
   assert.ok(await page.getByText(/Free MCP server/).first().isVisible());
   await page.locator(".excerpt").waitFor();
   assert.match(await page.locator(".excerpt").innerText(), /prewritten by the demo script/);
@@ -314,7 +314,7 @@ for (const width of [375, 390, 1440]) {
 test("commands wrap visually but copy and select as the exact original bytes", async () => {
   const { page, problems } = await openPage({ width: 375, clipboard: true });
   await page.goto(`${staticSrv.url}#/setup`);
-  const step5 = page.locator(".setup-step").nth(4);
+  const step5 = page.locator(".setup-step").nth(5);
   const pre = step5.locator(".cmd-code");
   const expected = ["review", "approve", "apply"].map((v) => `npx agentsol ${v} <proposalId>`).join("\n");
   assert.ok((await pre.evaluate((el) => el.getBoundingClientRect().height)) > 3 * 30, "long commands really wrap at 375px");
@@ -376,7 +376,7 @@ test("hero session: decorative, labelled for screen readers, honest about suppor
   assert.ok(motion.length >= 10 && motion.every((n) => n === "1"), `session lines animate once (${motion.join(",")})`);
   const brand = await page.locator(".wordmark").innerText();
   assert.equal(brand.trim(), "Agentsol");
-  assert.equal(await page.title(), "Agentsol: audit the instructions your AI agents follow");
+  assert.equal(await page.title(), "Agentsol: review your AI agents' rules, work and setup");
   const text = await page.locator("body").innerText();
   assert.ok(!/AgentWeave|Agentlore/i.test(text), "no old brand on the landing page");
   assert.equal(await page.locator(".wordmark svg").getAttribute("aria-hidden"), "true", "the logo is decorative next to the visible name");
