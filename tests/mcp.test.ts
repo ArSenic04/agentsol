@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fixture, type Fixture } from "./helpers.ts";
+import { PROMPT_NAMES, TOOL_NAMES } from "../src/mcp/server.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "src", "mcp", "main.ts");
@@ -44,6 +45,17 @@ for (const mode of ["legacy", "auto"] as const) {
 
       const tools = (await client.listTools()).tools.map((t) => t.name).sort();
       assert.deepEqual(tools, EXPECTED_TOOLS);
+      assert.deepEqual([...TOOL_NAMES].sort(), EXPECTED_TOOLS, "exported tool list matches the server");
+      assert.deepEqual((await client.listPrompts()).prompts.map((p) => p.name).sort(), [...PROMPT_NAMES].sort());
+      const audit = await client.getPrompt({ name: "audit", arguments: { project: "demo" } });
+      const auditText = JSON.stringify(audit.messages);
+      assert.match(auditText, /findings_submit/);
+      assert.match(auditText, /npx agentsol review/);
+      assert.ok(!/approve|apply/.test(auditText.replace(/approval/g, "")), "prompts never ask the assistant to approve or apply");
+      const guide = await client.readResource({ uri: "agentsol://guide" });
+      const guideText = JSON.stringify(guide.contents);
+      assert.match(guideText, /D09/);
+      assert.match(guideText, /S01/);
       assert.ok(!tools.some((t) => /approv|apply|write|delete/i.test(t)), "no approval/apply/write tools over MCP");
 
       const projects = await call(client, "projects_list", {});
@@ -129,9 +141,20 @@ for (const mode of ["legacy", "auto"] as const) {
   });
 }
 
-test("MCP entrypoint refuses to start without an explicit workspace", async () => {
-  const { spawnSync } = await import("node:child_process");
-  const r = spawnSync(process.execPath, [SERVER], { cwd: REPO, env: { PATH: process.env.PATH ?? "" }, encoding: "utf8", timeout: 20_000 });
-  assert.equal(r.status, 2);
-  assert.match(r.stderr, /--workspace/);
+test("MCP entrypoint without a workspace flag uses <home>/.agentsol", async () => {
+  const { mkdtemp, rm, stat } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const home = await mkdtemp(path.join(tmpdir(), "agentsol-home-"));
+  let client: Client | undefined;
+  try {
+    const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], cwd: REPO, stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    client = new Client({ name: "agentsol-test-client", version: "0.0.0" });
+    await client.connect(transport);
+    const r = await client.callTool({ name: "projects_list", arguments: {} });
+    assert.equal(r.isError ?? false, false);
+    assert.ok((await stat(path.join(home, ".agentsol"))).isDirectory());
+  } finally {
+    await client?.close();
+    await rm(home, { recursive: true, force: true });
+  }
 });

@@ -4,6 +4,7 @@
  * operator service. All output is sanitized because file text and rationale are untrusted.
  */
 import { randomBytes } from "node:crypto";
+import { existsSync, realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -13,17 +14,31 @@ import { detectAgentEnvironment } from "../core/agentEnv.ts";
 import type { ProjectFreshness } from "../core/freshness.ts";
 import { runDoctor } from "./doctor.ts";
 import { sanitizeForTerminal } from "../core/display.ts";
+import { STRUCTURAL_CHECKS } from "../core/checks.ts";
+import { handoffPrompt } from "../core/handoff.ts";
 import { isProposalId } from "../core/ids.ts";
-import { createAssistantService } from "../core/service/assistant.ts";
+import { LIMITS } from "../core/limits.ts";
+import type { Finding } from "../core/schemas.ts";
+import { SEMANTIC_CHECKS } from "../core/semantic.ts";
+import { createAssistantService, type AssistantService } from "../core/service/assistant.ts";
 import type { ServiceResult } from "../core/service/errors.ts";
 import { createOperatorService, type Review } from "../core/service/operator.ts";
 import type { ProjectStatus } from "../core/service/status.ts";
-import { WorkspaceStore } from "../core/store.ts";
-import { workspaceFrom } from "../core/workspaceArg.ts";
+import { WorkspaceStore, type Project } from "../core/store.ts";
+import { resolveWorkspace } from "../core/workspaceArg.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
+import { PROMPT_NAMES, TOOL_NAMES } from "../mcp/server.ts";
+import { banner, detectTerm, heading, pairs, panel, render, withSpinner, wrapWords, type Seg, type Term } from "./tui.ts";
 
-const USAGE = `agentsol --workspace <dir> <command> [--json]
+const USAGE = `agentsol [--workspace <dir>] <command> [--json]
 agentsol --version
+
+The workspace defaults to <home>/.agentsol (or AGENTSOL_WORKSPACE).
+
+Start here:
+  check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
+  connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
+  prompt [path]                         print one masked prompt to paste into any chat AI
 
 Commands (human-run, local only):
   doctor [--json]                       non-destructive preflight: Node, installed packages, workspace, terminal
@@ -132,19 +147,261 @@ function renderReview(r: Review): void {
   if (p.status === "pending") out(`fingerprint: ${r.fingerprint}`);
 }
 
+const raw = (s = ""): void => {
+  process.stdout.write(`${s}\n`);
+};
+const HERE = fileURLToPath(import.meta.url);
+/** How the person invoked us, so every hint is copy-pasteable. */
+const CMD = /[\\/]_npx[\\/]/.test(HERE) ? "npx -y agentsol@alpha" : /[\\/]node_modules[\\/]/.test(HERE) ? "npx agentsol" : "agentsol";
+const MCP_ARGS = ["-y", "-p", "agentsol@alpha", "agentsol-mcp"];
+const tilde = (p: string): string => (p === homedir() ? "~" : p.startsWith(`${homedir()}${path.sep}`) ? `~${p.slice(homedir().length)}` : p);
+const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
+const copyCmd = (): string => (process.platform === "darwin" ? "pbcopy" : process.platform === "win32" ? "clip" : "xclip -selection clipboard");
+
+function projectFor(projects: readonly Project[], dirReal: string): Project | null {
+  const hits = projects.filter((p) => dirReal === p.rootReal || dirReal.startsWith(`${p.rootReal}${path.sep}`));
+  return hits.sort((a, b) => b.rootReal.length - a.rootReal.length)[0] ?? null;
+}
+
+const SEVERITY_ORDER: Record<string, number> = { error: 0, warn: 1, info: 2 };
+const ICON: Record<string, readonly [Seg, Seg]> = {
+  error: [["bad", "✗"], ["bad", "error"]],
+  warn: [["warn", "▲"], ["warn", "warn "]],
+  info: [["info", "●"], ["info", "note "]],
+};
+
+function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
+  const exists = existsSync(path.join(ws.dir, "agentsol.db")) || existsSync(ws.dir);
+  let here: Seg[] = [["muted", "not registered · "], ["bold", `${CMD} check`], ["muted", " registers and scans it"]];
+  let projects = 0;
+  if (exists) {
+    try {
+      const store = WorkspaceStore.open(ws.dir);
+      try {
+        const list = store.listProjects();
+        projects = list.length;
+        const p = projectFor(list, realpathSync(process.cwd()));
+        if (p) {
+          const st = store.listFindings(p.id).length;
+          here = [["ok", "✓ "], ["bold", p.name], ["muted", ` · ${n(st, "finding")} recorded · `], ["bold", `${CMD} check`], ["muted", " to refresh"]];
+        }
+      } finally {
+        store.close();
+      }
+    } catch {
+      here = [["warn", "workspace could not be opened; run "], ["bold", `${CMD} doctor`]];
+    }
+  }
+  const w = Math.min(t.width - 2, 96);
+  const L = 16;
+  const toolRows = wrapWords([...TOOL_NAMES], w - 4 - L, " · ");
+  raw();
+  for (const l of banner(t)) raw(l);
+  raw(render(t, ["  ", ["muted", "Audit the instructions your AI agents follow. Runs on the AI you already use."]]));
+  raw();
+  for (const l of panel(t, [["bold", "agentsol"], " ", ["muted", `${PRODUCT_VERSION} · free · MIT · local-first`]], [
+    ...pairs([
+      ["Workspace", exists ? [tilde(ws.dir), ["muted", ` · ${n(projects, "project")}`]] : [tilde(ws.dir), ["muted", " · created on first check"]]],
+      ["This folder", here],
+      ["Your AI", ["Claude · Codex · Gemini · Copilot · Cursor", ["muted", " · any MCP app"]]],
+      ["Cost", ["$0", ["muted", " · no account, no API key, nothing hosted"]]],
+    ], L),
+    [],
+    ...toolRows.map((r, i): Seg[] => [["muted", (i === 0 ? `Tools (${TOOL_NAMES.length})` : "").padEnd(L)], ["agent", r]]),
+    [["muted", "Prompts".padEnd(L)], ["agent", PROMPT_NAMES.map((p) => `/${p}`).join("  ")], ["muted", "  · agentsol://guide"]],
+    [["muted", "Checks".padEnd(L)], `${Object.keys(STRUCTURAL_CHECKS).length} structural`, ["muted", " + "], `${Object.keys(SEMANTIC_CHECKS).length} for your AI to judge`],
+    [["muted", "Guardrails".padEnd(L)], ["muted", "secrets masked · lines cited · diffs only · you approve"]],
+  ], w)) raw(`  ${l}`);
+  raw();
+  raw(`  ${heading(t, "Commands")}`);
+  const cmds: [string, string][] = [
+    ["check [path]", "scan a project (default: this folder) and show cited findings"],
+    ["connect [app]", "one-line MCP setup for your assistant"],
+    ["prompt [path]", "one masked prompt for ChatGPT, Gemini, Claude.ai or any chat"],
+    ["review <id>", "read a proposed diff, then approve and apply it yourself"],
+    ["doctor", "preflight: Node, package, workspace, terminal"],
+    ["help", "every command"],
+  ];
+  for (const [c, d] of cmds) raw(render(t, ["    ", ["bold", c.padEnd(16)], ["muted", d]]));
+  raw();
+  raw(render(t, ["  ", ["sun", "→ "], "Start with ", ["bold", `${CMD} check`], " inside a project."]));
+  raw();
+}
+
+async function readAll(svc: AssistantService, sourceId: string): Promise<string[]> {
+  const lines: string[] = [];
+  for (let start = 1; ; start += LIMITS.maxReadLines) {
+    const r = svc.readSource({ sourceId, startLine: start });
+    if (!r.ok) break;
+    lines.push(...r.value.lines.map((l) => l.text));
+    if (r.value.endLine >= r.value.lineCount) break;
+  }
+  return lines;
+}
+
+/** Resolves a folder to its registered project, registering it first when needed. */
+async function ensureProject(store: WorkspaceStore, ops: ReturnType<typeof createOperatorService>, target: string): Promise<{ project: Project; registeredNow: boolean } | string> {
+  let dirReal: string;
+  try {
+    dirReal = await realpath(path.resolve(target));
+  } catch {
+    return `no such folder: ${target}`;
+  }
+  const known = projectFor(store.listProjects(), dirReal);
+  if (known) return { project: known, registeredNow: false };
+  const r = await ops.registerProject(dirReal);
+  if (!r.ok) return `cannot register ${target}: ${r.error.message}`;
+  return { project: r.value.project, registeredNow: !r.value.alreadyRegistered };
+}
+
+async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, target: string, flags: { json: boolean; strict: boolean }): Promise<number> {
+  const got = await ensureProject(store, ops, target);
+  if (typeof got === "string") return fail(got, 2);
+  const { project, registeredNow } = got;
+  const projectId = project.id;
+  const started = performance.now();
+  const scan = flags.json ? await svc.scan({ projectId }) : await withSpinner(t, `Reading agent instructions in ${project.name}…`, () => svc.scan({ projectId }));
+  if (!scan.ok) return fail(`${scan.error.code}: ${scan.error.message}`);
+  const ms = Math.round(performance.now() - started);
+  const sources = svc.listSources({ projectId });
+  const findings = svc.listFindings({ projectId });
+  const proposals = svc.listProposals({ projectId });
+  if (!sources.ok || !findings.ok || !proposals.ok) return fail("could not read the scan results");
+  const list = [...findings.value.findings].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3) || (a.kind === b.kind ? 0 : a.kind === "structural" ? -1 : 1));
+  const errors = list.filter((f) => f.severity === "error").length;
+  const code = flags.strict && errors > 0 ? 1 : 0;
+  const pending = proposals.value.proposals.filter((p) => p.status === "pending");
+  if (flags.json) {
+    raw(JSON.stringify({ project: { projectId, name: project.name }, registeredNow, scan: scan.value, sources: sources.value, findings: findings.value, pendingProposals: pending.map((p) => p.proposalId) }, null, 2));
+    return code;
+  }
+
+  const present = sources.value.sources.filter((s) => s.status === "present");
+  if (t.tty) { raw(); for (const l of banner(t)) raw(l); }
+  raw();
+  raw(render(t, ["  ", ["agent", "◉ "], ["bold", "agentsol check"], "  ", ["muted", tilde(project.rootReal)]]));
+  if (registeredNow) raw(render(t, ["  ", ["ok", "✓ "], "Registered ", ["bold", project.name], ["muted", ` (${projectId}) in ${tilde(store.dir)}`]]));
+  raw(render(t, ["  ", ["ok", "✓ "], `Read ${n(present.length, "instruction file")}`, ["muted", ` in ${ms} ms · nothing in your project was changed`]]));
+  raw();
+
+  raw(`  ${heading(t, "Instruction files", [["muted", `${present.length} read · ${sources.value.notRead.length} not read`]])}`);
+  if (present.length === 0) raw(render(t, ["    ", ["muted", "None found. Agentsol looks for AGENTS.md, AGENTS.override.md, CLAUDE.md and SKILL.md."]]));
+  const pw = Math.min(44, Math.max(12, ...present.map((s) => s.relPath.length)));
+  for (const s of present) raw(render(t, ["    ", ["agent", "▸ "], s.relPath.padEnd(pw), "  ", ["muted", `${String(s.lineCount).padStart(4)} lines`], s.redactedLineCount ? ["warn", `  ${s.redactedLineCount} masked`] : ""]));
+  for (const e of sources.value.notRead.slice(0, 8)) raw(render(t, ["    ", ["muted", `○ ${e.relPath.padEnd(pw)}  not read: ${e.reason.replace(/_/g, " ")}`]]));
+  if (sources.value.notRead.length > 8) raw(render(t, ["    ", ["muted", `… ${sources.value.notRead.length - 8} more: ${CMD} sources ${projectId}`]]));
+  raw();
+
+  const counts = (sev: string): number => list.filter((f) => f.severity === sev).length;
+  raw(`  ${heading(t, "Findings", [["bad", `${counts("error")} errors`], ["muted", " · "], ["warn", n(counts("warn"), "warning")], ["muted", " · "], ["info", n(counts("info"), "note")]])}`);
+  if (list.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "No structural problems. Your AI can still look for contradictions and vague rules (see below)."]));
+  const SHOW = 20;
+  for (const f of list.slice(0, SHOW)) {
+    const [icon, label] = ICON[f.severity] ?? ICON["info"]!;
+    const ev = f.evidence[0];
+    const where = ev ? `${ev.relPath}:${ev.startLine}${ev.endLine > ev.startLine ? `-${ev.endLine}` : ""}` : "";
+    const kind: Seg = f.kind === "structural" ? ["muted", "fact"] : ["sun", `possible · ${f.confidence} confidence`];
+    raw();
+    raw(render(t, ["    ", icon, " ", label, "  ", ["bold", f.checkId], "  ", ["agent", where], "  ", kind]));
+    for (const l of wrapWords(f.message.split(" "), t.width - 10, " ")) raw(render(t, ["      ", l]));
+    if (ev) {
+      const r = svc.readSource({ sourceId: ev.sourceId, startLine: ev.startLine, endLine: Math.min(ev.endLine, ev.startLine + 2) });
+      if (r.ok) for (const l of r.value.lines) if (l.text.trim()) raw(render(t, ["      ", ["muted", `${String(l.n).padStart(4)} │ `], l.text.length > t.width - 16 ? `${l.text.slice(0, t.width - 17)}…` : l.text]));
+    }
+  }
+  if (list.length > SHOW) raw(render(t, ["\n    ", ["muted", `… ${list.length - SHOW} more: ${CMD} findings ${projectId}`]]));
+  if (findings.value.staleHidden > 0) raw(render(t, ["    ", ["muted", `(${n(findings.value.staleHidden, "older finding")} hidden because the files changed)`]]));
+  raw();
+
+  const steps: Seg[][] = [
+    [["agent", "1 "], "Let your AI go deeper:  ", ["bold", `${CMD} connect`]],
+    ["    then ask it: ", ["sun", "“Use agentsol to audit this project.”"]],
+    [["agent", "2 "], "Any chat AI, no setup:  ", ["bold", `${CMD} prompt | ${copyCmd()}`], ["muted", "  then paste"]],
+  ];
+  if (pending.length) steps.push([["agent", "3 "], `${n(pending.length, "proposal")} waiting for you:  `, ["bold", `${CMD} review ${pending[0]?.proposalId ?? ""}`]]);
+  for (const l of panel(t, [["bold", "Next"]], steps, Math.min(t.width - 2, 96))) raw(`  ${l}`);
+  raw();
+  return code;
+}
+
+async function promptCmd(store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, target: string): Promise<number> {
+  const got = await ensureProject(store, ops, target);
+  if (typeof got === "string") return fail(got, 2);
+  const projectId = got.project.id;
+  const scan = await svc.scan({ projectId });
+  if (!scan.ok) return fail(`${scan.error.code}: ${scan.error.message}`);
+  const sources = svc.listSources({ projectId });
+  const findings = svc.listFindings({ projectId, kind: "structural" });
+  if (!sources.ok || !findings.ok) return fail("could not read the scan results");
+  const files = [];
+  for (const s of sources.value.sources) if (s.status === "present") files.push({ relPath: s.relPath, lines: await readAll(svc, s.sourceId) });
+  const facts = findings.value.findings.map((f: Finding) => `[${f.checkId}] ${f.evidence[0]?.relPath ?? ""}:${f.evidence[0]?.startLine ?? 1} ${f.message}`);
+  const text = handoffPrompt(files, facts);
+  out(text);
+  process.stderr.write(`\nagentsol: prompt ready (${n(files.length, "file")}, ${text.length} characters, secret-like text masked). Paste it into any chat AI; that sends the text to the provider you choose.${process.stdout.isTTY ? ` To copy it: ${CMD} prompt | ${copyCmd()}` : ""}\n`);
+  return 0;
+}
+
+type ClientSetup = { id: string; name: string; how: string; lines: string[] };
+function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
+  const env = ws.isDefault ? null : path.resolve(ws.dir);
+  const npx = `npx ${MCP_ARGS.join(" ")}`;
+  const json = (indent = ""): string[] => JSON.stringify({ mcpServers: { agentsol: { command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) } } }, null, 2).split("\n").map((l) => indent + l);
+  const vs = JSON.stringify({ name: "agentsol", command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) });
+  const desktop = process.platform === "win32" ? "%APPDATA%\\Claude\\claude_desktop_config.json" : process.platform === "darwin" ? "~/Library/Application Support/Claude/claude_desktop_config.json" : "~/.config/Claude/claude_desktop_config.json";
+  return [
+    { id: "claude-code", name: "Claude Code", how: "run once:", lines: [`claude mcp add agentsol -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
+    { id: "codex", name: "Codex (CLI, IDE and ChatGPT desktop share it)", how: "run once:", lines: [`codex mcp add agentsol${env ? ` --env AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
+    { id: "gemini", name: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`] },
+    { id: "vscode", name: "VS Code (Copilot agent mode)", how: "run once:", lines: [`code --add-mcp '${vs}'`] },
+    { id: "cursor", name: "Cursor", how: "add to ~/.cursor/mcp.json:", lines: json() },
+    { id: "claude-desktop", name: "Claude Desktop", how: `add to ${desktop}:`, lines: json() },
+    { id: "windsurf", name: "Windsurf", how: "add to ~/.codeium/windsurf/mcp_config.json:", lines: json() },
+  ];
+}
+
+function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string | undefined): number {
+  const all = clientSetups(ws);
+  const chosen = which ? all.filter((c) => c.id === which) : all;
+  if (which && chosen.length === 0) return fail(`unknown client "${which}"; choose one of: ${all.map((c) => c.id).join(", ")}`, 2);
+  raw();
+  raw(render(t, ["  ", ["agent", "◉ "], ["bold", "Connect agentsol to your AI"], ["muted", "  · runs locally through npx · no account, no API key"]]));
+  for (const c of chosen) {
+    raw();
+    raw(`  ${heading(t, c.name, [["muted", c.how]])}`);
+    for (const l of c.lines) raw(render(t, ["    ", ["agent", l]]));
+  }
+  raw();
+  raw(`  ${heading(t, "Web chats (ChatGPT, Gemini, Claude.ai, Grok…)", [["muted", "they cannot start local servers"]])}`);
+  raw(render(t, ["    ", ["agent", `${CMD} prompt | ${copyCmd()}`], ["muted", "  then paste into the chat"]]));
+  raw();
+  raw(render(t, ["  ", ["sun", "→ "], "Then ask: ", ["sun", "“Use agentsol to audit this project.”"], ["muted", " Clients with MCP prompts also offer "], ["bold", "/audit"], ["muted", "."]]));
+  raw(render(t, ["  ", ["muted", "Agentsol never edits your assistant's config itself. Desktop apps that cannot find npx need its full path (which npx)."]]));
+  raw();
+  return 0;
+}
+
 async function run(argv: string[]): Promise<number> {
-  const { dir, rest: withFlags } = workspaceFrom(argv, process.env);
+  const ws = resolveWorkspace(argv, process.env, homedir());
+  const { dir, rest: withFlags } = ws;
   const json = withFlags.includes("--json");
-  const rest = withFlags.filter((a) => a !== "--json");
+  const strict = withFlags.includes("--strict");
+  const rest = withFlags.filter((a) => a !== "--json" && a !== "--strict");
+  const term = detectTerm(process.stdout, process.env);
   const [command, ...args] = rest;
   if (command === "--version" || command === "version") {
     out(`agentsol ${PRODUCT_VERSION} (early alpha; approve/apply have not yet been run end to end by a person through this CLI)`);
+    return 0;
+  }
+  if (!command && isInteractive()) {
+    home(term, ws);
     return 0;
   }
   if (!command || command === "help" || command === "--help") {
     out(USAGE);
     return command ? 0 : 2;
   }
+  if (command === "connect") return connect(term, ws, args[0]);
   if (command === "doctor") {
     // src/cli/main.ts in a checkout, build/cli/main.js in an installed package; both sit two levels below the root.
     const here = fileURLToPath(import.meta.url);
@@ -162,7 +419,6 @@ async function run(argv: string[]): Promise<number> {
     }
     return report.ok ? 0 : 1;
   }
-  if (!dir) return fail("pass --workspace <dir> or set AGENTSOL_WORKSPACE", 2);
   let store: WorkspaceStore;
   try {
     store = WorkspaceStore.open(dir);
@@ -177,6 +433,11 @@ async function run(argv: string[]): Promise<number> {
     const ops = createOperatorService(store, { actor, homeReal: await realpath(homedir()) });
     const arg = args[0] ?? "";
     switch (command) {
+      case "check":
+      case "audit":
+        return await check(term, store, svc, ops, arg || ".", { json, strict });
+      case "prompt":
+        return await promptCmd(store, svc, ops, arg || ".");
       case "project": {
         if (args[0] !== "add") return fail("usage: project add <path> [--name <name>]", 2);
         const rest2 = args.slice(1);

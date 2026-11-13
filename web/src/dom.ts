@@ -27,7 +27,7 @@ export function docHref(url: string): SafeHref | null {
   return DOC_URLS.has(url) ? brand(url) : null;
 }
 
-const ATTR = /^(aria-[a-z]+|data-[a-z-]+|role|tabindex|type|for|title|name|value|placeholder|autocomplete|spellcheck|lang|id|class|inputmode|aria-controls)$/;
+const ATTR = /^(aria-[a-z]+|data-[a-z-]+|role|tabindex|type|for|title|name|value|placeholder|autocomplete|spellcheck|lang|id|class|inputmode|aria-controls|webkitdirectory|multiple|accept|rows)$/;
 
 export type Child = string | number | Node | null | undefined | false;
 export type Props = {

@@ -53,8 +53,8 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   const { page, problems } = await openPage();
   await page.goto(staticSrv.url);
   await page.getByRole("heading", { level: 1 }).waitFor();
-  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Read them together/);
-  assert.ok(await page.getByText("Early local prototype").first().isVisible());
+  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Make sure they make sense/);
+  assert.ok(await page.getByText(/Free MCP server/).first().isVisible());
   await page.locator(".excerpt").waitFor();
   assert.match(await page.locator(".excerpt").innerText(), /prewritten by the demo script/);
   const text = await page.locator("main").innerText();
@@ -122,7 +122,7 @@ test("keyboard: skip link, arrow keys between tabs, visible focus", async () => 
 
 test("narrow mobile width has no horizontal overflow; reduced motion disables animation", async () => {
   const { page, problems } = await openPage({ width: 375, reducedMotion: "reduce" });
-  for (const route of ["", "#/demo", "#/setup", "#/workspace"]) {
+  for (const route of ["", "#/check", "#/demo", "#/setup", "#/workspace"]) {
     await page.goto(`${staticSrv.url}${route}`);
     await page.locator("#page-title").waitFor();
     await page.waitForTimeout(150);
@@ -130,8 +130,8 @@ test("narrow mobile width has no horizontal overflow; reduced motion disables an
     assert.ok(overflow <= 1, `${route || "landing"} overflows by ${overflow}px`);
   }
   await page.goto(staticSrv.url);
-  await page.locator(".hero-art svg").waitFor();
-  const heroMotion = await page.evaluate(() => [...document.querySelectorAll(".g-flow, .g-spin")].map((el) => getComputedStyle(el).animationName));
+  await page.locator(".hero-art .term").waitFor();
+  const heroMotion = await page.evaluate(() => [...document.querySelectorAll(".term-line, .pulse")].map((el) => getComputedStyle(el).animationName));
   assert.ok(heroMotion.length > 0 && heroMotion.every((n) => n === "none"), `hero motion stops under reduced motion: ${heroMotion.join(",")}`);
   const anim = await page.evaluate(() => {
     const s = document.createElement("span");
@@ -360,31 +360,66 @@ test("local bridge: very long instruction lines stay reachable on mobile", async
   }
 });
 
-test("hero diagram: decorative, labelled for screen readers, honest about support, gentle motion", async () => {
+test("hero session: decorative, labelled for screen readers, honest about support, plays once", async () => {
   const { page, problems } = await openPage({ width: 1440 });
   await page.goto(staticSrv.url);
   const art = page.locator(".hero-art");
-  await art.locator("svg").waitFor();
-  assert.equal(await art.locator("svg").getAttribute("aria-hidden"), "true");
-  assert.equal(await art.locator("svg [tabindex], svg a").count(), 0, "the diagram adds no focus stops");
+  await art.locator(".term").waitFor();
+  assert.equal(await art.locator(".term").getAttribute("aria-hidden"), "true");
+  assert.equal(await art.locator(".term [tabindex], .term a, .term button").count(), 0, "the session adds no focus stops");
   const caption = await art.locator("figcaption").innerText();
-  assert.match(caption, /Exercised by automated tests today/);
+  assert.match(caption, /Illustrative session/);
+  assert.match(caption, /exercised by automated tests today/);
   assert.match(caption, /not yet validated/);
   assert.match(await art.locator(".sr-only").textContent() ?? "", /waits for you to approve/);
-  const motion = await page.evaluate(() => [...document.querySelectorAll(".g-flow, .g-spin")].map((el) => parseFloat(getComputedStyle(el).animationDuration)));
-  assert.ok(motion.length >= 5 && motion.every((s) => s >= 8), `motion is slow (durations ${motion.join(",")}s)`);
+  const motion = await page.evaluate(() => [...document.querySelectorAll(".term-line")].map((el) => getComputedStyle(el).animationIterationCount));
+  assert.ok(motion.length >= 10 && motion.every((n) => n === "1"), `session lines animate once (${motion.join(",")})`);
   const brand = await page.locator(".wordmark").innerText();
   assert.equal(brand.trim(), "Agentsol");
-  assert.equal(await page.title(), "Agentsol: read your agent instructions together");
+  assert.equal(await page.title(), "Agentsol: audit the instructions your AI agents follow");
   const text = await page.locator("body").innerText();
   assert.ok(!/AgentWeave|Agentlore/i.test(text), "no old brand on the landing page");
   assert.equal(await page.locator(".wordmark svg").getAttribute("aria-hidden"), "true", "the logo is decorative next to the visible name");
   await page.goto(`${staticSrv.url}#/setup`);
   await page.locator(".cmd-code").first().waitFor();
   const setupText = await page.locator("main").innerText();
-  assert.match(setupText, /npm install agentsol@alpha/);
+  assert.match(setupText, /npx -y agentsol@alpha check/);
   assert.ok(!/Agentlore|AGENTLORE|agentlore-demo|not published yet/i.test(setupText), "setup reflects the published Agentsol alpha");
   assert.equal(await page.locator('main a[href="https://www.npmjs.com/package/agentsol"]').getAttribute("rel"), "noopener noreferrer");
+  assert.deepEqual(problems, []);
+  await page.context().close();
+});
+
+test("browser checker runs the checks locally, masks secrets and builds a prompt for any AI", async () => {
+  const { page, problems, apiRequests } = await openPage({ clipboard: true });
+  await page.goto(`${staticSrv.url}#/check`);
+  await page.locator("#page-title").waitFor();
+  await page.locator("#pick-files").setInputFiles([
+    { name: "CLAUDE.md", mimeType: "text/markdown", buffer: Buffer.from("# Notes\n\n@AGENTS.md\n@.env.local\n- Always run the unit tests before you commit.\n") },
+    { name: "AGENTS.md", mimeType: "text/markdown", buffer: Buffer.from("# Synthetic\n\n- Always run the unit tests before you commit.\n- token: FAKEFAKEFAKE12345\n") },
+  ]);
+  await page.locator("#results-title").waitFor();
+  const text = await page.locator(".results").innerText();
+  assert.match(text, /D12/);
+  assert.match(text, /D09/);
+  assert.match(text, /D10/);
+  assert.match(text, /D08/);
+  assert.match(text, /REDACTED:assignment/);
+  assert.ok(!text.includes("FAKEFAKEFAKE12345"), "secret-like value never shown");
+  const prompt = page.locator(".handoff-box");
+  await prompt.getByRole("button", { name: "Copy" }).click();
+  await prompt.getByText("Copied").waitFor();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(copied, /POSSIBLE issues/);
+  assert.match(copied, /### AGENTS\.md/);
+  assert.ok(!copied.includes("FAKEFAKEFAKE12345"));
+
+  await page.locator("#paste-name").selectOption("SKILL.md");
+  await page.locator("#paste-text").fill("---\nname: Release-Notes\n---\nBody.\n");
+  await page.getByRole("button", { name: "Check pasted text" }).click();
+  await page.locator(".results", { hasText: "D03" }).waitFor();
+  assert.match(await page.locator(".results").innerText(), /D02[\s\S]*lowercase/);
+  assert.deepEqual(apiRequests, []);
   assert.deepEqual(problems, []);
   await page.context().close();
 });

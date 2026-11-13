@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { homedir } from "node:os";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -34,10 +36,72 @@ test("CLI registers a project, scans it, and refuses home or filesystem root", a
   }
 });
 
-test("CLI requires an explicit workspace", () => {
-  const r = spawnSync(process.execPath, [CLI, "projects"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "" } });
-  assert.equal(r.status, 2);
-  assert.match(r.stderr, /--workspace/);
+test("CLI without a workspace flag uses <home>/.agentsol", async () => {
+  const home = await mkdtemp(path.join(tmpdir(), "agentsol-home-"));
+  try {
+    const r = spawnSync(process.execPath, [CLI, "projects"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(existsSync(path.join(home, ".agentsol")));
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("check registers the folder, scans it and cites findings; prompt hands masked files to any AI", async () => {
+  const fx = await fixture({
+    "AGENTS.md": `# Root\n- Use npm to run scripts.\n- key: sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890\n`,
+    "CLAUDE.md": "# Notes\n@docs/missing.md\n",
+    "skills/notes/SKILL.md": "---\nname: Notes\n---\nBody\n",
+  });
+  try {
+    const ws2 = path.join(path.dirname(fx.root), "ws-check");
+    const c = runEnv({ NO_COLOR: "1" }, ws2, "check", fx.root);
+    assert.equal(c.status, 0, c.stderr);
+    assert.match(c.stdout, /Registered/);
+    assert.match(c.stdout, /D09 {2}CLAUDE\.md:2/);
+    assert.match(c.stdout, /D02 {2}skills\/notes\/SKILL\.md:2/);
+    assert.match(c.stdout, /D12/);
+    assert.match(c.stdout, /nothing in your project was changed/);
+    assert.ok(!c.stdout.includes("FAKEFAKE"), "secrets never printed");
+    assert.ok(!c.stdout.includes("\x1b["), "no escape codes when not a terminal");
+    const again = runEnv({}, ws2, "check", fx.root, "--json", "--strict");
+    assert.equal(again.status, 1, "--strict fails on errors");
+    const j = JSON.parse(again.stdout);
+    assert.equal(j.registeredNow, false);
+    assert.ok(j.findings.findings.some((f: { checkId: string }) => f.checkId === "D03"));
+    const p = run(ws2, "prompt", fx.root);
+    assert.equal(p.status, 0, p.stderr);
+    assert.match(p.stdout, /### AGENTS\.md/);
+    assert.match(p.stdout, /\[D09\] CLAUDE\.md:2/);
+    assert.match(p.stdout, /REDACTED/);
+    assert.ok(!p.stdout.includes("FAKEFAKE"));
+    assert.match(p.stderr, /prompt ready/);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test("check output cannot be hijacked by escape codes inside instruction files", async () => {
+  const fx = await fixture({ "CLAUDE.md": "# Notes\n@docs/\u001b[31mevil\u001b]0;pwned\u0007.md\n" });
+  try {
+    const c = runEnv({ FORCE_COLOR: "1" }, path.join(path.dirname(fx.root), "ws-esc"), "check", fx.root);
+    assert.equal(c.status, 0, c.stderr);
+    assert.ok(!c.stdout.includes("\u001b[31mevil") && !c.stdout.includes("\u001b]0;") && !c.stdout.includes("\u0007"), "file text is escaped, only Agentsol styles output");
+    assert.match(c.stdout, /\\u\{1b\}/);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test("connect prints setup for every client and adds the workspace only when it is not the default", () => {
+  const custom = spawnSync(process.execPath, [CLI, "--workspace", "/tmp/custom-ws", "connect"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir() } });
+  assert.equal(custom.status, 0, custom.stderr);
+  for (const s of ["claude mcp add agentsol", "codex mcp add agentsol", "gemini mcp add", "code --add-mcp", "mcpServers", "prompt |"]) assert.ok(custom.stdout.includes(s), s);
+  assert.match(custom.stdout, /AGENTSOL_WORKSPACE="\/tmp\/custom-ws"/);
+  const plain = spawnSync(process.execPath, [CLI, "connect", "claude-code"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir() } });
+  assert.match(plain.stdout, /claude mcp add agentsol -s user -- npx -y -p agentsol@alpha agentsol-mcp/);
+  assert.ok(!plain.stdout.includes("AGENTSOL_WORKSPACE"));
+  assert.equal(spawnSync(process.execPath, [CLI, "connect", "nope"], { cwd: REPO, encoding: "utf8" }).status, 2);
 });
 
 test("CLI approve and apply refuse to run without an interactive terminal", async () => {

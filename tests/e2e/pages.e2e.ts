@@ -12,7 +12,7 @@ import { chromium, type Browser } from "playwright-core";
 import { exportPages } from "../../scripts/exportPages.ts";
 
 const BASE = "/agentsol-site/";
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".md": "text/markdown" };
+const TYPES: Record<string, string> = { ".png": "image/png", ".txt": "text/plain", ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".md": "text/markdown" };
 let browser: Browser;
 let server: Server;
 let origin = "";
@@ -52,17 +52,19 @@ for (const width of [375, 390, 1280]) {
     page.on("response", (r) => { if (r.status() >= 400) problems.push(`${r.status()}: ${r.url()}`); });
     page.on("request", (r) => { const u = new URL(r.url()); if (u.origin !== origin || !u.pathname.startsWith(BASE)) problems.push(`outside request: ${r.url()}`); });
     await page.goto(`${origin}${BASE}`);
-    await page.locator(".hero-art svg").waitFor();
+    await page.locator(".hero-art .term").waitFor();
     assert.equal((await page.locator(".wordmark").innerText()).trim(), "Agentsol");
     assert.ok(await page.locator(".wordmark svg .mark-core").count() === 1, "logo mark rendered");
     assert.ok(await page.evaluate(() => getComputedStyle(document.body).backgroundColor !== "rgba(0, 0, 0, 0)"), "stylesheet applied");
     await page.goto(`${origin}${BASE}#/demo`);
     await page.locator(".finding").first().waitFor();
+    await page.goto(`${origin}${BASE}#/check`);
+    await page.locator(".drop").waitFor();
     await page.goto(`${origin}${BASE}#/workspace`);
     await page.getByText("No local workspace connected").waitFor();
     await page.goto(`${origin}${BASE}#/setup`);
     await page.locator(".cmd-code").first().waitFor();
-    assert.match(await page.locator("main").innerText(), /npm install agentsol@alpha/);
+    assert.match(await page.locator("main").innerText(), /npx -y agentsol@alpha check/);
     const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
     assert.match(csp ?? "", /connect-src 'none'/);
     const blocked = await page.evaluate(async () => { try { await fetch("/api/health"); return "allowed"; } catch { return "blocked"; } });
@@ -81,6 +83,6 @@ test("pages export copy button copies the exact command", async () => {
   const step1 = page.locator(".setup-step").first();
   await step1.getByRole("button", { name: "Copy" }).click();
   await step1.getByText("Copied").waitFor();
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "mkdir agentsol-local && cd agentsol-local\nnpm install agentsol@alpha\nnpx agentsol --version");
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "cd your-project\nnpx -y agentsol@alpha check");
   await ctx.close();
 });

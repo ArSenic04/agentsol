@@ -1,10 +1,10 @@
 # Agentsol (early local prototype)
 
-_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. Published on npm as `agentsol@0.1.0-alpha.1` (tags `alpha` and `latest`)._
+_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. Published on npm as `agentsol` (tags `alpha` and `latest`); this checkout is `0.1.0-alpha.2`._
 
 Agentsol audits AI agent instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md) with the assistant you already use. The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 
-> **Alpha (0.1.0-alpha.1). Read this first.**
+> **Alpha (0.1.0-alpha.2). Read this first.**
 > - **A person has not yet run approve and apply end to end through this CLI.** Those steps are covered by automated core tests only. Try them on the synthetic demo before any real project, and keep your files in version control.
 > - **No real assistant app has been validated.** Claude Code, Codex, Cursor and others are untested. Only the official MCP TypeScript SDK client has been used, in automated tests.
 > - Tested only on macOS (arm64) with Node 24.0.0, 24.22.2 and 26.8.2. There is no hosted service. Passing tests do not make it production-ready.
@@ -42,19 +42,22 @@ Run every step from this folder, in your own terminal.
 
 **What has and has not been validated.** The tests and the demo are *protocol smoke tests*: they use the official MCP TypeScript SDK client over a real stdio process. No real assistant client (Claude Code, Claude Desktop, Codex, Cursor) has been validated yet, and the interactive approve/apply flow has only been exercised through core unit tests, not by a person through the CLI after the latest changes.
 
-## Install the alpha from npm
-`agentsol@0.1.0-alpha.1` was published on Nov 9, 2026 under the `alpha` tag. Because it is the first real version, npm also pointed `latest` at it, so a plain `npm install agentsol` currently installs this alpha too. Package page: https://www.npmjs.com/package/agentsol
+## Quick start from npm
+Nothing is installed globally and there is no account or API key. Agentsol runs on your machine and uses the AI you already have.
 
 ```sh
-mkdir agentsol-try && cd agentsol-try && npm init -y
-npm install agentsol@alpha            # installs into this folder only, not globally
-npx agentsol --version
-npx agentsol --workspace "$PWD/.agentsol-workspace" doctor
+cd your-project
+npx -y agentsol@alpha check            # registers this folder, scans it, prints every finding with its line
+npx -y agentsol@alpha connect          # setup lines for Claude Code, Codex, Gemini CLI, VS Code, Cursor, Claude Desktop, Windsurf
+npx -y agentsol@alpha prompt | pbcopy  # no MCP? one masked prompt to paste into any chat AI
 ```
 
-- Commands: `npx agentsol ...` (the CLI) and `npx agentsol-mcp --workspace <dir>` (the MCP server over stdio).
-- `npx agentsol --workspace <dir> doctor` prints an MCP client config with absolute paths to the installed files. Add it to your assistant yourself; Agentsol never edits any assistant's config.
+- `check` opens an interactive report: a banner, findings sorted by severity with the cited lines, and the next steps. `--strict` exits 1 when there are errors (for CI); `--json` prints machine-readable output. Colors follow `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb`; pipes get plain text. Text from your files is sanitized, so it cannot inject terminal escape codes.
+- `npx -y agentsol@alpha` with no command, in a terminal, shows the home screen: workspace, the folder you are in, the tools, prompts and checks.
+- The workspace defaults to `~/.agentsol` (created private, `0700`). Use `--workspace <dir>` or `AGENTSOL_WORKSPACE` to keep it elsewhere; set the same value for the CLI and the MCP server.
+- The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. Your assistant cannot register folders; it tells you to run `check` when `projects_list` is empty.
 - The package has no install scripts. It ships compiled JavaScript, this README and `LICENSE`, and depends on `@modelcontextprotocol/server`, `yaml` and `zod`.
+- `agentsol@0.1.0-alpha.1` (Nov 9, 2026) predates `check`, `connect`, `prompt`, the default workspace and the MCP prompts. They arrive with `0.1.0-alpha.2`.
 
 ## Release checks (maintainers)
 - `npm run pack:check`: preview tarball in `artifacts/pack/`. It uses a strict file allowlist, fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports, and requires `"private": true`.
@@ -111,7 +114,9 @@ npm run test:web                                    # build, then browser tests 
 - `dist/web` can be served by any static host later, after review. The local bridge (`src/web/`) must never be exposed to a network or run on a shared machine.
 
 ## MCP tools
-`projects_list`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `change_status`, `workspace_status`, `sources_freshness`. There is no approve, apply, write or delete tool.
+`projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`. There is no approve, apply, write or delete tool.
+
+Prompts: `audit` and `fix` (optional `project`) and `explain` (`path`, optional `project`). They show up as `/audit`, `/fix` and `/explain` in clients that support MCP prompts. Resource: `agentsol://guide` (markdown: the workflow, the check catalogue and how to report).
 
 The CLI and the MCP server call the same assistant-safe service (`src/core/service/assistant.ts`), so validation, redaction and error messages are identical; `--json` output equals the MCP result. Approve, reject, apply and project registration live in a separate operator service that only the CLI imports. `findings_submit` and `change_propose` accept an optional `requestKey`: retrying with the same key returns the original result, and reusing a key for a different request is refused.
 

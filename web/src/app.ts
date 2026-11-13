@@ -1,3 +1,4 @@
+import { renderChecker } from "./checker.ts";
 import { detectLocalBridge, demoSource, loadDemoBundle, localSource } from "./data.ts";
 import { h, replace } from "./dom.ts";
 import { renderLanding } from "./landing.ts";
@@ -5,7 +6,7 @@ import { SERVED_BY } from "./mode.ts";
 import { renderSetup } from "./setup.ts";
 import { codeBlock, renderWorkspace } from "./workspace.ts";
 
-const TITLES: Record<string, string> = { "": "Agentsol: read your agent instructions together", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Local setup · Agentsol" };
+const TITLES: Record<string, string> = { "": "Agentsol: audit the instructions your AI agents follow", check: "Browser checker · Agentsol", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Install · Agentsol" };
 
 function currentRoute(): string {
   const m = /^#\/([a-z-]*)$/.exec(window.location.hash);
@@ -24,6 +25,7 @@ async function render(): Promise<void> {
   }
   main.setAttribute("aria-busy", "true");
   if (r === "setup") renderSetup(main);
+  else if (r === "check") renderChecker(main);
   else if (r === "demo") {
     const bundle = await loadDemoBundle();
     if (bundle) renderWorkspace(main, demoSource(bundle), { builtAt: bundle.builtAt, scopeTargets: bundle.scopeTargets });

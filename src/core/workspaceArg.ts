@@ -1,4 +1,6 @@
-/** Workspace directory comes only from an explicit flag or env var; there is no implicit default. */
+import path from "node:path";
+
+/** Workspace directory from an explicit flag or env var only; callers fall back with resolveWorkspace. */
 export function workspaceFrom(argv: readonly string[], env: NodeJS.ProcessEnv): { dir: string | null; rest: string[] } {
   const rest: string[] = [];
   let dir: string | null = null;
@@ -20,4 +22,10 @@ export function workspaceFrom(argv: readonly string[], env: NodeJS.ProcessEnv): 
 
 function nonEmpty(v: string | undefined): string | null {
   return v !== undefined && v.length > 0 ? v : null;
+}
+
+/** The flag or env var if given, else `<home>/.agentsol`, the location every install guide uses. */
+export function resolveWorkspace(argv: readonly string[], env: NodeJS.ProcessEnv, home: string): { dir: string; isDefault: boolean; rest: string[] } {
+  const { dir, rest } = workspaceFrom(argv, env);
+  return dir ? { dir, isDefault: false, rest } : { dir: path.join(home, ".agentsol"), isDefault: true, rest };
 }

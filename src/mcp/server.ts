@@ -4,6 +4,9 @@
  * to service methods. It must never import humanApproval.ts or service/operator.ts.
  */
 import { McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
+import { STRUCTURAL_CHECKS } from "../core/checks.ts";
+import { SEMANTIC_CHECKS } from "../core/semantic.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
 import { LIMITS } from "../core/limits.ts";
 import { createAssistantService, DISCLOSURE, Inputs, UNTRUSTED } from "../core/service/assistant.ts";
@@ -14,6 +17,7 @@ export { DISCLOSURE, UNTRUSTED };
 
 export const INSTRUCTIONS = [
   "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
+  "0. If projects_list is empty, ask the person to run `npx -y agentsol@alpha check` inside their project. You cannot register projects yourself.",
   "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
   "2. source_read returns numbered, redacted lines plus the current versionId.",
   "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
@@ -24,6 +28,37 @@ export const INSTRUCTIONS = [
   UNTRUSTED,
   DISCLOSURE,
 ].join("\n");
+
+export const TOOL_NAMES = [
+  "projects_list", "workspace_status", "sources_freshness", "sources_scan", "sources_list", "source_read", "scope_resolve",
+  "checks_run", "findings_list", "findings_submit", "change_propose", "changes_list", "change_status",
+] as const;
+export const PROMPT_NAMES = ["audit", "fix", "explain"] as const;
+
+export const GUIDE = [
+  "# Agentsol guide for assistants",
+  "",
+  "Agentsol audits the instruction files coding agents follow: AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md (skipped by default) and SKILL.md.",
+  "It runs on the person's machine. You are the reasoning engine; Agentsol supplies facts, masked text, evidence checks and a human-gated change queue.",
+  "",
+  "## Workflow",
+  ...INSTRUCTIONS.split("\n").slice(1, 9).map((l) => `- ${l}`),
+  "",
+  "## Structural checks (deterministic facts)",
+  ...Object.entries(STRUCTURAL_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
+  "",
+  "## Possible issues you may report with findings_submit",
+  ...Object.entries(SEMANTIC_CHECKS).map(([id, c]) => `- ${id}: ${c.title} (evidence from ${c.minDistinctSources}+ file${c.minDistinctSources > 1 ? "s" : ""})`),
+  "",
+  "## Reporting style",
+  "- Group by file. Lead with errors, then warnings, then notes.",
+  "- Label structural findings as facts and your own as possible, with confidence.",
+  "- Quote lines as `path:line`. Never claim a file was changed: proposals wait for the person.",
+  "- Finish with the exact command the person runs: npx agentsol review <proposalId>.",
+].join("\n");
+
+const promptText = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
+const forProject = (project?: string): string => (project ? ` Work on the registered project named or with id "${project}".` : " If several projects are registered, ask me which one.");
 
 const reply = <T>(r: ServiceResult<T>) =>
   r.ok
@@ -108,5 +143,40 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     { description: "Status of a proposal (pending, applying, applied, rejected, stale) and whether its base version is still current.", inputSchema: Inputs.proposal, annotations: ro },
     async (args) => reply(svc.proposalStatus(args)),
   );
+
+  server.registerPrompt(
+    "audit",
+    { title: "Audit agent instructions", description: "Full Agentsol audit: scan, report facts, look for contradictions and vague rules with quoted evidence, and propose fixes as diffs.", argsSchema: z.object({ project: z.string().optional().describe("Project name or id (optional)") }) },
+    ({ project }) => promptText([
+      "Audit the instructions my coding agents follow, using the agentsol tools." + forProject(project),
+      "1. projects_list, then sources_scan and findings_list. Report structural findings as facts, grouped by file, errors first.",
+      "2. source_read every source. Look for instructions that contradict each other across files, stale references, rules too vague to follow, content in the wrong folder, and skill descriptions that do not match their body.",
+      "3. Record each real observation with findings_submit (exact quoted evidence, current versionId, a requestKey).",
+      "4. For the clearest fixes, call change_propose. Do not edit instruction files directly.",
+      "5. End with a short scorecard (errors, warnings, possible issues) and the npx agentsol review <proposalId> commands I should run myself.",
+      "If no project is registered, tell me to run `npx -y agentsol@alpha check` in my project folder, then stop.",
+    ].join("\n")),
+  );
+  server.registerPrompt(
+    "fix",
+    { title: "Propose fixes for findings", description: "Turn current Agentsol findings into reviewed diffs that wait for the person's approval.", argsSchema: z.object({ project: z.string().optional().describe("Project name or id (optional)") }) },
+    ({ project }) => promptText([
+      "Propose fixes for the current agentsol findings." + forProject(project),
+      "Call findings_list, then source_read the cited files. For each finding you can fix safely, call change_propose with the exact expectedText and a one-line rationale linked to the finding id.",
+      "Skip findings that need a decision from me and list them as questions instead. Do not edit files directly.",
+      "Finish with one line per proposal: the file, what changes, and the command `npx agentsol review <proposalId>`.",
+    ].join("\n")),
+  );
+  server.registerPrompt(
+    "explain",
+    { title: "Which instructions apply here?", description: "Explain which instruction files an assistant loads for a given file, and why, using scope_resolve.", argsSchema: z.object({ path: z.string().describe("Project-relative file path, e.g. services/api/handler.ts"), project: z.string().optional().describe("Project name or id (optional)") }) },
+    ({ path, project }) => promptText([
+      `Explain which agent instruction files apply when an assistant works on \`${path}\`.` + forProject(project),
+      "Call scope_resolve for codex, claude-code and cursor. For each client, list the files in load order, quote the rules that matter for this path from source_read, and point out differences between clients.",
+      "Say clearly that the model is partial: user, managed and IDE-level files are not inspected.",
+    ].join("\n")),
+  );
+  server.registerResource("guide", "agentsol://guide", { title: "Agentsol guide", description: "Workflow, check catalogue and reporting style for assistants.", mimeType: "text/markdown" },
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: GUIDE }] }));
   return server;
 }
