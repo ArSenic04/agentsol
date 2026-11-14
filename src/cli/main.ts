@@ -45,6 +45,9 @@ Start here:
   prompt [path]                         print one masked prompt to paste into any chat AI
   inspect <folder|file> [--json]        before you install a skill or MCP server: scan its files or its tool
                                         list (tools/list JSON) for hidden instructions, credential theft and more
+  learn [path] [--since 30d] [--propose] [--json]
+                                        mistakes your agents repeat here (wrong commands, things you keep telling
+                                        them, files they keep breaking), the time they cost, and rules that stop them
   sessions [path] [--since 7d] [--limit N] [--json]
                                         what your AI agents did lately (Claude Code, Codex), with risky steps flagged
   session <id> [--timeline] [--from N] [--json]
@@ -229,6 +232,7 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
     ["check [path]", "scan a project (default: this folder) and show cited findings"],
     ["connect [app]", "one-line MCP setup for your assistant"],
     ["prompt [path]", "one masked prompt for ChatGPT, Gemini, Claude.ai or any chat"],
+    ["learn", "rules from mistakes your agents keep repeating here, and the time they cost"],
     ["sessions", "what your AI agents did: risky commands, exposed secrets, skipped tests"],
     ["doctor", "preflight plus your AI apps' setup: secrets, MCP servers, permissions"],
     ["review <id>", "read a proposed diff, then approve and apply it yourself"],
@@ -543,6 +547,81 @@ async function sessionCmd(t: Term, store: WorkspaceStore, args: readonly string[
   return 0;
 }
 
+const LESSON_TAG: Record<string, Seg> = { command: ["warn", "command "], correction: ["sun", "you said"], fragile: ["bad", "fragile "], failing: ["info", "needs you"] };
+
+/** Mistakes agents repeated in this project, the time they cost, and the rules that would stop them. */
+async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, args: readonly string[], json: boolean): Promise<number> {
+  const sinceArg = flagValue(args, "--since") ?? "30d";
+  if (!parseSince(sinceArg)) return fail("--since must look like 7d, 30d, 12w or a date", 2);
+  const got = await ensureProject(store, ops, positional(args, ["--since"])[0] ?? ".");
+  if (typeof got === "string") return fail(got, 2);
+  const { project } = got;
+  const scanned = await svc.scan({ projectId: project.id });
+  if (!scanned.ok) return fail(`${scanned.error.code}: ${scanned.error.message}`);
+  const work = () => svc.lessons({ projectId: project.id, since: sinceArg });
+  const r = !json && t.tty ? await withSpinner(t, "Reading past agent sessions in this project…", work) : await work();
+  if (!r.ok) return fail(`${r.error.code}: ${r.error.message}`);
+  const L = r.value.projects[0];
+  if (!L) return fail("project not found", 2);
+  let proposalId: string | null = null;
+  if (args.includes("--propose") && L.suggestedChange) {
+    const pr = svc.proposeChange({ projectId: project.id, ...L.suggestedChange });
+    if (!pr.ok) return fail(`could not propose the change: ${pr.error.message}`);
+    proposalId = pr.value.proposalId;
+  }
+  if (json) { raw(JSON.stringify({ ...L, proposalId, caveats: r.value.caveats, notice: r.value.notice }, null, 2)); return 0; }
+
+  const w = Math.min(t.width - 2, 100);
+  const safe = (s: string): string => sanitizeForTerminal(s);
+  const fresh = L.lessons.filter((l) => l.rule && !l.alreadyInFile).length;
+  const known = L.lessons.filter((l) => l.alreadyInFile).length;
+  raw();
+  raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol learn  "], ["muted", `${project.name} · since ${new Date(L.since).toLocaleDateString()} · ${n(L.sessionsRead, "session")} read`]]));
+  raw();
+  if (L.sessionsRead === 0) {
+    raw(render(t, ["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 90d`]]));
+    for (const note of L.notes) raw(render(t, ["    ", ["muted", safe(note)]]));
+    raw();
+    return 0;
+  }
+  const share = L.agentMs > 0 ? ` (${Math.round((L.lostMs / L.agentMs) * 100)}%)` : "";
+  for (const l of panel(t, [["bold", "What repeated mistakes cost"]], pairs([
+    ["Time lost", [["bold", fmtDuration(L.lostMs)], ["muted", ` of ${fmtDuration(L.agentMs)} active agent time${share}`]]],
+    ["Tokens lost", [["bold", fmtTokens(L.lostTokens)], ["muted", ` of ${fmtTokens(L.agentTokens)} · ${n(L.lostSteps, "wasted step")}`]]],
+    ["Lessons", [`${L.lessons.length}`, ["muted", " · "], ["ok", `${n(fresh, "new rule")}`], known ? ["muted", ` · ${known} already in ${L.target?.relPath ?? "the file"} but still repeated`] : ""]],
+  ], 14), w)) raw(`  ${l}`);
+  raw();
+  if (L.lessons.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "No repeated mistakes found. Agents here are not tripping over the same thing twice."]));
+  L.lessons.forEach((l, i) => {
+    raw(render(t, fit(["  ", ["muted", String(i + 1).padStart(3)], "  ", LESSON_TAG[l.kind] ?? "", "  ", ["muted", `${l.times}× in ${n(l.sessions, "session")}${l.lostMs ? ` · ${fmtDuration(l.lostMs)} lost` : ""}`], l.alreadyInFile ? ["warn", "  · already in the file"] : ""], w)));
+    for (const x of wrapWords(safe(l.title).split(" "), w - 9, " ")) raw(render(t, ["         ", x]));
+    if (l.rule) for (const [k, x] of wrapWords(safe(l.rule).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["ok", k === 0 ? "rule  → " : "        "], ["bold", x]]));
+    raw(render(t, fit(["         ", ["muted", `seen in ${l.evidence.map((e) => (e.step ? `${e.sessionId} step ${e.step}` : e.sessionId)).join(" · ")}`]], w)));
+    raw();
+  });
+  for (const note of L.notes) raw(render(t, ["  ", ["warn", "▲ "], ["muted", safe(note)]]));
+  if (proposalId) {
+    for (const l of panel(t, [["bold", "Proposed"]], [
+      [["ok", "✓ "], `${n(fresh, "rule")} added to `, ["bold", L.target?.relPath ?? "the file"], " as a proposal. Nothing is written yet."],
+      [["agent", "→ "], "Read it, then approve and apply:  ", ["bold", `${CMD} review ${proposalId}`]],
+    ], w)) raw(`  ${l}`);
+  } else if (L.suggestedChange) {
+    for (const l of panel(t, [["bold", "Next"]], [
+      [["agent", "1 "], `Add ${n(fresh, "rule")} to ${L.target?.relPath}:  `, ["bold", `${CMD} learn --propose`]],
+      [["agent", "  "], ["muted", "you read the diff, then approve and apply it yourself"]],
+      [["agent", "2 "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
+    ], w)) raw(`  ${l}`);
+  } else if (L.newFileText) {
+    raw(render(t, ["  ", ["warn", "▲ "], "This project has no AGENTS.md or CLAUDE.md. Create AGENTS.md with:"]));
+    raw();
+    for (const x of L.newFileText.split("\n")) raw(render(t, ["    ", ["agent", safe(x)]]));
+  }
+  raw();
+  raw(render(t, ["  ", ["muted", "Read from transcripts on this machine. Nothing was sent anywhere, and no project file was changed."]]));
+  raw();
+  return 0;
+}
+
 const INSPECT_SKIP = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next"]);
 
 /** Reads up to 300 small text files under a folder, never following symlinks. */
@@ -653,6 +732,8 @@ async function run(argv: string[]): Promise<number> {
         return await check(term, store, svc, ops, arg || ".", { json, strict });
       case "prompt":
         return await promptCmd(store, svc, ops, arg || ".");
+      case "learn":
+        return await learnCmd(term, store, svc, ops, args, json);
       case "sessions":
         return await sessionsCmd(term, store, args, json);
       case "session":

@@ -318,8 +318,15 @@ test("MCP server exposes setup_audit, sessions_list, session_review and session_
     assert.equal(bad.isError, false);
     assert.equal(JSON.parse(bad.text).verdict, "danger");
     assert.ok(!bad.text.includes("id_rsa"), "inspect never echoes file text");
+    const lessons = await call("lessons_list", { since: "3650d" });
+    assert.equal(lessons.isError, false);
+    const lv: { projects: { sessionsRead: number; target: { relPath: string } | null }[]; notice: string } = JSON.parse(lessons.text);
+    assert.equal(lv.projects[0]?.sessionsRead, 1);
+    assert.match(lv.notice, /masked quotes of corrections/);
+    assert.ok(!lessons.text.includes(FAKE) && !lessons.text.includes(m.home) && !lessons.text.includes(m.fx.root), "lessons leak no secrets or paths");
     const tools = await client.listTools();
     assert.equal(tools.tools.find((t) => t.name === "inspect")?.annotations?.readOnlyHint, true);
+    assert.equal(tools.tools.find((t) => t.name === "lessons_list")?.annotations?.readOnlyHint, true);
     const grade = tools.tools.find((t) => t.name === "session_grade");
     assert.equal(grade?.annotations?.destructiveHint, false);
     assert.equal(tools.tools.find((t) => t.name === "sessions_list")?.annotations?.readOnlyHint, true);

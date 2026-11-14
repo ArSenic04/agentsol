@@ -2,7 +2,7 @@ import type { FindingsResponse, ProposalsResponse, SourceRead, WorkspaceStatus }
 import type { DemoBundle } from "./data.ts";
 import { demoSource } from "./data.ts";
 import { codePre, h, replace, route } from "./dom.ts";
-import { cliShowcase, heroDiagram, sessionShowcase } from "./hero.ts";
+import { cliShowcase, heroDiagram, learnShowcase, sessionShowcase } from "./hero.ts";
 import { installPicker } from "./setup.ts";
 import { codeBlock } from "./workspace.ts";
 
@@ -80,6 +80,16 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
     h("section", { class: "clients", attrs: { "aria-labelledby": "clients" } },
       h("p", { class: "clients-label", attrs: { id: "clients" } }, "One npm package. Connects through standard MCP config to"),
       h("ul", { class: "client-row" }, ...CLIENT_NAMES.map((n) => h("li", {}, n)), h("li", { class: "client-web" }, "ChatGPT, Gemini, Claude.ai via the browser checker"))),
+
+    h("section", { class: "section", attrs: { "aria-labelledby": "learn" } },
+      head("New · Learn", "learn", "Your agent stops making the same mistake twice", "Agents forget everything between sessions. They run npm in a pnpm repo again, break the same file again, and you type the same correction again. Agentsol reads your past Claude Code and Codex sessions, finds what keeps repeating, shows the time and tokens it cost, and writes the rule that stops it into AGENTS.md, after you approve."),
+      codeBlock(["npx -y agentsol@alpha learn", "npx -y agentsol@alpha learn --propose"], { label: "Run in your project" }),
+      learnShowcase(),
+      h("ul", { class: "cards" },
+        card("↻", "", "Commands that fail here", "The agent runs a command, it fails, and a different one works. Seen twice, it becomes a rule: Use pnpm, not npm."),
+        card("“", "agent", "Things you keep saying", "When you tell agents the same thing in two sessions (never edit gen/, use the staging database), it becomes a rule in your words, masked."),
+        card("⚠", "violet", "Files they keep breaking", "Edit, fail, edit the same file again. Agentsol names the file and the check that finally passed, so the next agent runs it first.")),
+      h("p", { class: "muted small" }, "Every lesson cites the session and step it came from and says whether AGENTS.md already had the rule. Lost time is active time between steps, with long pauses capped. Nothing leaves your machine, and nothing is written until you approve. In your assistant: ", h("code", {}, "/learn"), ".")),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "why" } },
       head("The problem", "why", "Instruction files multiply quietly", "A root AGENTS.md. A CLAUDE.md that imports it. A package folder with its own rules. Skills whose frontmatter has to be just right. Every client loads a different subset, and nobody reads them side by side."),

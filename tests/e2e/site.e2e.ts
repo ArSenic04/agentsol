@@ -61,6 +61,8 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   const text = await page.locator("main").innerText();
   for (const banned of [/testimonial/i, /trusted by/i, /\d[\d,]* (users|developers|teams)/i, /sign up/i, /waitlist/i, /forever free/i, /guarantee(?!s? )/i]) assert.ok(!banned.test(text), `no ${banned}`);
   assert.ok(await page.locator("form, input[type=email]").count() === 0, "no signup or contact forms on the landing page");
+  assert.match(await page.locator("#learn").innerText(), /stops making the same mistake twice/);
+  assert.match(text, /What repeated mistakes cost[\s\S]*rule {2}→ Use `pnpm`, not `npm`[\s\S]*agentsol learn --propose/);
   await page.getByRole("link", { name: "Open the interactive demo" }).first().click();
   await page.waitForURL(/#\/demo$/);
   await page.getByText("Synthetic demo.").waitFor();
@@ -333,7 +335,7 @@ for (const width of [375, 390, 1440]) {
 test("commands wrap visually but copy and select as the exact original bytes", async () => {
   const { page, problems } = await openPage({ width: 375, clipboard: true });
   await page.goto(`${staticSrv.url}#/setup`);
-  const step5 = page.locator(".setup-step").nth(5);
+  const step5 = page.locator(".setup-step").nth(6);
   const pre = step5.locator(".cmd-code");
   const expected = ["review", "approve", "apply"].map((v) => `npx agentsol ${v} <proposalId>`).join("\n");
   assert.ok((await pre.evaluate((el) => el.getBoundingClientRect().height)) > 3 * 30, "long commands really wrap at 375px");

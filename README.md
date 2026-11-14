@@ -134,10 +134,27 @@ npx -y agentsol@alpha inspect tools.json --json     # a server's tools/list resu
 
 It exits 1 on danger, so it works as a CI gate. The same engine runs as the `inspect` MCP tool (files passed inline, nothing read from disk) and on the website's Inspect page, entirely in the browser. It reads text only and runs nothing; it cannot see code a server downloads at run time. On 91 public skills from three plugin marketplaces it reported no false danger.
 
-## MCP tools
-`projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`, `sessions_list`, `session_review`, `session_grade`, `setup_audit`, `inspect`. There is no approve, apply, write or delete tool.
+## Learn from your agents' mistakes
+Agents forget between sessions, so they repeat the same mistakes in the same project. `learn` reads the Claude Code and Codex transcripts on your machine for sessions started in this folder and finds four kinds of lesson:
 
-Prompts: `audit` and `fix` (optional `project`) and `explain` (`path`, optional `project`). They show up as `/audit`, `/fix` and `/explain` in clients that support MCP prompts. Resource: `agentsol://guide` (markdown: the workflow, the check catalogue and how to report).
+- **command**: a command that fails here and the one that works (`npm test` fails, `pnpm test` works).
+- **you said**: something you told agents in two or more sessions, quoted masked and shortened.
+- **fragile**: a file agents edit, break and re-edit before a check passes, with the check that finally passed.
+- **failing**: a command that failed in several sessions and never worked anywhere; it asks you how to run it.
+
+```bash
+npx -y agentsol@alpha learn                 # last 30 days
+npx -y agentsol@alpha learn --since 90d
+npx -y agentsol@alpha learn --propose       # store the rules as a proposal for AGENTS.md or CLAUDE.md
+npx agentsol review <proposalId>
+```
+
+Each lesson cites its session ids and step numbers, says whether the instruction file already covers it, and shows the active time and tokens it cost (pauses over 5 minutes count as 5 minutes). `--propose` never writes a file: you review, approve and apply the diff yourself. Over MCP the same report is `lessons_list`, and `/learn` walks your assistant through it. Lessons are patterns, not proof; read each rule before keeping it.
+
+## MCP tools
+`projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`, `sessions_list`, `session_review`, `session_grade`, `setup_audit`, `inspect`, `lessons_list`. There is no approve, apply, write or delete tool.
+
+Prompts: `audit` and `fix` (optional `project`), `explain` (`path`, optional `project`), `review`, `setup` and `learn` (optional `project`, `since`). They show up as `/audit`, `/fix`, `/explain`, `/review`, `/setup` and `/learn` in clients that support MCP prompts. Resource: `agentsol://guide` (markdown: the workflow, the check catalogue and how to report).
 
 The CLI and the MCP server call the same assistant-safe service (`src/core/service/assistant.ts`), so validation, redaction and error messages are identical; `--json` output equals the MCP result. Approve, reject, apply and project registration live in a separate operator service that only the CLI imports. `findings_submit` and `change_propose` accept an optional `requestKey`: retrying with the same key returns the original result, and reusing a key for a different request is refused.
 

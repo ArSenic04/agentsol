@@ -75,6 +75,7 @@ const HEAD_BYTES = 64 * 1024;
 // ---------------------------------------------------------------------------------------
 // Steps
 
+export type SessionStep = Step;
 type Step = {
   n: number; at: string | null; kind: StepKind; tool: string; target: string; failed: boolean | null;
   cwd: string; command: string | null; files: string[]; deleted: string[];
@@ -84,7 +85,13 @@ type Step = {
 type Parsed = {
   client: SessionClient; cwd: string | null; model: string | null; startedAt: string | null; endedAt: string | null;
   steps: Step[]; userTurns: number; userSecrets: SecretKind[]; tokens: SessionMetrics["tokens"]; malformed: number;
+  said: Said[];
 };
+/** A short message from the person that reads like a correction. Kept in memory for lessons only; never stored. */
+export type Said = { at: string | null; afterStep: number; text: string };
+export type ParsedSession = Parsed;
+
+const CORRECTION = /^(no\b|nope\b|wrong\b|stop\b|don'?t\b|do not\b|never\b|not that\b|that'?s (wrong|not)\b|i (said|told you|asked)\b|please (don'?t|do not|stop|use|always|never)\b|you (should|need to|forgot|must)\b|always\b|use\b)|\b(instead of|rather than|i told you|i said|you forgot|again[,.!]|every time|not npm|not yarn)\b/i;
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
@@ -113,6 +120,7 @@ class Builder {
   endedAt: string | null = null;
   userTurns = 0;
   readonly userSecrets: SecretKind[] = [];
+  readonly said: Said[] = [];
   malformed = 0;
   readonly client: SessionClient;
   constructor(client: SessionClient) { this.client = client; }
@@ -135,10 +143,11 @@ class Builder {
     if (callId) this.byCall.set(callId, s);
     return s;
   }
-  userText(text: string): void {
+  userText(text: string, at: string | null = null): void {
     const t = text.trim();
-    if (!t || t.startsWith("<")) return;
+    if (!t || t.startsWith("<") || t.startsWith("[")) return;
     this.userTurns += 1;
+    if (t.length <= 400 && !t.includes("\n\n") && CORRECTION.test(t)) this.said.push({ at, afterStep: this.steps.length, text: t });
     for (const k of secretKinds(t.slice(0, MAX_SCAN_CHARS))) if (!this.userSecrets.includes(k)) this.userSecrets.push(k);
   }
 }
@@ -170,7 +179,7 @@ function claudeLine(b: Builder, o: Rec, usage: Map<string, { input: number; outp
   }
   if (type !== "user") return;
   const content = msg["content"];
-  if (typeof content === "string") { if (o["isMeta"] !== true) b.userText(content); return; }
+  if (typeof content === "string") { if (o["isMeta"] !== true) b.userText(content, at); return; }
   for (const block of Array.isArray(content) ? content : []) {
     const c = rec(block);
     if (!c) continue;
@@ -179,7 +188,7 @@ function claudeLine(b: Builder, o: Rec, usage: Map<string, { input: number; outp
       if (!s) continue;
       s.failed = c["is_error"] === true;
       scanOutput(s, textOf(c["content"]));
-    } else if (c["type"] === "text" && o["isMeta"] !== true) b.userText(str(c["text"]) ?? "");
+    } else if (c["type"] === "text" && o["isMeta"] !== true) b.userText(str(c["text"]) ?? "", at);
   }
 }
 
@@ -279,7 +288,7 @@ function codexItem(b: Builder, at: string | null, p: Rec): void {
   const type = str(p["type"]);
   const callId = str(p["call_id"]) ?? str(p["id"]);
   if (type === "message") {
-    if (p["role"] === "user") b.userText(textOf(p["content"]));
+    if (p["role"] === "user") b.userText(textOf(p["content"]), at);
     return;
   }
   if (type === "function_call") {
@@ -347,7 +356,7 @@ export async function parseTranscript(file: string, client: SessionClient): Prom
     const output = [...usage.values()].reduce((a, u) => a + u.output, 0);
     tokens.value = { input, output, total: input + output };
   }
-  return { client, cwd: b.cwd, model: b.model, startedAt: b.startedAt, endedAt: b.endedAt, steps: b.steps, userTurns: b.userTurns, userSecrets: b.userSecrets, tokens: tokens.value, malformed: b.malformed };
+  return { client, cwd: b.cwd, model: b.model, startedAt: b.startedAt, endedAt: b.endedAt, steps: b.steps, userTurns: b.userTurns, userSecrets: b.userSecrets, tokens: tokens.value, malformed: b.malformed, said: b.said };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -382,7 +391,7 @@ export function shellSegments(command: string): string[][] {
 }
 
 const WRAPPERS = new Set(["sudo", "doas", "command", "nohup", "time", "exec", "nice", "env", "builtin"]);
-function strip(words: readonly string[]): string[] {
+export function strip(words: readonly string[]): string[] {
   let i = 0;
   while (i < words.length) {
     const w = words[i] ?? "";
@@ -414,7 +423,8 @@ export function showPath(p: string, ctx: Ctx): string {
   if (within(p, ctx.home)) return p === ctx.home ? "~" : `~${p.slice(ctx.home.length)}`;
   return p;
 }
-const showCommand = (c: string, ctx: Ctx): string => maskLaunch(ctx.cwd ? c.split(`${ctx.cwd}/`).join("") : c, ctx.home);
+export type SessionCtx = Ctx;
+export const showCommand = (c: string, ctx: Ctx): string => maskLaunch(ctx.cwd ? c.split(`${ctx.cwd}/`).join("") : c, ctx.home);
 function showTarget(s: Step, ctx: Ctx): string {
   if (s.kind === "command") return showCommand(s.command ?? s.target, ctx);
   if (s.kind === "fetch") return maskLaunch(s.target.replace(/[?#].*$/, ""), ctx.home);
@@ -454,7 +464,7 @@ const TEST_FILE = /(^|\/)(tests?|__tests__|spec|specs)\/|\.(test|spec)\.[cm]?[jt
 const SKIP_ADDED = /\b(describe|it|test|context|suite)\.(skip|only|todo)\s*\(|\bx(it|describe|test)\s*\(|@pytest\.mark\.(skip|xfail)|\bpytest\.skip\(|\bt\.Skip(Now|f)?\(|#\[ignore\]|@(Disabled|Ignore)\b|\bunittest\.skip|\bskip\s*:\s*true\b/;
 const SUPPRESS_ADDED = /eslint-disable|@ts-(ignore|nocheck|expect-error)|#\s*noqa|#\s*type:\s*ignore|\/\/\s*nolint|#\s*pragma:\s*no cover|@SuppressWarnings/;
 const CODE_FILE = /\.(c|cc|cpp|cs|css|dart|ex|exs|go|h|hpp|html|java|jsx?|kt|lua|m|mjs|cjs|php|py|rb|rs|scala|sh|sql|svelte|swift|tsx?|vue|zig)$/i;
-const VERIFY = /\b(test|tests|pytest|jest|vitest|mocha|ava|tap|tsc|typecheck|type-check|build|lint|eslint|biome|ruff|mypy|pyright|flake8|check|clippy|vet|rspec|phpunit|gradle|mvn|make|ctest|xcodebuild|swift\s+build|deno\s+(test|check|lint))\b/;
+export const VERIFY = /\b(test|tests|pytest|jest|vitest|mocha|ava|tap|tsc|typecheck|type-check|build|lint|eslint|biome|ruff|mypy|pyright|flake8|check|clippy|vet|rspec|phpunit|gradle|mvn|make|ctest|xcodebuild|swift\s+build|deno\s+(test|check|lint))\b/;
 const LOCAL_HOST = /^(localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|\[::1\]|::1)$/;
 
 function hostOf(words: readonly string[]): string | null {
@@ -779,13 +789,14 @@ async function load(c: Candidate, ctx: SessionContext, project: ProjectLookup): 
   return { summary, parsed, findings, actx };
 }
 
-export type ListOptions = { since?: Date; limit?: number; project?: ProjectLookup; requireProject?: boolean; cwdWithin?: string | null };
+export type LoadedSession = { summary: SessionSummary; parsed: Parsed; actx: Ctx };
+export type ListOptions = { since?: Date; limit?: number; onLoaded?: (s: LoadedSession) => void; project?: ProjectLookup; requireProject?: boolean; cwdWithin?: string | null };
 export type SessionList = { sessions: SessionSummary[]; skipped: number; notes: string[] };
 
 /** Most recent transcripts first. `requireProject` drops sessions whose folder is not a registered project. */
 export async function listSessions(ctx: SessionContext, opts: ListOptions = {}): Promise<SessionList> {
   const since = opts.since?.getTime() ?? Date.now() - 7 * 86_400_000;
-  const limit = Math.max(1, Math.min(opts.limit ?? 20, 100));
+  const limit = Math.max(1, Math.min(opts.limit ?? 20, opts.onLoaded ? 1000 : 100));
   const lookup = opts.project ?? ((): null => null);
   const sessions: SessionSummary[] = [];
   const notes: string[] = [];
@@ -803,7 +814,9 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
     }
     if (opts.requireProject && !lookup(resolved)) { skipped += 1; continue; }
     try {
-      sessions.push((await load(c, ctx, lookup)).summary);
+      const loaded = await load(c, ctx, lookup);
+      sessions.push(loaded.summary);
+      opts.onLoaded?.(loaded);
     } catch {
       notes.push(`One transcript could not be read (${c.id}).`);
     }
