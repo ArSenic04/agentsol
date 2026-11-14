@@ -63,6 +63,12 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   assert.ok(await page.locator("form, input[type=email]").count() === 0, "no signup or contact forms on the landing page");
   assert.match(await page.locator("#learn").innerText(), /stops making the same mistake twice/);
   assert.match(text, /What repeated mistakes cost[\s\S]*rule {2}→ Use `pnpm`, not `npm`[\s\S]*agentsol learn --propose/);
+  const tracks = page.locator(".client-carousel .client-track");
+  assert.equal(await tracks.count(), 2, "the carousel loops one copy of the logos");
+  assert.equal(await tracks.nth(1).getAttribute("aria-hidden"), "true", "screen readers hear each app once");
+  assert.deepEqual(await tracks.nth(0).locator("li").allInnerTexts(), await tracks.nth(1).locator("li").allInnerTexts());
+  assert.equal(await tracks.nth(0).locator("svg.client-mark").count(), 8);
+  assert.notEqual(await page.locator(".client-belt").evaluate((el) => getComputedStyle(el).animationName), "none");
   await page.getByRole("link", { name: "Open the interactive demo" }).first().click();
   await page.waitForURL(/#\/demo$/);
   await page.getByText("Synthetic demo.").waitFor();
@@ -161,6 +167,8 @@ test("narrow mobile width has no horizontal overflow; reduced motion disables an
     return getComputedStyle(s).animationName;
   });
   assert.equal(anim, "none");
+  assert.equal(await page.locator(".client-belt").evaluate((el) => getComputedStyle(el).animationName), "none", "logos stop scrolling under reduced motion");
+  assert.ok(await page.locator(".client-track[aria-hidden=true]").isHidden(), "the loop copy is hidden when nothing scrolls");
   assert.deepEqual(problems, []);
   await page.context().close();
 });
