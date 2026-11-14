@@ -4,7 +4,7 @@
  * operator service. All output is sanitized because file text and rationale are untrusted.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
@@ -16,6 +16,8 @@ import { runDoctor } from "./doctor.ts";
 import { sanitizeForTerminal } from "../core/display.ts";
 import { STRUCTURAL_CHECKS } from "../core/checks.ts";
 import { handoffPrompt } from "../core/handoff.ts";
+import { inspectFiles, type InspectFile, type InspectReport } from "../core/risks.ts";
+import { secretIn } from "../core/secrets.ts";
 import { isProposalId } from "../core/ids.ts";
 import { LIMITS } from "../core/limits.ts";
 import type { Finding } from "../core/schemas.ts";
@@ -41,6 +43,8 @@ Start here:
   check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
   connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
   prompt [path]                         print one masked prompt to paste into any chat AI
+  inspect <folder|file> [--json]        before you install a skill or MCP server: scan its files or its tool
+                                        list (tools/list JSON) for hidden instructions, credential theft and more
   sessions [path] [--since 7d] [--limit N] [--json]
                                         what your AI agents did lately (Claude Code, Codex), with risky steps flagged
   session <id> [--timeline] [--from N] [--json]
@@ -539,6 +543,54 @@ async function sessionCmd(t: Term, store: WorkspaceStore, args: readonly string[
   return 0;
 }
 
+const INSPECT_SKIP = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next"]);
+
+/** Reads up to 300 small text files under a folder, never following symlinks. */
+function readForInspect(target: string): InspectFile[] {
+  const files: InspectFile[] = [];
+  const root = path.resolve(target);
+  const visit = (p: string): void => {
+    if (files.length >= 300) return;
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) return;
+    if (st.isDirectory()) { for (const name of readdirSync(p).sort()) if (!INSPECT_SKIP.has(name)) visit(path.join(p, name)); return; }
+    if (!st.isFile() || st.size > 512 * 1024) return;
+    const buf = readFileSync(p);
+    if (buf.includes(0)) return;
+    files.push({ path: path.relative(path.dirname(root), p).split(path.sep).join("/") || path.basename(p), text: buf.toString("utf8") });
+  };
+  visit(root);
+  return files;
+}
+
+const INSPECT_VERDICT: Record<InspectReport["verdict"], Seg[]> = {
+  danger: [["bad", "✗ Do not install"], ["muted", "  it does things a skill or tool should never do"]],
+  caution: [["warn", "▲ Review first"], ["muted", "  some steps need a closer look"]],
+  clean: [["ok", "✓ Nothing risky found"], ["muted", "  pattern checks only; still install from sources you trust"]],
+};
+
+function inspectCmd(t: Term, target: string | undefined, json: boolean): number {
+  if (!target) return fail(`usage: ${CMD} inspect <skill folder | file | tools.json>`, 2);
+  if (!existsSync(target)) return fail(`${CMD}: no such file or folder: ${sanitizeForTerminal(target)}`, 2);
+  const r = inspectFiles(readForInspect(target), { secretIn });
+  if (json) { process.stdout.write(`${JSON.stringify(r, null, 2)}\n`); return r.verdict === "danger" ? 1 : 0; }
+  const w = Math.min(t.width - 2, 96);
+  raw();
+  raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol inspect  "], ["muted", `${sanitizeForTerminal(target)} · ${r.kind === "mcp" ? "MCP tool list" : r.kind === "skill" ? "skill" : "files"} · ${n(r.scanned, "file")} read`]]));
+  raw();
+  raw(render(t, ["  ", ...INSPECT_VERDICT[r.verdict]]));
+  for (const f of r.findings.slice(0, 40)) {
+    raw();
+    raw(render(t, fit(["    ", f.severity === "high" ? ["bad", "✗ high  "] : f.severity === "medium" ? ["warn", "▲ medium"] : ["info", "● low   "], "  ", ["agent", sanitizeForTerminal(`${f.path}${f.line ? `:${f.line}` : ""}`)]], w)));
+    for (const l of wrapWords(sanitizeForTerminal(f.what).split(" "), w - 8, " ")) raw(render(t, ["      ", l]));
+  }
+  if (r.findings.length > 40) raw(render(t, ["\n    ", ["muted", `… ${r.findings.length - 40} more in ${CMD} inspect --json`]]));
+  raw();
+  raw(render(t, ["  ", ["muted", "Read only. Nothing was run, installed or sent anywhere."]]));
+  raw();
+  return r.verdict === "danger" ? 1 : 0;
+}
+
 async function run(argv: string[]): Promise<number> {
   const ws = resolveWorkspace(argv, process.env, homedir());
   const { dir, rest: withFlags } = ws;
@@ -560,6 +612,7 @@ async function run(argv: string[]): Promise<number> {
     return command ? 0 : 2;
   }
   if (command === "connect") return connect(term, ws, args[0]);
+  if (command === "inspect") return inspectCmd(term, args[0], json);
   if (command === "doctor") {
     // src/cli/main.ts in a checkout, build/cli/main.js in an installed package; both sit two levels below the root.
     const here = fileURLToPath(import.meta.url);

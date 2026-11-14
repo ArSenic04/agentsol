@@ -68,7 +68,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
         h("p", { class: "lede" }, "An agent that reviews agent work. Agentsol audits the ", h("strong", {}, "rules"), " your coding agents follow (AGENTS.md, CLAUDE.md, SKILL.md), reviews ", h("strong", {}, "what they did"), " in each session, and checks ", h("strong", {}, "how your AI apps are set up"), ". Plug it into Claude Code, Codex, Gemini CLI, Cursor or VS Code: your own assistant does the reading, every finding is cited, and every fix waits for your approval."),
         h("div", { class: "cta-row" },
           h("a", { class: "btn btn-primary", href: route("#/setup") }, "Install in two minutes"),
-          h("a", { class: "btn", href: route("#/check") }, "Check files in your browser"),
+          h("a", { class: "btn", href: route("#/inspect") }, "Is a skill or MCP server safe? Inspect it"),
           h("a", { class: "text-link", href: route("#/demo") }, "Open the interactive demo →")),
         h("ul", { class: "proof" },
           h("li", {}, h("strong", {}, "$0."), " Uses your existing AI plan"),

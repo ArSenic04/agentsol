@@ -124,8 +124,18 @@ npm run test:web                                    # build, then browser tests 
 - Long source and diff lines keep their layout and scroll sideways. Those blocks are keyboard-focusable and show a hint when they overflow. Shell commands soft-wrap without changing the copied text.
 - `dist/web` can be served by any static host later, after review. The local bridge (`src/web/`) must never be exposed to a network or run on a shared machine.
 
+## Inspect a skill or MCP server before you install it
+Skills and MCP servers run with your assistant's access to your files, keys and terminal. `inspect` reads one and gives a verdict (danger, caution, clean) with every finding's file and line: credential theft (SSH, cloud, npm, browser passwords), data sent to a server, secrets hidden in DNS lookups, decoded-and-run code, self-installing persistence (shell startup, cron, launch agents, git hooks), rewriting AI app settings, hidden or injected instructions and, for MCP tool lists, tool poisoning and shadowing.
+
+```sh
+npx -y agentsol@alpha inspect ./some-skill          # a skill or server folder
+npx -y agentsol@alpha inspect tools.json --json     # a server's tools/list result
+```
+
+It exits 1 on danger, so it works as a CI gate. The same engine runs as the `inspect` MCP tool (files passed inline, nothing read from disk) and on the website's Inspect page, entirely in the browser. It reads text only and runs nothing; it cannot see code a server downloads at run time. On 91 public skills from three plugin marketplaces it reported no false danger.
+
 ## MCP tools
-`projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`. There is no approve, apply, write or delete tool.
+`projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`, `sessions_list`, `session_review`, `session_grade`, `setup_audit`, `inspect`. There is no approve, apply, write or delete tool.
 
 Prompts: `audit` and `fix` (optional `project`) and `explain` (`path`, optional `project`). They show up as `/audit`, `/fix` and `/explain` in clients that support MCP prompts. Resource: `agentsol://guide` (markdown: the workflow, the check catalogue and how to report).
 

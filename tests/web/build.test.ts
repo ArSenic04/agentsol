@@ -16,13 +16,13 @@ test("web build is static, self-contained, and carries no local paths or secrets
     const r = build(out);
     assert.equal(r.status, 0, r.stderr);
     const files = (await readdir(out, { recursive: true })).sort();
-    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/checker.js", "js/contract.js", "js/core", "js/core/claudeImports.js", "js/core/handoff.js", "js/core/risks.js", "js/core/secrets.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/hero.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "llms.txt", "og.png", "robots.txt", "styles.css"]);
+    assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/checker.js", "js/contract.js", "js/core", "js/core/claudeImports.js", "js/core/handoff.js", "js/core/risks.js", "js/core/secrets.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/hero.js", "js/inspect.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "llms.txt", "og.png", "robots.txt", "styles.css"]);
     let all = "";
     for (const f of files) if (f.includes(".") && !f.endsWith(".png")) all += await readFile(path.join(out, f), "utf8");
     assert.ok(!all.includes(REPO) && !/\/(Users|private\/var|var\/folders)\//.test(all), "no absolute local paths");
     assert.ok(!/sk-[A-Za-z0-9]{12,}/.test(all), "no sample secret");
     assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function/.test(all), "no HTML injection sinks");
-    assert.ok(!/https?:\/\/(?!agentsol\.js\.org\/|www\.w3\.org\/2000\/svg|www\.npmjs\.com\/package\/agentsol|agentskills\.io\/specification|code\.claude\.com\/docs\/en\/memory|learn\.chatgpt\.com\/docs\/agent-configuration\/agents-md|127\.0\.0\.1)/.test(all), "no external URLs except fixed doc links");
+    assert.ok(!/https?:\/\/(?!arsenic04\.github\.io\/agentsol-site\/|www\.w3\.org\/2000\/svg|www\.npmjs\.com\/package\/agentsol|agentskills\.io\/specification|code\.claude\.com\/docs\/en\/memory|learn\.chatgpt\.com\/docs\/agent-configuration\/agents-md|127\.0\.0\.1)/.test(all), "no external URLs except fixed doc links");
     const html = await readFile(path.join(out, "index.html"), "utf8");
     assert.ok(!/<script>|<script(?![^>]*src=)[^>]*>|style=/.test(html), "no inline script or style (strict CSP)");
     const demo = await readFile(path.join(out, "js/demo-data.js"), "utf8");

@@ -114,3 +114,6 @@ export function redactLines(lines: readonly string[]): { lines: string[]; redact
 export const secretKinds = (text: string): SecretKind[] => [...new Set(redactLines(text.split(/\r?\n/)).redacted.flatMap((r) => r.real))];
 
 export const containsSecretLike = (text: string): boolean => redactLines(text.split(/\r?\n/)).redacted.length > 0;
+
+/** Label of the first real secret on a line, for reports that must never show the value. */
+export const secretIn = (line: string): string | null => { const k = secretKinds(line)[0]; return k ? secretLabel(k) : null; };

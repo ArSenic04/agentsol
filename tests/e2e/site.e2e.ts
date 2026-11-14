@@ -121,9 +121,27 @@ test("keyboard: skip link, arrow keys between tabs, visible focus", async () => 
   await page.context().close();
 });
 
+test("inspect: examples give a danger verdict, pasted safe text is clean, nothing leaves the tab", async () => {
+  const { page, problems } = await openPage();
+  await page.goto(`${staticSrv.url}#/inspect`);
+  await page.locator("#page-title").waitFor();
+  await page.getByRole("button", { name: "a poisoned MCP tool" }).click();
+  await page.locator(".verdict-danger").waitFor();
+  assert.match(await page.locator(".results").innerText(), /XML-style tag/);
+  await page.getByRole("button", { name: "a skill that steals cloud keys" }).click();
+  await page.locator(".verdict-danger").waitFor();
+  assert.match(await page.locator(".results").innerText(), /credential files/);
+  await page.locator("#inspect-text").fill("---\nname: notes\ndescription: Summarizes notes.\n---\n\nRead the notes and write a short summary.\n");
+  await page.selectOption("#inspect-kind", "skill/SKILL.md");
+  await page.getByRole("button", { name: "Inspect pasted text" }).click();
+  await page.locator(".verdict-clean").waitFor();
+  assert.deepEqual(problems, []);
+  await page.context().close();
+});
+
 test("narrow mobile width has no horizontal overflow; reduced motion disables animation", async () => {
   const { page, problems } = await openPage({ width: 375, reducedMotion: "reduce" });
-  for (const route of ["", "#/check", "#/demo", "#/setup", "#/workspace"]) {
+  for (const route of ["", "#/inspect", "#/check", "#/demo", "#/setup", "#/workspace"]) {
     await page.goto(`${staticSrv.url}${route}`);
     await page.locator("#page-title").waitFor();
     await page.waitForTimeout(150);

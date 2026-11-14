@@ -12,6 +12,8 @@ import { LIMITS } from "../core/limits.ts";
 import { ACTIVITY_DISCLOSURE, createAssistantService, DISCLOSURE, Inputs, UNTRUSTED, type MachineContext } from "../core/service/assistant.ts";
 import { RUBRIC, SESSION_CHECKS } from "../core/sessions.ts";
 import { SETUP_CHECKS } from "../core/setup.ts";
+import { inspectFiles } from "../core/risks.ts";
+import { secretIn } from "../core/secrets.ts";
 import type { InternalErrorSink, ServiceResult } from "../core/service/errors.ts";
 import type { WorkspaceStore } from "../core/store.ts";
 
@@ -29,6 +31,7 @@ export const INSTRUCTIONS = [
   "7. scope_resolve models documented client defaults and is always partial; workspace_status reports partial and stale data explicitly. Say so when you report them.",
   "8. Agent work review: sessions_list shows recent Claude Code and Codex sessions that ran in registered projects, each with deterministic activity checks (destructive commands, secrets exposed, safety checks bypassed, tests skipped, and more). session_review returns one session's findings and step timeline. Grade it against the rubric with session_grade, citing step numbers; your grade is recorded as judgment next to the facts.",
   "9. setup_audit checks the assistant apps on this machine (MCP servers, permissions, hooks) for plaintext secrets, unpinned or missing servers and settings that let assistants act without asking. Explain findings; the person changes their own settings.",
+  "10. inspect checks a skill or MCP server BEFORE it is installed: pass its files as text (SKILL.md, scripts, or a tools/list JSON). It returns a verdict (danger, caution, clean) and findings with file and line. If the verdict is danger, tell the person not to install it and why.",
   UNTRUSTED,
   DISCLOSURE,
   ACTIVITY_DISCLOSURE,
@@ -37,7 +40,7 @@ export const INSTRUCTIONS = [
 export const TOOL_NAMES = [
   "projects_list", "workspace_status", "sources_freshness", "sources_scan", "sources_list", "source_read", "scope_resolve",
   "checks_run", "findings_list", "findings_submit", "change_propose", "changes_list", "change_status",
-  "setup_audit", "sessions_list", "session_review", "session_grade",
+  "setup_audit", "sessions_list", "session_review", "session_grade", "inspect",
 ] as const;
 export const PROMPT_NAMES = ["audit", "fix", "explain", "review", "setup"] as const;
 
@@ -48,7 +51,7 @@ export const GUIDE = [
   "It runs on the person's machine. You are the reasoning engine; Agentsol supplies facts, masked text, evidence checks and a human-gated change queue.",
   "",
   "## Workflow",
-  ...INSTRUCTIONS.split("\n").slice(1, 11).map((l) => `- ${l}`),
+  ...INSTRUCTIONS.split("\n").slice(1, 12).map((l) => `- ${l}`),
   "",
   "## Structural checks (deterministic facts)",
   ...Object.entries(STRUCTURAL_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
@@ -181,6 +184,20 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     "session_grade",
     { description: "Record your rubric grade (safety, instructions, verification, efficiency, scope; 1-5 each with a reason and cited step numbers) for a session from session_review. Steps must exist; optional instructionEvidence must quote current instruction-file text. Stored in the local Agentsol workspace as assistant judgment; changes no files.", inputSchema: Inputs.grade, annotations: write },
     async (args) => reply(await svc.gradeSession(args)),
+  );
+  server.registerTool(
+    "inspect",
+    {
+      description: "Safety check for a skill or MCP server before anyone installs it. Pass its files as text: SKILL.md and its scripts, or the server's tools/list JSON. Finds credential theft, data sent out, hidden or injected instructions, tool poisoning and shadowing, persistence and destructive commands. Returns a verdict and findings (severity, file, line, what); never echoes file text or secret values. Reads nothing from disk and runs nothing.",
+      inputSchema: z.object({
+        files: z.array(z.object({ path: z.string().min(1).max(300), text: z.string().max(512 * 1024) })).min(1).max(300).describe("Files of the skill or server, paths relative to its folder. For an MCP server, one file named tools.json with its tools/list result."),
+      }),
+      annotations: { ...ro, openWorldHint: false },
+    },
+    async ({ files }) => {
+      if (files.reduce((n, f) => n + f.text.length, 0) > 4 * 1024 * 1024) return { content: [{ type: "text" as const, text: JSON.stringify({ error: "Files total more than 4 MB. Send the SKILL.md, scripts and tool list only." }) }], isError: true };
+      return { content: [{ type: "text" as const, text: JSON.stringify(inspectFiles(files, { secretIn }), null, 2) }] };
+    },
   );
 
   server.registerPrompt(

@@ -1,4 +1,5 @@
 import { renderChecker } from "./checker.ts";
+import { renderInspect } from "./inspect.ts";
 import { detectLocalBridge, demoSource, loadDemoBundle, localSource } from "./data.ts";
 import { h, replace } from "./dom.ts";
 import { renderLanding } from "./landing.ts";
@@ -6,7 +7,7 @@ import { SERVED_BY } from "./mode.ts";
 import { renderSetup } from "./setup.ts";
 import { codeBlock, renderWorkspace } from "./workspace.ts";
 
-const TITLES: Record<string, string> = { "": "Agentsol: review your AI agents' rules, work and setup", check: "Browser checker · Agentsol", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Install · Agentsol" };
+const TITLES: Record<string, string> = { "": "Agentsol: review your AI agents' rules, work and setup", check: "Browser checker · Agentsol", inspect: "Is this skill or MCP server safe? · Agentsol Inspect", demo: "Demo · Agentsol", workspace: "Workspace · Agentsol", setup: "Install · Agentsol" };
 
 function currentRoute(): string {
   const m = /^#\/([a-z-]*)$/.exec(window.location.hash);
@@ -26,6 +27,7 @@ async function render(): Promise<void> {
   main.setAttribute("aria-busy", "true");
   if (r === "setup") renderSetup(main);
   else if (r === "check") renderChecker(main);
+  else if (r === "inspect") renderInspect(main);
   else if (r === "demo") {
     const bundle = await loadDemoBundle();
     if (bundle) renderWorkspace(main, demoSource(bundle), { builtAt: bundle.builtAt, scopeTargets: bundle.scopeTargets });
