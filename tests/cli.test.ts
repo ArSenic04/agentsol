@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -176,5 +176,49 @@ test("CLI refuses an existing workspace that other users can read", async () => 
     await chmod(fx.wsDir, 0o700);
   } finally {
     await fx.cleanup();
+  }
+});
+
+test("start registers, scans and connects only apps that are installed, after consent, never from an agent", async () => {
+  const fx = await fixture({ "AGENTS.md": "# Rules\n\n- Keep changes small.\n" });
+  const home = await mkdtemp(path.join(tmpdir(), "agentsol-home-"));
+  try {
+    const bin = path.join(home, "bin");
+    await mkdir(bin);
+    const claude = path.join(bin, "claude");
+    await writeFile(claude, `#!/bin/sh\necho "$@" > "$HOME/claude-args"\necho '{"mcpServers":{"agentsol":{"command":"npx","args":["-y","-p","agentsol@alpha","agentsol-mcp"]}}}' > "$HOME/.claude.json"\n`);
+    await writeFile(path.join(bin, "codex"), "#!/bin/sh\nexit 1\n");
+    await chmod(claude, 0o755);
+    await chmod(path.join(bin, "codex"), 0o755);
+    // PATH holds only the fakes, so no real assistant app can be reached.
+    const start = (extra: Record<string, string>, ...args: string[]) =>
+      spawnSync(process.execPath, [CLI, "start", ...args], { cwd: fx.root, encoding: "utf8", input: "", timeout: 30_000, env: { PATH: bin, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", ...extra } });
+
+    const first = start({}, "--yes");
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /Project\s+registered /);
+    assert.match(first.stdout, /Claude Code · connected now/);
+    assert.match(first.stdout, /Codex · could not connect/);
+    assert.match(first.stdout, /Restart your AI app/);
+    assert.ok(!/Gemini|VS Code|Cursor/.test(first.stdout), "apps that are not installed are not listed");
+    assert.match(await readFile(path.join(home, "claude-args"), "utf8"), /^mcp add agentsol -s user -e AGENTSOL_WORKSPACE=.* -- npx -y -p agentsol@alpha agentsol-mcp$/m);
+
+    await rm(path.join(home, "claude-args"));
+    const second = start({});
+    assert.equal(second.status, 0, second.stderr);
+    assert.match(second.stdout, /Claude Code · connected\b(?! now)/);
+    assert.match(second.stdout, /Codex · not connected/);
+    assert.match(second.stdout, /codex mcp add agentsol/, "prints the command it did not run");
+    assert.ok(!existsSync(path.join(home, "claude-args")), "an app that is already connected is not changed again");
+
+    await rm(path.join(home, ".claude.json"));
+    const agent = start({ CLAUDE_CODE_CHILD_SESSION: "1" }, "--yes");
+    assert.equal(agent.status, 0, agent.stderr);
+    assert.ok(!existsSync(path.join(home, "claude-args")), "an agent-run terminal never changes app config, even with --yes");
+    assert.match(agent.stdout, /Claude Code runs this terminal, so nothing was connected/);
+    assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), "# Rules\n\n- Keep changes small.\n");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
   }
 });

@@ -404,7 +404,8 @@ test("hero session: decorative, labelled for screen readers, honest about suppor
   await page.goto(`${staticSrv.url}#/setup`);
   await page.locator(".cmd-code").first().waitFor();
   const setupText = await page.locator("main").innerText();
-  assert.match(setupText, /npx -y agentsol@alpha check/);
+  assert.match(setupText, /npx -y agentsol@alpha start/);
+  assert.match(setupText, /When an AI agent runs it, it connects nothing/);
   assert.ok(!/Agentlore|AGENTLORE|agentlore-demo|not published yet/i.test(setupText), "setup reflects the published Agentsol alpha");
   assert.equal(await page.locator('main a[href="https://www.npmjs.com/package/agentsol"]').getAttribute("rel"), "noopener noreferrer");
   assert.deepEqual(problems, []);

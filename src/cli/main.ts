@@ -4,6 +4,7 @@
  * operator service. All output is sanitized because file text and rationale are untrusted.
  */
 import { randomBytes } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
@@ -40,6 +41,8 @@ agentsol --version
 The workspace defaults to <home>/.agentsol (or AGENTSOL_WORKSPACE).
 
 Start here:
+  start [path] [--yes]                  one command: register and scan this project, connect the AI apps you have
+                                        (asks first; --yes connects without asking), and show what to fix first
   check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
   connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
   prompt [path]                         print one masked prompt to paste into any chat AI
@@ -186,7 +189,7 @@ const ICON: Record<string, readonly [Seg, Seg]> = {
 
 function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
   const exists = existsSync(path.join(ws.dir, "agentsol.db")) || existsSync(ws.dir);
-  let here: Seg[] = [["muted", "not registered · "], ["bold", `${CMD} check`], ["muted", " registers and scans it"]];
+  let here: Seg[] = [["muted", "not registered · "], ["bold", `${CMD} start`], ["muted", " sets it up"]];
   let projects = 0;
   if (exists) {
     try {
@@ -229,6 +232,7 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
   raw();
   raw(`  ${heading(t, "Commands")}`);
   const cmds: [string, string][] = [
+    ["start", "one command: scan this project, connect your AI, show what to fix"],
     ["check [path]", "scan a project (default: this folder) and show cited findings"],
     ["connect [app]", "one-line MCP setup for your assistant"],
     ["prompt [path]", "one masked prompt for ChatGPT, Gemini, Claude.ai or any chat"],
@@ -240,7 +244,7 @@ function home(t: Term, ws: { dir: string; isDefault: boolean }): void {
   ];
   for (const [c, d] of cmds) raw(render(t, ["    ", ["bold", c.padEnd(16)], ["muted", d]]));
   raw();
-  raw(render(t, ["  ", ["sun", "→ "], "Start with ", ["bold", `${CMD} check`], " inside a project."]));
+  raw(render(t, ["  ", ["sun", "→ "], "Start with ", ["bold", `${CMD} start`], " inside a project."]));
   raw();
 }
 
@@ -358,21 +362,23 @@ async function promptCmd(store: WorkspaceStore, svc: AssistantService, ops: Retu
   return 0;
 }
 
-type ClientSetup = { id: string; name: string; how: string; lines: string[]; note?: string };
+/** `audit` is the app name in setup reports; `argv` is the app's own one-line MCP add command, when it has one. */
+type ClientSetup = { id: string; name: string; how: string; lines: string[]; note?: string; audit: string; argv?: readonly string[] };
 function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
   const env = ws.isDefault ? null : path.resolve(ws.dir);
   const npx = `npx ${MCP_ARGS.join(" ")}`;
   const json = (indent = ""): string[] => JSON.stringify({ mcpServers: { agentsol: { command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) } } }, null, 2).split("\n").map((l) => indent + l);
   const vs = JSON.stringify({ name: "agentsol", command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) });
   const desktop = process.platform === "win32" ? "%APPDATA%\\Claude\\claude_desktop_config.json" : process.platform === "darwin" ? "~/Library/Application Support/Claude/claude_desktop_config.json" : "~/.config/Claude/claude_desktop_config.json";
+  const wsEnv = (flag: string): string[] => (env ? [flag, `AGENTSOL_WORKSPACE=${env}`] : []);
   return [
-    { id: "claude-code", name: "Claude Code", how: "run once:", lines: [`claude mcp add agentsol -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
-    { id: "codex", name: "Codex (CLI, IDE and ChatGPT desktop share it)", how: "run once:", lines: [`codex mcp add agentsol${env ? ` --env AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`] },
-    { id: "gemini", name: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`], note: "Gemini CLI loads MCP servers only in folders you trust. If agentsol shows as disabled, trust the folder when Gemini asks." },
-    { id: "vscode", name: "VS Code (Copilot agent mode)", how: "run once:", lines: [`code --add-mcp '${vs}'`] },
-    { id: "cursor", name: "Cursor", how: "add to ~/.cursor/mcp.json:", lines: json() },
-    { id: "claude-desktop", name: "Claude Desktop", how: `add to ${desktop}:`, lines: json() },
-    { id: "windsurf", name: "Windsurf", how: "add to ~/.codeium/windsurf/mcp_config.json:", lines: json() },
+    { id: "claude-code", name: "Claude Code", audit: "Claude Code", how: "run once:", lines: [`claude mcp add agentsol -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`], argv: ["claude", "mcp", "add", "agentsol", "-s", "user", ...wsEnv("-e"), "--", "npx", ...MCP_ARGS] },
+    { id: "codex", name: "Codex (CLI, IDE and ChatGPT desktop share it)", audit: "Codex", how: "run once:", lines: [`codex mcp add agentsol${env ? ` --env AGENTSOL_WORKSPACE="${env}"` : ""} -- ${npx}`], argv: ["codex", "mcp", "add", "agentsol", ...wsEnv("--env"), "--", "npx", ...MCP_ARGS] },
+    { id: "gemini", name: "Gemini CLI", audit: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`], note: "Gemini CLI loads MCP servers only in folders you trust. If agentsol shows as disabled, trust the folder when Gemini asks.", argv: ["gemini", "mcp", "add", "-s", "user", ...wsEnv("-e"), "agentsol", "npx", ...MCP_ARGS] },
+    { id: "vscode", name: "VS Code (Copilot agent mode)", audit: "VS Code", how: "run once:", lines: [`code --add-mcp '${vs}'`], argv: ["code", "--add-mcp", vs] },
+    { id: "cursor", name: "Cursor", audit: "Cursor", how: "add to ~/.cursor/mcp.json:", lines: json() },
+    { id: "claude-desktop", name: "Claude Desktop", audit: "Claude Desktop", how: `add to ${desktop}:`, lines: json() },
+    { id: "windsurf", name: "Windsurf", audit: "Windsurf", how: "add to ~/.codeium/windsurf/mcp_config.json:", lines: json() },
   ];
 }
 
@@ -393,7 +399,7 @@ function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string
   raw(render(t, ["    ", ["agent", `${CMD} prompt | ${copyCmd()}`], ["muted", "  then paste into the chat"]]));
   raw();
   raw(render(t, ["  ", ["sun", "→ "], "Then ask: ", ["sun", "“Use agentsol to audit this project.”"], ["muted", " Clients with MCP prompts also offer "], ["bold", "/audit"], ["muted", "."]]));
-  raw(render(t, ["  ", ["muted", "Agentsol never edits your assistant's config itself. Desktop apps that cannot find npx need its full path (which npx)."]]));
+  raw(render(t, ["  ", ["muted", `Agentsol never edits your assistant's config files. ${CMD} start can run the commands above for you, after asking. Desktop apps that cannot find npx need its full path (which npx).`]]));
   raw();
   return 0;
 }
@@ -622,6 +628,89 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   return 0;
 }
 
+const onPath = (bin: string): boolean => (process.env["PATH"] ?? "").split(path.delimiter).some((d) => d && existsSync(path.join(d, bin)));
+type Connected = { name: string; state: "connected" | "added" | "failed" | "declined" | "manual" | "not_run"; detail?: string };
+
+/** One command to begin: register and scan the project, connect installed AI apps, then show what to do first. */
+async function startCmd(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, ws: { dir: string; isDefault: boolean }, args: readonly string[]): Promise<number> {
+  const target = positional(args, [])[0] ?? ".";
+  const got = await ensureProject(store, ops, target);
+  if (typeof got === "string") return fail(got, 2);
+  const { project, registeredNow } = got;
+  const projectId = project.id;
+  const w = Math.min(t.width - 2, 96);
+  raw();
+  if (t.tty) { for (const l of banner(t)) raw(l); raw(); }
+  raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol start  "], ["muted", tilde(project.rootReal)]]));
+  raw();
+
+  const scan = await withSpinner(t, `Reading agent instructions in ${project.name}…`, () => svc.scan({ projectId }));
+  if (!scan.ok) return fail(`${scan.error.code}: ${scan.error.message}`);
+  const sources = svc.listSources({ projectId });
+  const findings = svc.listFindings({ projectId });
+  if (!sources.ok || !findings.ok) return fail("could not read the scan results");
+  const files = sources.value.sources.filter((s) => s.status === "present").length;
+  const sev = (k: string): number => findings.value.findings.filter((f) => f.severity === k).length;
+  const issues = sev("error") + sev("warn");
+  const row = (ok: boolean | null, label: string, ...body: Seg[]): void => raw(render(t, fit(["  ", ok === null ? ["muted", "○ "] : ok ? ["ok", "✓ "] : ["warn", "▲ "], ["bold", label.padEnd(13)], ...body], w)));
+  row(issues === 0, "Project", `${registeredNow ? "registered " : ""}${project.name}`, ["muted", ` · ${n(files, "instruction file")} · `], issues ? ["warn", `${n(sev("error"), "error")}, ${n(sev("warn"), "warning")}`] : ["ok", "no problems"]);
+
+  const setup = auditSetup({ ...machine(), projectRoots: [project.rootReal] });
+  const agent = detectAgentEnvironment(process.env);
+  const canRun = !agent && process.platform !== "win32" && (args.includes("--yes") || isInteractive());
+  const apps: Connected[] = [];
+  for (const c of clientSetups(ws)) {
+    const name = c.name.replace(/ \(.*\)$/, "");
+    if (setup.servers.some((s) => s.client === c.audit && s.name === "agentsol")) { apps.push({ name, state: "connected" }); continue; }
+    if (!c.argv) {
+      if (setup.clients.some((x) => x.client === c.audit)) apps.push({ name, state: "manual", detail: `${CMD} connect ${c.id}` });
+      continue;
+    }
+    if (!onPath(c.argv[0]!)) continue;
+    if (!canRun) { apps.push({ name, state: "not_run", detail: c.lines[0] }); continue; }
+    if (!args.includes("--yes")) {
+      const a = (await ask(render(t, ["  ", ["agent", "? "], `Connect agentsol to ${name}? It runs `, ["bold", `${c.argv[0]} mcp add`], ["muted", " (adds it to your user config)"], " [Y/n] "]))).trim().toLowerCase();
+      if (a !== "" && a !== "y" && a !== "yes") { apps.push({ name, state: "declined", detail: c.lines[0] }); continue; }
+    }
+    const r = spawnSync(c.argv[0]!, c.argv.slice(1), { encoding: "utf8", timeout: 60_000 });
+    apps.push(r.status === 0 ? { name, state: "added" } : { name, state: "failed", detail: c.lines[0] });
+  }
+  const live = apps.filter((a) => a.state === "connected" || a.state === "added");
+  const STATE: Record<Connected["state"], Seg> = { connected: ["ok", "connected"], added: ["ok", "connected now"], failed: ["bad", "could not connect"], declined: ["muted", "skipped"], manual: ["warn", "add by hand"], not_run: ["warn", "not connected"] };
+  if (apps.length === 0) row(false, "Your AI", ["muted", "no AI app found on this machine · "], ["bold", `${CMD} connect`], ["muted", " lists every app"]);
+  apps.forEach((a, i) => row(i === 0 ? live.length > 0 : null, i === 0 ? "Your AI" : "", a.name, ["muted", " · "], STATE[a.state]));
+  if (agent && apps.some((a) => a.state === "not_run")) row(null, "", ["muted", `${agent.agent} runs this terminal, so nothing was connected. Run ${CMD} start yourself to connect.`]);
+
+  const lessons = await withSpinner(t, "Reading past agent sessions in this project…", () => svc.lessons({ projectId, since: "30d" }));
+  const L = lessons.ok ? lessons.value.projects[0] : undefined;
+  const recent = await listSessions(machine(), { since: new Date(Date.now() - 7 * 86_400_000), limit: 100, cwdWithin: project.rootReal, project: projectLookup(store) });
+  const risky = recent.sessions.filter((s) => s.verdict === "risky").length;
+  const rules = L ? L.lessons.filter((l) => l.rule && !l.alreadyInFile).length : 0;
+  if (!L || L.sessionsRead === 0) row(null, "Agent work", ["muted", "no Claude Code or Codex sessions here in the last 30 days yet"]);
+  else row(rules === 0 && risky === 0, "Agent work", n(L.sessionsRead, "session"), ["muted", " · "], L.lostMs ? ["warn", `${fmtDuration(L.lostMs)} lost to repeat mistakes`] : ["ok", "no repeated mistakes"], ["muted", " · "], risky ? ["bad", `${risky} risky this week`] : ["ok", "none risky"]);
+  const setupIssues = setup.summary.errors + setup.summary.warnings;
+  row(setup.summary.errors === 0, "AI settings", setupIssues ? ["warn", `${n(setup.summary.errors, "error")}, ${n(setup.summary.warnings, "warning")}`] : ["ok", "nothing risky"], setup.clients.length ? ["muted", ` in ${n(setup.clients.length, "app")}`] : "");
+  raw();
+
+  const next: Seg[][] = [];
+  let step = 0;
+  const add = (...s: Seg[]): void => { next.push([["agent", `${++step} `], ...s]); };
+  if (issues) add("See the cited findings:  ", ["bold", `${CMD} check`]);
+  if (rules) { add(`Stop ${n(rules, "repeated mistake")}:  `, ["bold", `${CMD} learn --propose`]); next.push([["agent", "  "], ["muted", "adds the rules to your instruction file after you approve the diff"]]); }
+  if (risky) add("Open the risky sessions:  ", ["bold", `${CMD} sessions`]);
+  if (setup.summary.errors) add("Fix your AI settings:  ", ["bold", `${CMD} doctor`]);
+  for (const a of apps.filter((x) => x.detail && x.state !== "declined").slice(0, 2)) add(`Connect ${a.name}:  `, ["bold", a.detail!]);
+  if (live.length) {
+    add(apps.some((a) => a.state === "added") ? "Restart your AI app, then ask:  " : "In your AI, ask:  ", ["sun", "“Use agentsol to audit this project.”"]);
+    next.push([["agent", "  "], ["muted", "or use "], ["bold", "/audit"], ["muted", " · "], ["bold", "/learn"], ["muted", " · "], ["bold", "/review"]]);
+  } else add("No MCP app? Paste into any chat:  ", ["bold", `${CMD} prompt | ${copyCmd()}`]);
+  for (const l of panel(t, [["bold", "Next"]], next, w)) raw(`  ${l}`);
+  raw();
+  raw(render(t, ["  ", ["muted", "Nothing in your project was changed. Agentsol only reads; you approve every edit."]]));
+  raw();
+  return 0;
+}
+
 const INSPECT_SKIP = new Set(["node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build", ".next"]);
 
 /** Reads up to 300 small text files under a folder, never following symlinks. */
@@ -732,6 +821,8 @@ async function run(argv: string[]): Promise<number> {
         return await check(term, store, svc, ops, arg || ".", { json, strict });
       case "prompt":
         return await promptCmd(store, svc, ops, arg || ".");
+      case "start":
+        return await startCmd(term, store, svc, ops, ws, args);
       case "learn":
         return await learnCmd(term, store, svc, ops, args, json);
       case "sessions":

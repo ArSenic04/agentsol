@@ -64,7 +64,7 @@ for (const width of [375, 390, 1280]) {
     await page.getByText("No local workspace connected").waitFor();
     await page.goto(`${origin}${BASE}#/setup`);
     await page.locator(".cmd-code").first().waitFor();
-    assert.match(await page.locator("main").innerText(), /npx -y agentsol@alpha check/);
+    assert.match(await page.locator("main").innerText(), /npx -y agentsol@alpha start/);
     const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
     assert.match(csp ?? "", /connect-src 'none'/);
     const blocked = await page.evaluate(async () => { try { await fetch("/api/health"); return "allowed"; } catch { return "blocked"; } });
@@ -83,6 +83,6 @@ test("pages export copy button copies the exact command", async () => {
   const step1 = page.locator(".setup-step").first();
   await step1.getByRole("button", { name: "Copy" }).click();
   await step1.getByText("Copied").waitFor();
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "cd your-project\nnpx -y agentsol@alpha check");
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "cd your-project\nnpx -y agentsol@alpha start");
   await ctx.close();
 });

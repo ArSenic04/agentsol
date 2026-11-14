@@ -1,6 +1,6 @@
 # Agentsol (early local prototype)
 
-_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. Published on npm as `agentsol` (tags `alpha` and `latest`); this checkout is `0.2.0-alpha.1`._
+_Earlier names: AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). Older workspaces, demos and the `AGENTLORE_WORKSPACE` / `AGENTWEAVE_WORKSPACE` variables keep working; see "Earlier names" below. Published on npm as `agentsol` (tags `alpha` and `latest`); this checkout is `0.2.0-alpha.2`._
 
 Agentsol is an agent that reviews agent work, with the assistant you already use:
 
@@ -8,7 +8,7 @@ Agentsol is an agent that reviews agent work, with the assistant you already use
 - **Sessions.** `agentsol sessions` reads the Claude Code and Codex transcripts on your machine and flags what the agents did: destructive commands, secrets exposed to the model, skipped hooks, weakened tests, edits never verified, retry loops, prompt injection in tool output, insecure code the agent added such as SQL injection, disabled TLS checks or eval (14 checks, A01–A14). Your assistant can then grade a session on a five-part rubric (safety, instructions, verification, efficiency, scope); grades are stored as assistant judgment next to the deterministic findings, never instead of them.
 - **Setup.** `agentsol doctor` checks your AI apps' settings (Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf, Gemini CLI): plaintext secrets in MCP config, unpinned or missing MCP servers, shell-wrapped launches, settings that let assistants act without asking, hooks, and how many tokens your global instructions add to every session (10 checks, C01–C10).
 
-> **Alpha (0.2.0-alpha.1). Read this first.**
+> **Alpha (0.2.0-alpha.2). Read this first.**
 > - **A person has not yet run approve and apply end to end through this CLI.** Those steps are covered by automated core tests only. Try them on the synthetic demo before any real project, and keep your files in version control.
 > - **No real assistant app has been validated.** Claude Code, Codex, Cursor and others are untested. Only the official MCP TypeScript SDK client has been used, in automated tests.
 > - Tested only on macOS (arm64) with Node 24.0.0, 24.22.2 and 26.8.2. There is no hosted service. Passing tests do not make it production-ready.
@@ -52,7 +52,9 @@ Nothing is installed globally and there is no account or API key. Agentsol runs 
 
 ```sh
 cd your-project
-npx -y agentsol@alpha check            # registers this folder, scans it, prints every finding with its line
+npx -y agentsol@alpha start            # one command: registers and scans this folder, connects the AI apps you have
+                                       # (asks first; --yes skips asking), shows past-session costs and what to fix first
+npx -y agentsol@alpha check            # the scan alone: every finding with its line
 npx -y agentsol@alpha connect          # setup lines for Claude Code, Codex, Gemini CLI, VS Code, Cursor, Claude Desktop, Windsurf
 npx -y agentsol@alpha prompt | pbcopy  # no MCP? one masked prompt to paste into any chat AI
 npx -y agentsol@alpha sessions         # what your AI agents did this week, risky steps flagged
@@ -68,7 +70,7 @@ npx -y agentsol@alpha doctor           # preflight plus an audit of your AI apps
 - The workspace defaults to `~/.agentsol` (created private, `0700`). Use `--workspace <dir>` or `AGENTSOL_WORKSPACE` to keep it elsewhere; set the same value for the CLI and the MCP server.
 - The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. Your assistant cannot register folders; it tells you to run `check` when `projects_list` is empty.
 - The package has no install scripts. It ships compiled JavaScript, this README and `LICENSE`, and depends on `@modelcontextprotocol/server`, `yaml` and `zod`.
-- `agentsol@0.1.0-alpha.1` (Nov 9, 2026) predates `check`, `connect`, `prompt`, the default workspace and the MCP prompts. They arrive with `0.1.0-alpha.2`. Session review, grading and the setup audit arrive with `0.2.0-alpha.0`; learn arrives with `0.2.0-alpha.1`.
+- `agentsol@0.1.0-alpha.1` (Nov 9, 2026) predates `check`, `connect`, `prompt`, the default workspace and the MCP prompts. They arrive with `0.1.0-alpha.2`. Session review, grading and the setup audit arrive with `0.2.0-alpha.0`; learn arrives with `0.2.0-alpha.1`; `start` arrives with `0.2.0-alpha.2`.
 
 ## Release checks (maintainers)
 - `npm run pack:check`: preview tarball in `artifacts/pack/`. It uses a strict file allowlist, fails on install-time scripts, private paths, secret-like tokens or leftover `.ts` imports, and requires `"private": true`.

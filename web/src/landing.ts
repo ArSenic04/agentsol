@@ -2,7 +2,7 @@ import type { FindingsResponse, ProposalsResponse, SourceRead, WorkspaceStatus }
 import type { DemoBundle } from "./data.ts";
 import { demoSource } from "./data.ts";
 import { codePre, h, replace, route } from "./dom.ts";
-import { cliShowcase, heroDiagram, learnShowcase, sessionShowcase } from "./hero.ts";
+import { cliShowcase, heroDiagram, learnShowcase, sessionShowcase, startShowcase } from "./hero.ts";
 import { installPicker } from "./setup.ts";
 import { codeBlock } from "./workspace.ts";
 
@@ -70,6 +70,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
           h("a", { class: "btn btn-primary", href: route("#/setup") }, "Install in two minutes"),
           h("a", { class: "btn", href: route("#/inspect") }, "Is a skill or MCP server safe? Inspect it"),
           h("a", { class: "text-link", href: route("#/demo") }, "Open the interactive demo →")),
+        codeBlock(["npx -y agentsol@alpha start"], { label: "One command, inside your project" }),
         h("ul", { class: "proof" },
           h("li", {}, h("strong", {}, "$0."), " Uses your existing AI plan"),
           h("li", {}, h("strong", {}, "Cited."), " Every finding points at a line or a step"),
@@ -155,8 +156,10 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
       excerptSlot),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "install" } },
-      head("Install", "install", "Pick your assistant. Paste one line.", "Each option runs the same package through npx. Your assistant only sees projects you checked yourself, so run this once inside each project first:"),
-      codeBlock(["npx -y agentsol@alpha check"], { label: "Register and scan a project" }),
+      head("Install", "install", "One command. Agentsol starts working.", "Run it inside your project. It scans the project, finds the AI apps on your machine and connects each one after you say yes, reads what your agents did, and tells you what to fix first. Your assistant only sees projects you started this way."),
+      codeBlock(["cd your-project", "npx -y agentsol@alpha start"], { label: "Set up a project and connect your AI" }),
+      startShowcase(),
+      h("p", { class: "muted small" }, "Prefer to connect by hand, or use Cursor, Claude Desktop or Windsurf? Pick your app and paste one line:"),
       installPicker(),
       h("p", { class: "muted small" }, "Full steps, the Agent Skill and the review commands are on the ", h("a", { href: route("#/setup") }, "Install page"), ".")),
 
