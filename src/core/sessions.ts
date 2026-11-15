@@ -641,7 +641,7 @@ function fileChecks(s: Step, ctx: Ctx, out: Found[]): void {
   if (sens) f("A03", "warn", s.kind === "read" ? `Read ${show(sens)}, a file that usually holds secrets. Its contents are now in the transcript.` : `Changed ${show(sens)}, a file that usually holds secrets.`, sens);
   if (s.kind === "read" || s.kind === "search") return;
 
-  const outside = all.filter((p) => ctx.cwd && !within(p, ctx.cwd) && !isTmp(ctx, p) && ![".claude/plans", ".claude/todos", ".claude/projects", ".codex/sessions"].some((d) => within(p, path.join(ctx.home, d))));
+  const outside = all.filter((p) => ctx.cwd && !within(p, ctx.cwd) && !isTmp(ctx, p) && ![path.join(claudeDir(ctx), "plans"), path.join(claudeDir(ctx), "todos"), path.join(claudeDir(ctx), "projects"), path.join(codexHome(ctx), "sessions")].some((d) => within(p, d)));
   if (outside[0]) out.push({ checkId: "A07", severity: "warn", step: s.n, message: "", excerpt: outside[0] });
   for (const p of all) {
     const rel = p.split(path.sep).join("/");
@@ -737,8 +737,8 @@ function listDir(dir: string): { name: string; dir: boolean; file: boolean }[] {
   }
 }
 
-export function claudeDir(ctx: SessionContext): string { return ctx.env["CLAUDE_CONFIG_DIR"] ?? path.join(ctx.home, ".claude"); }
-export function codexHome(ctx: SessionContext): string { return ctx.env["CODEX_HOME"] ?? path.join(ctx.home, ".codex"); }
+export function claudeDir(ctx: SessionContext): string { return ctx.env["CLAUDE_CONFIG_DIR"] || path.join(ctx.home, ".claude"); }
+export function codexHome(ctx: SessionContext): string { return ctx.env["CODEX_HOME"] || path.join(ctx.home, ".codex"); }
 
 function candidates(ctx: SessionContext): Candidate[] {
   const out: Candidate[] = [];
@@ -759,6 +759,8 @@ function candidates(ctx: SessionContext): Candidate[] {
     }
   };
   walk(path.join(codexHome(ctx), "sessions"), 0);
+  // Codex moves archived sessions here; they are still real history.
+  walk(path.join(codexHome(ctx), "archived_sessions"), 0);
   return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 

@@ -478,7 +478,7 @@ async function sessionsCmd(t: Term, store: WorkspaceStore, args: readonly string
   raw();
   raw(render(t, ["  ", ["agent", "◉ "], ["bold", "agentsol sessions"], "  ", ["muted", `since ${since.toLocaleDateString()}${within ? ` · in ${tilde(within)}` : ""} · Claude Code and Codex`]]));
   raw();
-  if (r.sessions.length === 0) raw(render(t, ["    ", ["muted", "No sessions found. Agentsol reads ~/.claude/projects and ~/.codex/sessions; other assistants do not keep readable transcripts."]]));
+  if (r.sessions.length === 0) raw(render(t, ["    ", ["muted", "No sessions found. Agentsol reads ~/.claude/projects and ~/.codex/sessions (or $CLAUDE_CONFIG_DIR and $CODEX_HOME when set); other assistants do not keep readable transcripts."]]));
   for (const s of r.sessions) raw(sessionRow(t, s, w));
   for (const note of r.notes) raw(render(t, ["    ", ["muted", note]]));
   raw();

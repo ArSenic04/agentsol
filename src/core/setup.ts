@@ -446,9 +446,9 @@ export function auditSetup(context: SetupContext): SetupReport {
   const clients = new Map<string, string[]>();
   const appData = env["APPDATA"] ?? path.join(home, "AppData", "Roaming");
   const appSupport = platform === "darwin" ? path.join(home, "Library", "Application Support") : platform === "win32" ? appData : env["XDG_CONFIG_HOME"] ?? path.join(home, ".config");
-  const claudeDir = env["CLAUDE_CONFIG_DIR"] ?? path.join(home, ".claude");
+  const claudeDir = env["CLAUDE_CONFIG_DIR"] || path.join(home, ".claude");
   const claudeState = env["CLAUDE_CONFIG_DIR"] ? path.join(env["CLAUDE_CONFIG_DIR"], ".claude.json") : path.join(home, ".claude.json");
-  const codexHome = env["CODEX_HOME"] ?? path.join(home, ".codex");
+  const codexHome = env["CODEX_HOME"] || path.join(home, ".codex");
   const geminiDir = path.join(home, ".gemini");
 
   const visit = (client: string, abs: string, format: "json" | "toml", fn: (data: Rec, file: string) => void): void => {

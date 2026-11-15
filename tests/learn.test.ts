@@ -314,6 +314,28 @@ test("Codex reads a non-empty AGENTS.override.md instead of AGENTS.md in the sam
   assert.equal(readsFile("claude-code", "AGENTS.override.md", [...files.slice(0, 2), { relPath: "CLAUDE.md", lines: ["@AGENTS.override.md"] }]), true);
 });
 
+test("learn reads CODEX_HOME, archived Codex sessions, and ignores an empty CLAUDE_CONFIG_DIR", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      "codex-home/sessions/2026/11/01/rollout-2026-11-01T10-00-00-a.jsonl": codexRun(fx.root, T, [["npm test", true], ["pnpm test", false]]),
+      "codex-home/archived_sessions/rollout-2026-10-20T10-00-00-b.jsonl": codexRun(fx.root, T - 86_400_000, [["npm test", true], ["pnpm test", false]]),
+      ".claude/projects/-p/c.jsonl": claudeRun(fx.root, T + 3_600_000, [["npm test", true], ["pnpm test", false]]),
+    });
+    const env = { CODEX_HOME: path.join(home, "codex-home"), CLAUDE_CONFIG_DIR: "" };
+    const r = await learnLessons({ home, env }, { root: fx.root, since: new Date(0) });
+    const npm = r.lessons.find((l) => l.rule?.includes("`pnpm`"));
+    assert.ok(npm, JSON.stringify(r.lessons.map((l) => l.rule)));
+    assert.equal(npm.sessions, 3);
+    assert.deepEqual(npm.clients, ["claude-code", "codex"]);
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {
   const fx = await fixture({});
   const home = await tempDir("home");
