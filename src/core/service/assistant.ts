@@ -459,7 +459,7 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         const id = SessionIdSchema.safeParse(a.value.sessionId);
         if (!id.success) return fail("invalid_input", id.error.issues[0]?.message ?? "Bad session id");
         const r = await reviewSession(machine, id.data, { fromStep: a.value.fromStep, project: lookupIn(roots()), requireProject: true });
-        if (!r.ok) return fail(r.reason === "ambiguous" ? "invalid_input" : "not_found", r.reason === "ambiguous" ? "Several sessions start with this id; use the full id" : r.reason === "too_large" ? "This transcript is larger than 64 MB and is not reviewed" : "Unknown session, or it did not run inside a registered project");
+        if (!r.ok) return fail(r.reason === "ambiguous" ? "invalid_input" : "not_found", r.reason === "ambiguous" ? "Several sessions start with this id; use the full id" : r.reason === "too_large" ? "This transcript is larger than 512 MB and is not reviewed" : "Unknown session, or it did not run inside a registered project");
         const grades = store.listSessionGrades(r.review.id).flatMap((g): SessionGradeView[] => {
           const b = StoredGradeSchema.safeParse(g.body);
           return b.success ? [{ gradeId: g.id, grader: g.grader, rubricVersion: g.rubricVersion, overall: overallScore(b.data), createdAt: g.createdAt, body: b.data, label: "assistant judgment" }] : [];

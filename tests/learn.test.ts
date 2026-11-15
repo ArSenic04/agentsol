@@ -337,3 +337,34 @@ test("agentsol learn --propose corrects every file that is wrong; with no file i
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("learn in a monorepo corrects the nested AGENTS.md that caused the mistake, without a second rule at the root", async () => {
+  const fx = await fixture({
+    "AGENTS.md": "# Monorepo\n\n- Install Python deps with `pip install -r requirements.txt`.\n- Use pip only inside the venv.\n",
+    "packages/web/AGENTS.md": "# Web\n\n- Run `yarn test` and `yarn lint` before you push.\n",
+  });
+  const home = await tempDir("home");
+  try {
+    const web = path.join(fx.root, "packages/web");
+    const T = Date.now() - 2 * 86_400_000;
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": claudeRun(web, T, [["yarn test", true], ["bun test", false], ["cd ../.. && pip install -r requirements.txt", true], ["uv pip install -r requirements.txt", false]]),
+      ".claude/projects/-p/b.jsonl": claudeRun(web, T + 60_000, [["yarn lint", true], ["bun lint", false], ["pip install -r requirements.txt", true], ["uv pip install -r requirements.txt", false]]),
+    });
+    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", COLUMNS: "100" };
+    const r = spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "learn", "--json"], { env, encoding: "utf8", cwd: fx.root });
+    const v = JSON.parse(r.stdout) as { lessons: { conflicts: { file: string; line: number; replacement: string }[] }[]; suggestedChange: { edits: { startLine: number; replacementLines: string[] }[] } | null; otherChanges: { relPath: string; edits: { replacementLines: string[] }[] }[] };
+    const conflicts = v.lessons.flatMap((l) => l.conflicts).map((c) => [c.file, c.line, c.replacement]).sort();
+    assert.deepEqual(conflicts, [
+      ["AGENTS.md", 3, "- Install Python deps with `uv pip install -r requirements.txt`."],
+      ["packages/web/AGENTS.md", 3, "- Run `bun test` and `bun lint` before you push."],
+    ], "prose that mentions pip without running it is left alone");
+    assert.deepEqual(v.suggestedChange?.edits.map((e) => e.startLine), [3], "the root only gets its own correction, no extra bun rule");
+    assert.deepEqual(v.otherChanges.map((c) => c.relPath), ["packages/web/AGENTS.md"]);
+    const human = spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "learn"], { env, encoding: "utf8", cwd: fx.root }).stdout;
+    assert.match(human, /2 corrections in AGENTS\.md, packages\/web\/AGENTS\.md:\s*│\n\s*│\s+agentsol learn --propose/, "a long file list puts the command on its own line instead of cutting it off");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});

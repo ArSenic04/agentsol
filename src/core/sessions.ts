@@ -68,7 +68,7 @@ export const SESSION_CAVEATS = [
   "Commands and paths are masked and shortened. Message text, tool output and file contents are never shown or stored.",
 ];
 export const PAGE_SIZE = 200;
-const MAX_FILE_BYTES = 64 * 1024 * 1024;
+const MAX_FILE_BYTES = 512 * 1024 * 1024;
 const MAX_SCAN_CHARS = 256 * 1024;
 const HEAD_BYTES = 64 * 1024;
 
@@ -861,7 +861,7 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
     const shown = dir === ctx.home ? "~" : dir.startsWith(ctx.home + path.sep) ? `~${dir.slice(ctx.home.length)}` : dir;
     notes.push(`${n} session${n === 1 ? "" : "s"} started in ${shown}, a parent of this folder, and ${n === 1 ? "is" : "are"} not listed. ${n === 1 ? "It" : "They"} may still have changed files here; list ${n === 1 ? "it" : "them"} with: sessions ${shown}`);
   }
-  if (large > 0) notes.push(`${large} transcript${large === 1 ? " is" : "s are"} larger than 64 MB and ${large === 1 ? "was" : "were"} skipped.`);
+  if (large > 0) notes.push(`${large} transcript${large === 1 ? " is" : "s are"} larger than 512 MB and ${large === 1 ? "was" : "were"} skipped.`);
   return { sessions, skipped, notes };
 }
 

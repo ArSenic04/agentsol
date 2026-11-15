@@ -456,7 +456,8 @@ export function lessonsChange(file: InstructionFile, lessons: readonly Lesson[])
     fixedLines.set(c.line, c.replacement);
     solved.add(l.id);
   }
-  const added = [...new Set(lessons.filter((l) => l.rule && !solved.has(l.id) && !l.coveredIn.includes(file.relPath)).map((l) => l.rule as string))].slice(0, 12);
+  // A lesson whose cause is a wrong line anywhere is fixed by correcting that line, not by a second rule.
+  const added = [...new Set(lessons.filter((l) => l.rule && !solved.has(l.id) && l.conflicts.length === 0 && !l.coveredIn.includes(file.relPath)).map((l) => l.rule as string))].slice(0, 12);
   const edits: LessonEdit[] = [];
   const append = lessonsEdit(lines, added);
   if (append && masked.has(append.startLine)) return { edits: [...fixedLines].map(([n, t]) => ({ startLine: n, endLine: n, expectedText: lines[n - 1] ?? "", replacementLines: [t] })), fixed: fixedLines.size, added: [] };

@@ -498,7 +498,7 @@ async function sessionCmd(t: Term, store: WorkspaceStore, args: readonly string[
   if (!id.success) return fail(`session needs an id from ${CMD} sessions, such as claude-1a2b3c4d5e6f`, 2);
   const from = Number(flagValue(args, "--from") ?? 1);
   const r = await reviewSession(machine(), id.data, { fromStep: Number.isInteger(from) && from > 0 ? from : 1, project: projectLookup(store) });
-  if (!r.ok) return fail(r.reason === "ambiguous" ? "several sessions start with this id; use the full id" : r.reason === "too_large" ? "this transcript is larger than 64 MB and is not reviewed" : `no session ${id.data}; list them with ${CMD} sessions --since 30d`, 2);
+  if (!r.ok) return fail(r.reason === "ambiguous" ? "several sessions start with this id; use the full id" : r.reason === "too_large" ? "this transcript is larger than 512 MB and is not reviewed" : `no session ${id.data}; list them with ${CMD} sessions --since 30d`, 2);
   const v = r.review;
   const grades = store.listSessionGrades(v.id).flatMap((g) => {
     const b = StoredGradeSchema.safeParse(g.body);
@@ -583,7 +583,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
 
   const w = Math.min(t.width - 2, 100);
   const safe = (s: string): string => sanitizeForTerminal(s);
-  const fresh = L.lessons.filter((l) => l.rule && !l.alreadyInFile && !l.conflicts.some((c) => c.file === L.target?.relPath)).length;
+  const fresh = L.lessons.filter((l) => l.rule && !l.alreadyInFile && l.conflicts.length === 0).length;
   const known = L.lessons.filter((l) => l.alreadyInFile).length;
   const wrong = L.lessons.reduce((a, l) => a + l.conflicts.length, 0);
   raw();
@@ -623,13 +623,15 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   const files = [L.suggestedChange ? L.target?.relPath : null, ...L.otherChanges.map((c) => c.relPath)].filter(Boolean).join(", ");
   if (proposals.length > 0) {
     for (const l of panel(t, [["bold", "Proposed"]], [
-      [["ok", "✓ "], `${summary || "Changes"} for `, ["bold", files], ". Nothing is written yet."],
+      [["ok", "✓ "], `${summary || "Changes"} proposed. Nothing is written yet.`],
       [["muted", "  Read each diff, then approve and apply it yourself:"]],
       ...proposals.map((p): Seg[] => [["agent", "→ "], ["muted", `${p.relPath.padEnd(10)} `], ["bold", `${CMD} review ${p.proposalId}`], ["muted", p.alreadyProposed ? "  (already waiting)" : ""]]),
     ], w)) raw(`  ${l}`);
   } else if (changes > 0) {
     for (const l of panel(t, [["bold", "Next"]], [
-      [["agent", "1 "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]],
+      ...(`${summary} in ${files}:  ${CMD} learn --propose`.length > w - 8
+        ? [[["agent", "1 "], `${summary || "Changes"} in ${files}:`], [["agent", "  "], ["bold", `${CMD} learn --propose`]]] as Seg[][]
+        : [[["agent", "1 "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]]] as Seg[][]),
       [["agent", "  "], ["muted", "you read the diff, then approve and apply it yourself"]],
       [["agent", "2 "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
     ], w)) raw(`  ${l}`);
