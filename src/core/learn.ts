@@ -106,7 +106,8 @@ function fixKind(a: readonly string[], b: readonly string[]): "program" | "runne
   return null;
 }
 
-type Hit = { sessionId: string; client: SessionClient; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
+/** conv groups a subagent with the session that started it, so one conversation counts once. */
+type Hit = { sessionId: string; conv: string; client: SessionClient; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
 /** For command lessons: the program swap (npm to pnpm, with the subcommands seen) or the exact command pair. */
 type Swap = { program: [bad: string, good: string]; subs: Set<string> } | { command: [bad: string, good: string]; runner?: boolean };
 type Group = { kind: LessonKind; title: string; rule: string | null; probe: string[]; hits: Hit[]; swap?: Swap };
@@ -150,6 +151,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
   for (const { session, root } of all) {
     const steps = session.parsed.steps;
     const id = session.summary.id;
+    const conv = session.summary.parentId ?? id;
     const client = session.summary.client;
     const show = (w: readonly string[]): string => showCommand(join(w), session.actx);
     const fixed = new Set<number>();
@@ -173,7 +175,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
           fixed.add(j);
           resolved.add(i);
           const lostSteps = j - i;
-          const hit: Hit = { sessionId: id, client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
+          const hit: Hit = { sessionId: id, conv, client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
           const [a0, b0] = [a[0] ?? "", b[0] ?? ""];
           if (kind === "program" && a.length > 1) {
             const g = group(`program:${a0}>${b0}`, { kind: "command", title: `Agents use \`${a0}\` here, which fails; \`${b0}\` works (for example \`${show(b)}\`).`, rule: `Use \`${b0}\`, not \`${a0}\` (for example \`${show(b)}\`).`, probe: [b0], swap: { program: [a0, b0], subs: new Set() } });
@@ -191,7 +193,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       if (!resolved.has(i) && !worked.has(join(a))) {
         const k = join(a);
         const f = failing.get(k) ?? { shown: show(a), hits: [] };
-        f.hits.push({ sessionId: id, client, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
+        f.hits.push({ sessionId: id, conv, client, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
         failing.set(k, f);
       }
     }
@@ -230,7 +232,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       const v = pass ? mainCommand(pass.command ?? "") : null;
       if (v) { const shown = show(v); f.verify.set(shown, (f.verify.get(shown) ?? 0) + 1); }
       const lostSteps = steps.slice(l.first, end + 1).filter((t) => t.kind === "command" && t.failed === true).length + l.n;
-      f.hits.push({ sessionId: id, client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
+      f.hits.push({ sessionId: id, conv, client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
       fragile.set(rel, f);
     }
 
@@ -242,14 +244,14 @@ function analyze(all: readonly Collected[], home: string): Group[] {
   }
 
   for (const [k, f] of failing) {
-    if (new Set(f.hits.map((h) => h.sessionId)).size < 2 || f.hits.length < 3) continue;
-    group(`failing:${k}`, { kind: "failing", title: `\`${f.shown}\` failed ${f.hits.length} times in ${new Set(f.hits.map((h) => h.sessionId)).size} sessions and was never fixed. Write down how to run it here.`, rule: null, probe: [] }).hits.push(...f.hits);
+    if (new Set(f.hits.map((h) => h.conv)).size < 2 || f.hits.length < 3) continue;
+    group(`failing:${k}`, { kind: "failing", title: `\`${f.shown}\` failed ${f.hits.length} times in ${new Set(f.hits.map((h) => h.conv)).size} sessions and was never fixed. Write down how to run it here.`, rule: null, probe: [] }).hits.push(...f.hits);
   }
   for (const [rel, f] of fragile) {
     const v = [...f.verify.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
     group(`fragile:${rel}`, {
       kind: "fragile",
-      title: `Agents broke and re-fixed \`${rel}\` in ${new Set(f.hits.map((h) => h.sessionId)).size} session${f.hits.length === 1 ? "" : "s"}.`,
+      title: `Agents broke and re-fixed \`${rel}\` in ${new Set(f.hits.map((h) => h.conv)).size} session${f.hits.length === 1 ? "" : "s"}.`,
       rule: v ? `After changing \`${rel}\`, run \`${v}\` before moving on.` : `\`${rel}\` usually takes several tries: read its tests and callers before changing it.`,
       probe: [rel],
     }).hits.push(...f.hits);
@@ -273,7 +275,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       same.title += ` You also told agents this yourself in ${sessions.size} sessions.`;
       return;
     }
-    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
+    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.sessionId, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
   });
 
   return [...groups.values()];
@@ -439,7 +441,7 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
   const lessons: Lesson[] = analyze(collected, ctx.home)
     .filter((g) => g.kind !== "command" || g.hits.length >= 2 || g.title.includes("for example"))
     .map((g): Lesson => {
-      const sessions = new Set(g.hits.map((h) => h.sessionId));
+      const sessions = new Set(g.hits.map((h) => h.conv));
       const sum = (k: "lostSteps" | "lostMs" | "lostTokens"): number => g.hits.reduce((a, h) => a + h[k], 0);
       const key = `${g.kind}:${g.rule ?? g.title}`;
       const conflicts = g.kind === "correction" && g.rule ? saidConflicts(g.rule, files) : conflictsFor(g.swap, files);
@@ -465,7 +467,7 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
   const agentTokens = collected.reduce((a, c) => a + (c.session.summary.metrics.tokens?.total ?? 0), 0);
   return {
     since: opts.since.toISOString(),
-    sessionsRead: collected.length,
+    sessionsRead: new Set(collected.map((c) => c.session.summary.parentId ?? c.session.summary.id)).size,
     agentMs, agentTokens,
     lostMs: lessons.reduce((a, l) => a + l.lostMs, 0),
     lostSteps: lessons.reduce((a, l) => a + l.lostSteps, 0),

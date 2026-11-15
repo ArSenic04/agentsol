@@ -336,6 +336,38 @@ test("learn reads CODEX_HOME, archived Codex sessions, and ignores an empty CLAU
   }
 });
 
+test("a subagent counts with the session that started it, and another agent's prompt is not the person", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    const side = (jsonl: string, prompt: string): string => [
+      JSON.stringify({ type: "user", isSidechain: true, cwd: fx.root, timestamp: new Date(T).toISOString(), message: { role: "user", content: prompt } }),
+      ...jsonl.trim().split("\n").map((l) => JSON.stringify({ ...JSON.parse(l), isSidechain: true })),
+    ].join("\n") + "\n";
+    const prompt = "Use pnpm instead of npm in this repo and never touch the gen folder";
+    await writeTree(home, {
+      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [["npm test", true], ["pnpm test", false], ["make release", true], ["make release", true]]),
+      ".claude/projects/-p/aaaa/subagents/agent-1.jsonl": side(claudeRun(fx.root, T + 60_000, [["npm test", true], ["pnpm test", false], ["make release", true]]), prompt),
+    });
+    const one = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(one.sessionsRead, 1);
+    assert.deepEqual(one.lessons.map((l) => [l.kind, l.sessions]), [["command", 1]], "a command that fails in a session and its subagent is not a failure across sessions");
+
+    await writeTree(home, { ".claude/projects/-p/bbbb.jsonl": claudeRun(fx.root, T + 86_400_000, [["npm test", true], ["pnpm test", false]]) + side(claudeRun(fx.root, T + 86_460_000, []), prompt) });
+    const two = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(two.sessionsRead, 2);
+    const npm = two.lessons.find((l) => l.rule?.includes("`pnpm`"));
+    assert.ok(npm, JSON.stringify(two.lessons.map((l) => l.rule)));
+    assert.equal(npm.sessions, 2);
+    assert.equal(npm.times, 3);
+    assert.ok(!two.lessons.some((l) => l.kind === "correction"), "a prompt written by another agent is never a correction");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {
   const fx = await fixture({});
   const home = await tempDir("home");

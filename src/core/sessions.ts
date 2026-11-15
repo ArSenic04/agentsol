@@ -48,7 +48,8 @@ export type SessionMetrics = {
 export type Verdict = "risky" | "review" | "clean";
 export type SessionProject = { projectId: string; name: string };
 export type SessionSummary = {
-  id: string; client: SessionClient; cwd: string | null; project: SessionProject | null;
+  /** parentId is set on a Claude Code subagent transcript: the session that started it. */
+  id: string; parentId?: string; client: SessionClient; cwd: string | null; project: SessionProject | null;
   startedAt: string | null; endedAt: string | null; model: string | null; verdict: Verdict;
   counts: { errors: number; warnings: number; notes: number };
   metrics: SessionMetrics;
@@ -179,7 +180,9 @@ function claudeLine(b: Builder, o: Rec, usage: Map<string, { input: number; outp
   }
   if (type !== "user") return;
   const content = msg["content"];
-  if (typeof content === "string") { if (o["isMeta"] !== true) b.userText(content, at); return; }
+  // A subagent's "user" text is the prompt another agent wrote, and a compact summary is generated: neither is the person.
+  const person = o["isMeta"] !== true && o["isSidechain"] !== true && o["isCompactSummary"] !== true;
+  if (typeof content === "string") { if (person) b.userText(content, at); return; }
   for (const block of Array.isArray(content) ? content : []) {
     const c = rec(block);
     if (!c) continue;
@@ -188,7 +191,7 @@ function claudeLine(b: Builder, o: Rec, usage: Map<string, { input: number; outp
       if (!s) continue;
       s.failed = c["is_error"] === true;
       scanOutput(s, textOf(c["content"]));
-    } else if (c["type"] === "text" && o["isMeta"] !== true) b.userText(str(c["text"]) ?? "", at);
+    } else if (c["type"] === "text" && person) b.userText(str(c["text"]) ?? "", at);
   }
 }
 
@@ -725,7 +728,7 @@ function analyze(p: Parsed, ctx: Ctx): Found[] {
 // ---------------------------------------------------------------------------------------
 // Discovery
 
-type Candidate = { id: string; client: SessionClient; file: string; mtimeMs: number; size: number };
+type Candidate = { id: string; client: SessionClient; file: string; mtimeMs: number; size: number; parentId?: string };
 
 const sessionId = (client: SessionClient, file: string): string => `${client === "claude-code" ? "claude" : "codex"}-${createHash("sha256").update(file).digest("hex").slice(0, 12)}`;
 
@@ -742,16 +745,24 @@ export function codexHome(ctx: SessionContext): string { return ctx.env["CODEX_H
 
 function candidates(ctx: SessionContext): Candidate[] {
   const out: Candidate[] = [];
-  const push = (client: SessionClient, file: string): void => {
+  const push = (client: SessionClient, file: string, parentId?: string): void => {
     try {
       const st = statSync(file);
-      out.push({ id: sessionId(client, file), client, file, mtimeMs: st.mtimeMs, size: st.size });
+      out.push({ id: sessionId(client, file), client, file, mtimeMs: st.mtimeMs, size: st.size, ...(parentId ? { parentId } : {}) });
     } catch {
       // Vanished while listing.
     }
   };
   const projects = path.join(claudeDir(ctx), "projects");
-  for (const d of listDir(projects)) if (d.dir) for (const f of listDir(path.join(projects, d.name))) if (f.file && f.name.endsWith(".jsonl")) push("claude-code", path.join(projects, d.name, f.name));
+  for (const d of listDir(projects)) if (d.dir) for (const f of listDir(path.join(projects, d.name))) {
+    if (f.file && f.name.endsWith(".jsonl")) push("claude-code", path.join(projects, d.name, f.name));
+    // Newer Claude Code writes each subagent's transcript under <session>/subagents/.
+    else if (f.dir) {
+      const parentId = sessionId("claude-code", path.join(projects, d.name, `${f.name}.jsonl`));
+      const sub = path.join(projects, d.name, f.name, "subagents");
+      for (const a of listDir(sub)) if (a.file && a.name.endsWith(".jsonl")) push("claude-code", path.join(sub, a.name), parentId);
+    }
+  }
   const walk = (dir: string, depth: number): void => {
     for (const e of listDir(dir)) {
       if (e.dir && depth < 3) walk(path.join(dir, e.name), depth + 1);
@@ -823,7 +834,7 @@ async function load(c: Candidate, ctx: SessionContext, project: ProjectLookup): 
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.step ?? 0) - (b.step ?? 0));
   const ct = counts(findings);
   const summary: SessionSummary = {
-    id: c.id, client: c.client, cwd: cwd ? (within(cwd, ctx.home) ? (cwd === ctx.home ? "~" : `~${cwd.slice(ctx.home.length)}`) : cwd) : null,
+    id: c.id, ...(c.parentId ? { parentId: c.parentId } : {}), client: c.client, cwd: cwd ? (within(cwd, ctx.home) ? (cwd === ctx.home ? "~" : `~${cwd.slice(ctx.home.length)}`) : cwd) : null,
     project: project(cwd), startedAt: parsed.startedAt, endedAt: parsed.endedAt, model: parsed.model,
     verdict: verdictOf(ct), counts: ct, metrics: metrics(parsed),
   };

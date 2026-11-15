@@ -174,7 +174,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
   );
   server.registerTool(
     "sessions_list",
-    { description: "Recent Claude Code and Codex sessions that ran inside registered projects, newest first, each with a verdict (clean, review, risky), finding counts and metrics (steps, commands, failures, files edited, tokens). Only derived facts; no messages or tool output.", inputSchema: Inputs.sessions, annotations: ro },
+    { description: "Recent Claude Code and Codex sessions that ran inside registered projects, newest first, each with a verdict (clean, review, risky), finding counts and metrics (steps, commands, failures, files edited, tokens). A Claude Code subagent transcript is its own entry, with parentId naming the session that started it. Only derived facts; no messages or tool output.", inputSchema: Inputs.sessions, annotations: ro },
     async (args) => reply(await svc.sessionsList(args)),
   );
   server.registerTool(

@@ -474,7 +474,7 @@ function sessionRow(t: Term, s: SessionSummary, w: number): string {
   const m = s.metrics;
   const where = s.project ? s.project.name : s.cwd ?? "?";
   const counts = s.counts.errors + s.counts.warnings > 0 ? ` · ${s.counts.errors}✗ ${s.counts.warnings}▲` : "";
-  return render(t, fit(["    ", VERDICT[s.verdict], "  ", ["bold", s.id.padEnd(21)], ["muted", `${(s.client === "codex" ? "Codex" : "Claude").padEnd(7)}${ago(s.endedAt).padEnd(8)}`], where.length > 22 ? `…${where.slice(-21)}` : where.padEnd(22), ["muted", `  ${m.steps} steps · ${m.filesEdited} edited${m.tokens ? ` · ${fmtTokens(m.tokens.total)} tok` : ""}${counts}`]], w));
+  return render(t, fit(["    ", VERDICT[s.verdict], "  ", ["bold", s.id.padEnd(21)], ["muted", `${(s.client === "codex" ? "Codex" : s.parentId ? "Sub" : "Claude").padEnd(7)}${ago(s.endedAt).padEnd(8)}`], where.length > 22 ? `…${where.slice(-21)}` : where.padEnd(22), ["muted", `  ${m.steps} steps · ${m.filesEdited} edited${m.tokens ? ` · ${fmtTokens(m.tokens.total)} tok` : ""}${counts}`]], w));
 }
 
 async function sessionsCmd(t: Term, store: WorkspaceStore, args: readonly string[], json: boolean): Promise<number> {
