@@ -368,3 +368,38 @@ test("learn in a monorepo corrects the nested AGENTS.md that caused the mistake,
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("learn reads newer Codex transcripts and CRLF instruction files, and the review diff merges nearby edits", async () => {
+  const fx = await fixture({ "AGENTS.md": "# Rules\r\n\r\n- Run `npm test` before you commit.\r\n- Format with `npm run fmt`.\r\n" });
+  const home = await tempDir("home");
+  try {
+    const T = Date.now() - 2 * 86_400_000;
+    let t = T;
+    const at = (): string => new Date((t += 20_000)).toISOString();
+    const rollout = (how: "text" | "event", cmds: [string, number][]): string => [
+      { timestamp: at(), type: "session_meta", payload: { cwd: fx.root, timestamp: at() } },
+      ...cmds.flatMap(([cmd, code], i) => [
+        { timestamp: at(), type: "response_item", payload: { type: "function_call", name: "exec_command", call_id: `c${i}`, arguments: JSON.stringify({ cmd, workdir: fx.root }) } },
+        ...(how === "event" ? [{ timestamp: at(), type: "event_msg", payload: { type: "exec_command_end", call_id: `c${i}`, exit_code: code } }] : []),
+        { timestamp: at(), type: "response_item", payload: { type: "function_call_output", call_id: `c${i}`, output: how === "text" ? `Wall time: 1.0 seconds\nProcess exited with code ${code}\nOutput:\n` : "done" } },
+      ]),
+    ].map((l) => JSON.stringify(l)).join("\n") + "\n";
+    await writeTree(home, {
+      ".codex/sessions/2026/11/14/rollout-2026-11-14T10-00-00-a.jsonl": rollout("text", [["npm test", 1], ["pnpm test", 0]]),
+      ".codex/sessions/2026/11/14/rollout-2026-11-14T11-00-00-b.jsonl": rollout("event", [["npm run fmt", 1], ["pnpm run fmt", 0]]),
+    });
+    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", COLUMNS: "100" };
+    const cli = (...a: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), ...a], { env, encoding: "utf8", cwd: fx.root });
+    const human = cli("learn").stdout;
+    assert.match(human, /Tokens lost {3}not recorded in these transcripts/);
+    const v = JSON.parse(cli("learn", "--propose", "--json").stdout) as { lessons: { times: number; conflicts: { line: number }[] }[]; proposals: { proposalId: string }[] };
+    assert.equal(v.lessons[0]?.times, 2, "exit codes come from plain-text output and from exec_command_end");
+    assert.deepEqual(v.lessons[0]?.conflicts.map((c) => c.line), [3, 4], "CRLF lines match");
+    const diff = cli("review", v.proposals[0]!.proposalId).stdout;
+    assert.match(diff, /@@ -1,4 \+1,4 @@\n # Rules\n \n-- Run `npm test` before you commit\.\n\+- Run `pnpm test` before you commit\.\n-- Format with `npm run fmt`\.\n\+- Format with `pnpm run fmt`\.\n/);
+    assert.equal((diff.match(/^@@/gm) ?? []).length, 1, "adjacent edits share one hunk");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});

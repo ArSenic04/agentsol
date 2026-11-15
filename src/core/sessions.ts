@@ -328,6 +328,11 @@ function codexLine(b: Builder, o: Rec, tokens: { value: SessionMetrics["tokens"]
   if (type === "turn_context" && p) { b.cwd ??= str(p["cwd"]); b.model = str(p["model"]) ?? b.model; return; }
   if (type === "response_item" && p) { codexItem(b, at, p); return; }
   if (type === "event_msg" && p) {
+    if (p["type"] === "exec_command_end" && typeof p["exit_code"] === "number") {
+      const s = b.byCall.get(str(p["call_id"]) ?? "");
+      if (s && s.failed === null) s.failed = p["exit_code"] !== 0;
+      return;
+    }
     if (p["type"] === "token_count") {
       const t = rec(rec(p["info"])?.["total_token_usage"]);
       if (t) tokens.value = { input: num(t["input_tokens"]), output: num(t["output_tokens"]) + num(t["reasoning_output_tokens"]), total: num(t["total_tokens"]) || num(t["input_tokens"]) + num(t["output_tokens"]) };

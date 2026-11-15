@@ -598,7 +598,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   const share = L.agentMs > 0 ? ` (${Math.round((L.lostMs / L.agentMs) * 100)}%)` : "";
   for (const l of panel(t, [["bold", "What repeated mistakes cost"]], pairs([
     ["Time lost", [["bold", fmtDuration(L.lostMs)], ["muted", ` of ${fmtDuration(L.agentMs)} active agent time${share}`]]],
-    ["Tokens lost", [["bold", fmtTokens(L.lostTokens)], ["muted", ` of ${fmtTokens(L.agentTokens)} · ${n(L.lostSteps, "wasted step")}`]]],
+    ["Tokens lost", L.agentTokens > 0 ? [["bold", fmtTokens(L.lostTokens)], ["muted", ` of ${fmtTokens(L.agentTokens)} · ${n(L.lostSteps, "wasted step")}`]] : [["muted", `not recorded in these transcripts · ${n(L.lostSteps, "wasted step")}`]]],
     ["Lessons", [`${L.lessons.length}`, wrong ? ["muted", " · "] : "", wrong ? ["bad", n(wrong, "wrong instruction")] : "", ["muted", " · "], ["ok", `${n(fresh, "new rule")}`], known ? ["muted", ` · ${known} already written but still repeated`] : ""]],
   ], 14), w)) raw(`  ${l}`);
   raw();

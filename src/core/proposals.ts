@@ -60,23 +60,35 @@ export function applyLineEdits(lines: readonly string[], edits: readonly LineEdi
 export const proposalDigest = (b: Omit<ProposalBody, "proposalSha256" | "createdAt" | "id" | "author" | "rationale" | "findingIds">): string =>
   sha256Hex(JSON.stringify({ v: 1, projectId: b.projectId, sourceId: b.sourceId, relPath: b.relPath, baseVersionId: b.baseVersionId, baseRawSha256: b.baseRawSha256, edits: b.edits }));
 
-/** Human-reviewable unified-style diff of the proposed edits. */
+/** Human-reviewable unified diff of the proposed edits; edits whose context overlaps share one hunk. */
 export function renderDiff(relPath: string, lines: readonly string[], edits: readonly LineEdit[]): string {
   const out = [`--- a/${relPath}`, `+++ b/${relPath}`];
+  const sorted = [...edits].sort((a, b) => a.startLine - b.startLine);
+  const hunks: LineEdit[][] = [];
+  for (const e of sorted) {
+    const last = hunks.at(-1);
+    const prev = last?.at(-1);
+    if (last && prev && e.startLine - 2 <= prev.endLine + 2) last.push(e);
+    else hunks.push([e]);
+  }
   let delta = 0;
-  for (const e of [...edits].sort((a, b) => a.startLine - b.startLine)) {
-    const ctxStart = Math.max(1, e.startLine - 2);
-    const ctxEnd = Math.min(lines.length, e.endLine + 2);
-    const before = e.startLine - ctxStart;
-    const after = ctxEnd - e.endLine;
-    const oldCount = before + (e.endLine - e.startLine + 1) + after;
-    const newCount = before + e.replacementLines.length + after;
-    out.push(`@@ -${ctxStart},${oldCount} +${ctxStart + delta},${newCount} @@`);
-    for (let n = ctxStart; n < e.startLine; n += 1) out.push(` ${lines[n - 1] ?? ""}`);
-    for (let n = e.startLine; n <= e.endLine; n += 1) out.push(`-${lines[n - 1] ?? ""}`);
-    for (const r of e.replacementLines) out.push(`+${r}`);
-    for (let n = e.endLine + 1; n <= ctxEnd; n += 1) out.push(` ${lines[n - 1] ?? ""}`);
-    delta += e.replacementLines.length - (e.endLine - e.startLine + 1);
+  for (const hunk of hunks) {
+    const first = hunk[0]!;
+    const lastEdit = hunk.at(-1)!;
+    const ctxStart = Math.max(1, first.startLine - 2);
+    const ctxEnd = Math.min(lines.length, lastEdit.endLine + 2);
+    const body: string[] = [];
+    let oldCount = 0;
+    let newCount = 0;
+    let n = ctxStart;
+    for (const e of hunk) {
+      for (; n < e.startLine; n += 1) { body.push(` ${lines[n - 1] ?? ""}`); oldCount += 1; newCount += 1; }
+      for (; n <= e.endLine; n += 1) { body.push(`-${lines[n - 1] ?? ""}`); oldCount += 1; }
+      for (const r of e.replacementLines) { body.push(`+${r}`); newCount += 1; }
+    }
+    for (; n <= ctxEnd; n += 1) { body.push(` ${lines[n - 1] ?? ""}`); oldCount += 1; newCount += 1; }
+    out.push(`@@ -${ctxStart},${oldCount} +${ctxStart + delta},${newCount} @@`, ...body);
+    delta += newCount - oldCount;
   }
   return out.join("\n");
 }
