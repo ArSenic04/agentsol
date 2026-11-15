@@ -33,7 +33,7 @@ import type { WorkspaceStore } from "../store.ts";
 import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type ServiceResult } from "./errors.ts";
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
-import { codexFileIn, learnLessons, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
+import { codexFileIn, commandAdvice, learnLessons, type CommandAdvice, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
 import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
@@ -84,6 +84,11 @@ export const Inputs = {
   lessons: z.object({
     projectId: z.string().optional().describe("One project; default: every registered project"),
     since: z.string().optional().describe("How far back: 7d, 30d, 12w or an ISO date. Default 30d"),
+  }),
+  commandCheck: z.object({
+    command: z.string().min(1).max(4000).describe("The shell command you are about to run"),
+    path: z.string().optional().describe("Absolute path of the folder you are working in"),
+    projectId: z.string().optional().describe("A registered project id, instead of path"),
   }),
   briefing: z.object({
     path: z.string().optional().describe("Absolute path of the folder you are working in; the registered project that contains it is used"),
@@ -200,6 +205,35 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
   const project = (id: string): ServiceResult<ProjectId> => {
     if (!isProjectId(id) || !store.getProject(id)) return fail("not_found", "Unknown project");
     return ok(id);
+  };
+
+  /** The registered project an agent works in, from its folder or a project id. */
+  const workingProject = (list: ReturnType<typeof roots>, a: { path?: string | undefined; projectId?: string | undefined }): ServiceResult<ReturnType<typeof roots>[number]> => {
+    const setUp = "The person can set it up by running, in the project folder: npx -y agentsol@alpha start";
+    if (a.projectId !== undefined) {
+      const p = project(a.projectId);
+      if (!p.ok) return p;
+      const r = list.find((x) => x.projectId === p.value);
+      return r ? ok(r) : fail("not_found", "Unknown project");
+    }
+    if (a.path !== undefined) {
+      if (!path.isAbsolute(a.path)) return fail("invalid_input", "path must be absolute");
+      const hit = lookupIn(list)(a.path);
+      const r = hit ? list.find((x) => x.projectId === hit.projectId) : undefined;
+      return r ? ok(r) : fail("not_found", `This folder is not in a registered Agentsol project, so there are no lessons for it. ${setUp}`);
+    }
+    if (list.length === 1 && list[0]) return ok(list[0]);
+    return fail("invalid_input", list.length === 0 ? `No project is registered. ${setUp}` : "Pass path (the folder you work in) or projectId");
+  };
+  // Agents may check every command, so lessons are reused for a short while instead of re-reading every transcript.
+  const recent = new Map<string, { at: number; value: ProjectLessons }>();
+  const cachedLessons = async (r: ReturnType<typeof roots>[number], list: ReturnType<typeof roots>): Promise<ProjectLessons> => {
+    const now = Date.now();
+    const hit = recent.get(r.projectId);
+    if (hit && now - hit.at < 120_000) return hit.value;
+    const value = await lessonsFor(r, list, new Date(now - 30 * 86_400_000));
+    recent.set(r.projectId, { at: now, value });
+    return value;
   };
 
   /** Lessons for one registered project, with the change that puts them where the apps that made the mistakes read them. */
@@ -485,6 +519,23 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         return ok(scrub({ projects, caveats: LESSON_CAVEATS, notice: LESSONS_DISCLOSURE }));
       }),
 
+    /** Before an agent runs a command: what past sessions in this project say about it. Read-only; runs nothing. */
+    commandCheck: (input: unknown): Promise<ServiceResult<{ verdict: "ok" | "change" | "ask"; advice: CommandAdvice[]; text: string; sessionsRead: number }>> =>
+      guardedAsync("command_check", sink, async () => {
+        const a = parse(Inputs.commandCheck, input);
+        if (!a.ok) return a;
+        const list = roots();
+        const r = workingProject(list, a.value);
+        if (!r.ok) return r;
+        const l = await cachedLessons(r.value, list);
+        const advice = commandAdvice(a.value.command, l.lessons);
+        const verdict = advice.some((x) => x.verdict === "ask") ? "ask" : advice.length ? "change" : "ok";
+        const text = advice.length === 0
+          ? `Nothing in ${l.sessionsRead} past session${l.sessionsRead === 1 ? "" : "s"} here says this command fails. Go ahead.`
+          : advice.map((x) => (x.instead ? `${x.reason} Run instead: ${x.instead}` : x.reason)).join("\n");
+        return ok(scrub({ verdict, advice, text, sessionsRead: l.sessionsRead }));
+      }),
+
     /** A short briefing for an agent starting work in a project: rules from repeated mistakes, outdated instruction lines, and what to ask about. Read-only. */
     briefing: (input: unknown): Promise<ServiceResult<ProjectBriefing & { caveats: string[]; notice: string }>> =>
       guardedAsync("project_briefing", sink, async () => {
@@ -493,20 +544,9 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         const since = parseSince(a.value.since ?? "30d");
         if (!since) return fail("invalid_input", "since must look like 7d, 30d, 12w or an ISO date");
         const list = roots();
-        let r: ReturnType<typeof roots>[number] | undefined;
-        if (a.value.projectId !== undefined) {
-          const p = project(a.value.projectId);
-          if (!p.ok) return p;
-          r = list.find((x) => x.projectId === p.value);
-        } else if (a.value.path !== undefined) {
-          if (!path.isAbsolute(a.value.path)) return fail("invalid_input", "path must be absolute");
-          const hit = lookupIn(list)(a.value.path);
-          r = hit ? list.find((x) => x.projectId === hit.projectId) : undefined;
-          if (!r) return fail("not_found", "This folder is not in a registered Agentsol project, so there is no briefing. The person can set it up by running, in that folder: npx -y agentsol@alpha start");
-        } else if (list.length === 1) r = list[0];
-        else return fail("invalid_input", list.length === 0 ? "No project is registered. The person can set one up by running, in the project folder: npx -y agentsol@alpha start" : "Pass path (the folder you work in) or projectId");
-        if (!r) return fail("not_found", "Unknown project");
-        const l = await lessonsFor(r, list, since);
+        const r = workingProject(list, a.value);
+        if (!r.ok) return r;
+        const l = await lessonsFor(r.value, list, since);
         const last = (x: ProjectLessons["lessons"][number]): string | null => x.evidence.reduce<string | null>((m, e) => (e.at && (!m || e.at > m) ? e.at : m), null);
         const follow = l.lessons.filter((x) => x.rule).slice(0, 10).map((x) => ({ rule: x.rule as string, kind: x.kind, times: x.times, sessions: x.sessions, lastSeen: last(x), inInstructions: x.coveredIn.length > 0 }));
         const seen = new Set<string>();
@@ -525,8 +565,8 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
           ...(missing || outdated.length ? ["", "The instruction files do not say all of this yet. When you finish, tell the person they can fix them with: npx -y agentsol@alpha learn --propose"] : []),
         ].join("\n");
         const notes = [...l.notes];
-        if (!l.target && store.listSources(r.projectId).length === 0) notes.push("The project's instruction files were never scanned, so outdated lines cannot be found. sources_scan reads them.");
-        return ok(scrub({ projectId: r.projectId, name: r.name, since: since.toISOString(), sessionsRead: l.sessionsRead, follow, outdated, askFirst, text, notes, caveats: LESSON_CAVEATS, notice: LESSONS_DISCLOSURE }));
+        if (!l.target && store.listSources(r.value.projectId).length === 0) notes.push("The project's instruction files were never scanned, so outdated lines cannot be found. sources_scan reads them.");
+        return ok(scrub({ projectId: r.value.projectId, name: r.value.name, since: since.toISOString(), sessionsRead: l.sessionsRead, follow, outdated, askFirst, text, notes, caveats: LESSON_CAVEATS, notice: LESSONS_DISCLOSURE }));
       }),
 
     sessionReview: (input: unknown): Promise<ServiceResult<SessionReviewResult>> =>

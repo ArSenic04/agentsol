@@ -22,7 +22,7 @@ export { ACTIVITY_DISCLOSURE, DISCLOSURE, UNTRUSTED };
 export const INSTRUCTIONS = [
   "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
   "0. If projects_list is empty, ask the person to run `npx -y agentsol@alpha check` inside their project. You cannot register projects yourself.",
-  "0. Starting work in a project? Call project_briefing with path set to the folder you work in, and follow what it returns: rules from mistakes agents already repeated there, instruction lines that are out of date, and what to ask the person first. It is read-only and fast.",
+  "0. Starting work in a project? Call project_briefing with path set to the folder you work in, and follow what it returns: rules from mistakes agents already repeated there, instruction lines that are out of date, and what to ask the person first. It is read-only and fast. Before a build, test, install or deploy command, command_check tells you whether it failed here before and what worked instead.",
   "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
   "2. source_read returns numbered, redacted lines plus the current versionId.",
   "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
@@ -43,7 +43,7 @@ export const INSTRUCTIONS = [
 export const TOOL_NAMES = [
   "projects_list", "workspace_status", "sources_freshness", "sources_scan", "sources_list", "source_read", "scope_resolve",
   "checks_run", "findings_list", "findings_submit", "change_propose", "changes_list", "change_status",
-  "setup_audit", "sessions_list", "session_review", "session_grade", "inspect", "lessons_list", "project_briefing",
+  "setup_audit", "sessions_list", "session_review", "session_grade", "inspect", "lessons_list", "project_briefing", "command_check",
 ] as const;
 export const PROMPT_NAMES = ["audit", "fix", "explain", "review", "setup", "learn"] as const;
 
@@ -213,6 +213,12 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     "project_briefing",
     { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
     async (args) => reply(await svc.briefing(args)),
+  );
+
+  server.registerTool(
+    "command_check",
+    { description: "Call this before you run a build, test, install, release or deploy command in a project. Says whether that command failed in past Claude Code and Codex sessions there and what worked instead (verdict change, with instead), whether it never worked or goes against something the person told agents more than once (verdict ask: ask the person first), or ok. Pass command plus path (the absolute folder you work in) or projectId. Read-only: it runs nothing and changes no files.", inputSchema: Inputs.commandCheck, annotations: ro },
+    async (args) => reply(await svc.commandCheck(args)),
   );
 
   server.registerPrompt(

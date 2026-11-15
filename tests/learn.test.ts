@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fileURLToPath } from "node:url";
-import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts, codexFileIn } from "../src/core/learn.ts";
+import { commandAdvice, learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts, codexFileIn } from "../src/core/learn.ts";
 import { canonicalPath, programName } from "../src/core/sessions.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
 
@@ -620,10 +620,47 @@ test("project_briefing tells an agent starting work what to follow, which lines 
     assert.match(v.text, /^Agentsol briefing for /);
     assert.match(v.text, /AGENTS\.md:3 says: Run `npm test` before you commit\.\n  Do instead: Run `pnpm test` before you commit\./);
     assert.match(v.text, /npx -y agentsol@alpha learn --propose/);
+    const check = async (command: string): Promise<{ verdict: string; advice: { instead: string | null }[]; text: string }> => {
+      const r = await client!.callTool({ name: "command_check", arguments: { command, path: fx.root } });
+      const c = r.content[0];
+      assert.ok(c && c.type === "text" && r.isError !== true, JSON.stringify(r));
+      return JSON.parse(c.text) as { verdict: string; advice: { instead: string | null }[]; text: string };
+    };
+    const npmTest = await check("npm test");
+    assert.equal(npmTest.verdict, "change");
+    assert.deepEqual(npmTest.advice.map((x) => x.instead), ["pnpm test"]);
+    assert.match(npmTest.text, /Run instead: pnpm test/);
+    assert.equal((await check("make release")).verdict, "ask");
+    assert.equal((await check("pnpm test")).verdict, "ok");
     assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), agents, "a briefing never writes files");
   } finally {
     await client?.close();
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("commandAdvice matches a command against lessons before it runs", () => {
+  const L = (id: string, kind: "command" | "failing" | "correction", match: Parameters<typeof commandAdvice>[1][number]["match"], rule: string | null = null) => ({ id, kind, rule, title: "", times: 3, sessions: 2, match });
+  const lessons = [
+    L("L-pm", "command", { kind: "program", bad: "npm", good: "pnpm" }),
+    L("L-run", "command", { kind: "runner", bad: "jest", good: "npx jest" }),
+    L("L-cmd", "command", { kind: "command", bad: "npm run tst", good: "npm run test" }),
+    L("L-never", "failing", { kind: "never", bad: "make release" }),
+    L("L-said", "correction", null, "Never run `git push --force`."),
+  ];
+  const ask = (c: string) => commandAdvice(c, lessons).map((a) => [a.lessonId, a.verdict, a.instead]);
+  assert.deepEqual(ask("cd app && npm test -- --watch"), [["L-pm", "change", "cd app && pnpm test -- --watch"]]);
+  assert.deepEqual(ask("/usr/local/bin/npm test"), [["L-pm", "change", "pnpm test"]]);
+  assert.deepEqual(ask("npm.cmd test"), [["L-pm", "change", "pnpm test"]]);
+  assert.deepEqual(ask("bash -lc 'npm ci'"), [["L-pm", "change", "bash -lc 'pnpm ci'"]]);
+  assert.deepEqual(ask("pnpm test"), []);
+  assert.deepEqual(ask("npx jest"), []);
+  assert.deepEqual(ask("jest --ci"), [["L-run", "change", "npx jest --ci"]]);
+  assert.deepEqual(ask("npm run tst").map((x) => x[0]), ["L-pm", "L-cmd"]);
+  assert.deepEqual(ask("make release VERSION=1"), [["L-never", "ask", null]]);
+  assert.deepEqual(ask("make test"), []);
+  assert.deepEqual(ask("git push --force origin main"), [["L-said", "ask", null]]);
+  assert.deepEqual(ask("git push origin main"), []);
+  assert.deepEqual(ask("echo hi"), []);
 });

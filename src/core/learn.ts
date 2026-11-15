@@ -35,8 +35,15 @@ export type Lesson = {
   clients: SessionClient[];
   /** Why a rule that is already written down did not stop the mistake, when that is knowable. */
   why: string | null;
+  /** The command this lesson is about, so a command can be checked against it before it runs. */
+  match: LessonMatch | null;
   evidence: LessonEvidence[];
 };
+export type LessonMatch =
+  | { kind: "program"; bad: string; good: string }
+  | { kind: "runner"; bad: string; good: string }
+  | { kind: "command"; bad: string; good: string }
+  | { kind: "never"; bad: string };
 export type LessonsReport = {
   since: string;
   sessionsRead: number;
@@ -92,6 +99,35 @@ export function mainCommand(command: string): string[] | null {
 }
 
 const join = (w: readonly string[]): string => w.join(" ");
+
+function matchOf(g: Group): LessonMatch | null {
+  // Masked, like the titles: a command can hold a secret.
+  if (g.never) return { kind: "never", bad: g.never };
+  if (!g.swap) return null;
+  if ("program" in g.swap) return { kind: "program", bad: g.swap.program[0], good: g.swap.program[1] };
+  if (g.swap.runner) return { kind: "runner", bad: g.swap.command[0], good: g.swap.command[1] };
+  return { kind: "command", bad: g.swap.command[0], good: g.swap.command[1] };
+}
+
+export type CommandAdvice = { lessonId: string; verdict: "change" | "ask"; reason: string; instead: string | null };
+/** What past sessions say about a command before it runs: a version that works here, or that it never worked. */
+export function commandAdvice(command: string, lessons: readonly Pick<Lesson, "id" | "kind" | "rule" | "title" | "times" | "sessions" | "match">[]): CommandAdvice[] {
+  const w = mainCommand(command);
+  if (!w) return [];
+  const line = join(w);
+  const swapWord = (bad: string, good: string): string => command.replace(new RegExp(`(^|[\\s;&|('"])(?:[^\\s;&|()'"]*[\\\\/])?${esc(bad)}(?:\\.(?:cmd|exe))?(?=\\s|$|[;&|)'"])`, "i"), (_m, pre: string) => `${pre}${good}`);
+  const out: CommandAdvice[] = [];
+  const count = (l: { times: number; sessions: number }): string => `${l.times} time${l.times === 1 ? "" : "s"} in ${l.sessions} session${l.sessions === 1 ? "" : "s"}`;
+  for (const l of lessons) {
+    const m = l.match;
+    if (m?.kind === "program" && w[0] === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `\`${m.bad}\` failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
+    else if (m?.kind === "runner" && w[0] === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `Running \`${m.bad}\` directly failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
+    else if (m?.kind === "command" && m.bad && line === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `This failed here ${count(l)}; \`${m.good}\` worked.`, instead: m.good });
+    else if (m?.kind === "never" && (line === m.bad || line.startsWith(`${m.bad} `))) out.push({ lessonId: l.id, verdict: "ask", reason: `This failed here ${count(l)} and was never fixed. Ask the person how to run it.`, instead: null });
+    else if (l.kind === "correction" && l.rule && saidConflicts(l.rule, [{ relPath: "command", lines: [`\`${command.replace(/`/g, "")}\``] }]).length > 0) out.push({ lessonId: l.id, verdict: "ask", reason: `The person told agents more than once: ${l.rule}`, instead: null });
+  }
+  return out;
+}
 const pathLike = (w: readonly string[]): boolean => w.slice(1).some((x) => x.includes("/") || /\.\w{1,5}$/.test(x));
 const endsWith = (long: readonly string[], short: readonly string[]): boolean =>
   long.length > short.length && long.length - short.length <= 2 && RUNNERS.has(long[0] ?? "") && join(long.slice(long.length - short.length)) === join(short);
@@ -110,7 +146,7 @@ function fixKind(a: readonly string[], b: readonly string[]): "program" | "runne
 type Hit = { sessionId: string; conv: string; client: SessionClient; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
 /** For command lessons: the program swap (npm to pnpm, with the subcommands seen) or the exact command pair. */
 type Swap = { program: [bad: string, good: string]; subs: Set<string> } | { command: [bad: string, good: string]; runner?: boolean };
-type Group = { kind: LessonKind; title: string; rule: string | null; probe: string[]; hits: Hit[]; swap?: Swap };
+type Group = { kind: LessonKind; title: string; rule: string | null; probe: string[]; hits: Hit[]; swap?: Swap; never?: string };
 
 const words = (t: string): Set<string> => new Set((t.toLowerCase().match(/[a-z0-9_.:@/`'-]{3,}/g) ?? []).map((x) => x.replace(/^[`'.]+|[`'.,:]+$/g, "")).filter((x) => x.length >= 3 && !STOP.has(x)));
 const jaccard = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => {
@@ -245,7 +281,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
 
   for (const [k, f] of failing) {
     if (new Set(f.hits.map((h) => h.conv)).size < 2 || f.hits.length < 3) continue;
-    group(`failing:${k}`, { kind: "failing", title: `\`${f.shown}\` failed ${f.hits.length} times in ${new Set(f.hits.map((h) => h.conv)).size} sessions and was never fixed. Write down how to run it here.`, rule: null, probe: [] }).hits.push(...f.hits);
+    group(`failing:${k}`, { kind: "failing", title: `\`${f.shown}\` failed ${f.hits.length} times in ${new Set(f.hits.map((h) => h.conv)).size} sessions and was never fixed. Write down how to run it here.`, rule: null, probe: [], never: f.shown }).hits.push(...f.hits);
   }
   for (const [rel, f] of fragile) {
     const v = [...f.verify.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
@@ -458,6 +494,7 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
         alreadyInFile: target !== null && coveredIn.includes(target),
         coveredIn, conflicts, clients,
         why: conflicts.length > 0 ? null : whyRepeated(clients, coveredIn, files),
+        match: matchOf(g),
         evidence: g.hits.slice(0, 6).map((h) => ({ sessionId: h.sessionId, step: h.step, at: h.at })),
       };
     })
