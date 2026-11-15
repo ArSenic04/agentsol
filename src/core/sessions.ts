@@ -115,6 +115,8 @@ function textOf(content: unknown): string {
 class Builder {
   readonly steps: Step[] = [];
   readonly byCall = new Map<string, Step>();
+  /** Codex exec_command processes still running, by session id, so a later write_stdin can report their exit. */
+  readonly running = new Map<string, Step>();
   cwd: string | null = null;
   model: string | null = null;
   startedAt: string | null = null;
@@ -283,6 +285,8 @@ function codexOutput(b: Builder, callId: string | null, output: unknown): void {
   }
   const m = /(?:^|\n)(?:Exit code|Process exited with code):?\s*(-?\d+)/.exec(text);
   if (exit === null && m) exit = Number(m[1]);
+  const live = /(?:^|\n)Process running with session ID:?\s*(\d+)/.exec(text);
+  if (live && exit === null) b.running.set(live[1] ?? "", s);
   if (exit !== null) s.failed = exit !== 0;
   else if (s.kind !== "command" && /^(error|failed|invalid)/i.test(text.trim())) s.failed = true;
   scanOutput(s, text);
@@ -300,6 +304,11 @@ function codexItem(b: Builder, at: string | null, p: Rec): void {
     let args: Rec = {};
     try { args = rec(JSON.parse(str(p["arguments"]) ?? "{}")) ?? {}; } catch { args = {}; }
     if (name === "apply_patch") { codexPatch(b, at, name, str(args["input"]) ?? str(args["patch"]) ?? "", callId); return; }
+    if (name === "write_stdin") {
+      const s = b.running.get(String(args["session_id"] ?? ""));
+      if (s && callId) b.byCall.set(callId, s);
+      return;
+    }
     if (name === "shell" || name === "exec_command" || name === "container.exec" || name === "shell_command" || name === "local_shell") {
       codexCommand(b, at, name, commandText(args["command"] ?? args["cmd"]), str(args["workdir"]) ?? str(args["cwd"]), callId);
       return;
