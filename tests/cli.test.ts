@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { proposeChange } from "../src/core/proposals.ts";
 import { scanProject } from "../src/core/scan.ts";
-import { fixture, sourceByPath } from "./helpers.ts";
+import { fixture, sourceByPath, tempDir } from "./helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(REPO, "src", "cli", "main.ts");
@@ -176,6 +176,23 @@ test("CLI refuses an existing workspace that other users can read", async () => 
     await chmod(fx.wsDir, 0o700);
   } finally {
     await fx.cleanup();
+  }
+});
+
+test("connect claude-desktop uses the full npx path when npx is outside the system folders", { skip: process.platform === "win32" }, async () => {
+  const bin = await tempDir("bin");
+  try {
+    for (const b of ["npx", "node"]) { await writeFile(path.join(bin, b), "#!/bin/sh\n"); await chmod(path.join(bin, b), 0o755); }
+    const run = (PATH: string): string => spawnSync(process.execPath, [CLI, "connect", "claude-desktop"], { cwd: REPO, encoding: "utf8", env: { PATH, HOME: bin, NO_COLOR: "1" } }).stdout;
+    const custom = run(bin);
+    assert.ok(custom.includes(`"command": "${path.join(bin, "npx")}"`), custom);
+    assert.ok(custom.includes(`"PATH": "${bin}:/usr/bin:/bin"`), custom);
+    assert.match(custom, /not in the app's connector directory/);
+    const system = run("/usr/bin:/bin");
+    assert.match(system, /"command": "npx"/);
+    assert.doesNotMatch(system, /"PATH"/);
+  } finally {
+    await rm(bin, { recursive: true, force: true });
   }
 });
 

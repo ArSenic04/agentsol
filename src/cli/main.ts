@@ -364,9 +364,26 @@ async function promptCmd(store: WorkspaceStore, svc: AssistantService, ops: Retu
 
 /** `audit` is the app name in setup reports; `argv` is the app's own one-line MCP add command, when it has one. */
 type ClientSetup = { id: string; name: string; how: string; lines: string[]; note?: string; audit: string; argv?: readonly string[] };
+const SYSTEM_BIN = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+/**
+ * Claude Desktop on macOS and Linux starts MCP servers with a minimal PATH, so npx from nvm,
+ * Homebrew or ~/.local/bin is not found. Use the full path, and give npx's `env node` a PATH.
+ */
+function desktopLaunch(pathVar = process.env["PATH"] ?? "", platform = process.platform): { command: string; env?: Record<string, string> } {
+  if (platform === "win32") return { command: "npx" };
+  const dirs = pathVar.split(path.delimiter).filter((d) => path.isAbsolute(d));
+  const find = (bin: string): string | undefined => dirs.find((d) => existsSync(path.join(d, bin)));
+  const npxDir = find("npx");
+  const nodeDir = find("node");
+  if (!npxDir || (SYSTEM_BIN.includes(npxDir) && (!nodeDir || SYSTEM_BIN.includes(nodeDir)))) return { command: "npx" };
+  return { command: path.join(npxDir, "npx"), env: { PATH: [...new Set([npxDir, nodeDir ?? npxDir, "/usr/bin", "/bin"])].join(":") } };
+}
+
 function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
   const env = ws.isDefault ? null : path.resolve(ws.dir);
   const npx = `npx ${MCP_ARGS.join(" ")}`;
+  const gui = desktopLaunch();
+  const desktopJson = JSON.stringify({ mcpServers: { agentsol: { command: gui.command, args: MCP_ARGS, ...(env || gui.env ? { env: { ...gui.env, ...(env ? { AGENTSOL_WORKSPACE: env } : {}) } } : {}) } } }, null, 2).split("\n");
   const json = (indent = ""): string[] => JSON.stringify({ mcpServers: { agentsol: { command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) } } }, null, 2).split("\n").map((l) => indent + l);
   const vs = JSON.stringify({ name: "agentsol", command: "npx", args: MCP_ARGS, ...(env ? { env: { AGENTSOL_WORKSPACE: env } } : {}) });
   const desktop = process.platform === "win32" ? "%APPDATA%\\Claude\\claude_desktop_config.json" : process.platform === "darwin" ? "~/Library/Application Support/Claude/claude_desktop_config.json" : "~/.config/Claude/claude_desktop_config.json";
@@ -377,7 +394,7 @@ function clientSetups(ws: { dir: string; isDefault: boolean }): ClientSetup[] {
     { id: "gemini", name: "Gemini CLI", audit: "Gemini CLI", how: "run once:", lines: [`gemini mcp add -s user${env ? ` -e AGENTSOL_WORKSPACE="${env}"` : ""} agentsol ${npx}`], note: "Gemini CLI loads MCP servers only in folders you trust. If agentsol shows as disabled, trust the folder when Gemini asks.", argv: ["gemini", "mcp", "add", "-s", "user", ...wsEnv("-e"), "agentsol", "npx", ...MCP_ARGS] },
     { id: "vscode", name: "VS Code (Copilot agent mode)", audit: "VS Code", how: "run once:", lines: [`code --add-mcp '${vs}'`], argv: ["code", "--add-mcp", vs] },
     { id: "cursor", name: "Cursor", audit: "Cursor", how: "add to ~/.cursor/mcp.json:", lines: json() },
-    { id: "claude-desktop", name: "Claude Desktop", audit: "Claude Desktop", how: `add to ${desktop}:`, lines: json() },
+    { id: "claude-desktop", name: "Claude Desktop", audit: "Claude Desktop", how: `add to ${desktop} (Settings → Developer → Edit Config), then quit and reopen the app:`, lines: desktopJson, note: gui.env ? "It uses the full path of npx because Claude Desktop does not see your terminal's PATH. Agentsol is not in the app's connector directory; this config is how you add it." : "Agentsol is not in the app's connector directory; this config is how you add it." },
     { id: "windsurf", name: "Windsurf", audit: "Windsurf", how: "add to ~/.codeium/windsurf/mcp_config.json:", lines: json() },
   ];
 }

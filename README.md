@@ -62,6 +62,8 @@ npx -y agentsol@alpha session <id>     # one session: findings, metrics, grades;
 npx -y agentsol@alpha doctor           # preflight plus an audit of your AI apps' settings
 ```
 
+Agentsol is not listed in Claude Desktop's connector directory; add it through Settings → Developer → Edit Config. `connect claude-desktop` prints that config with the full npx path (and a PATH for `node`) when npx lives outside /usr/bin, because Claude Desktop on Mac and Linux does not see your terminal's PATH.
+
 - In your assistant, `/review` grades recent sessions with the rubric and `/setup` explains the setup audit. Both only read and record; neither changes files or settings.
 - `sessions --since 24h|7d|2w|<date> --limit N [path]` narrows the list; `--json` everywhere. `doctor --strict` exits 1 when the setup audit finds an error.
 
