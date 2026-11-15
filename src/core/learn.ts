@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { containsSecretLike } from "./secrets.ts";
-import { canonicalPath, listSessions, programName, shellSegments, showCommand, strip, VERIFY, type LoadedSession, type ProjectLookup, type SessionClient, type SessionContext, type SessionStep } from "./sessions.ts";
+import { canonicalPath, commandSegments, listSessions, programName, shellSegments, showCommand, strip, VERIFY, type LoadedSession, type ProjectLookup, type SessionClient, type SessionContext, type SessionStep } from "./sessions.ts";
 import { maskLaunch } from "./setup.ts";
 
 export type LessonKind = "command" | "correction" | "fragile" | "failing";
@@ -82,7 +82,7 @@ function activeMs(steps: readonly SessionStep[], from: number, to: number): numb
 
 /** The command that matters in a command line: skips cd, echo, pipes into tail or grep, and redirections. */
 export function mainCommand(command: string): string[] | null {
-  for (const seg of shellSegments(command)) {
+  for (const seg of commandSegments(command)) {
     const w = strip(seg).filter((x, i, all) => !/^\d*[<>]/.test(x) && !/^\d*[<>]+$/.test(all[i - 1] ?? ""));
     const head = programName(w[0] ?? "");
     if (!head || IDLE.has(head)) continue;

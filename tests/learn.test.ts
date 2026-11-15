@@ -99,6 +99,9 @@ test("learn turns repeated mistakes into cited rules, and ignores plain retries"
 test("lesson helpers", () => {
   assert.deepEqual(mainCommand("cd web && npm run build 2>&1 | tail -5"), ["npm", "run", "build"]);
   assert.equal(mainCommand("echo hi"), null);
+  for (const c of ["bash -c 'npm test'", `bash -lc "cd app && npm test"`, "pwsh -Command 'npm test'", "cmd /c npm test", "nice -n 10 npm test", "watch -n 1 npm test", "watch -n1 npm test", "timeout -s KILL 60 npm test", "sudo -u ci env CI=1 npm test"]) {
+    assert.deepEqual(mainCommand(c), ["npm", "test"], c);
+  }
   assert.equal(ruleFromCorrection("no, always run the linter"), "Always run the linter.");
   const add = lessonsEdit(["# Rules", "", "- one", ""], ["Use `pnpm`."]);
   assert.deepEqual(add, { startLine: 3, endLine: 3, expectedText: "- one", replacementLines: ["- one", "", LESSONS_HEADING, "", add!.replacementLines[4]!, "", "- Use `pnpm`."] });

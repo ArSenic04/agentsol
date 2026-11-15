@@ -398,16 +398,55 @@ export function shellSegments(command: string): string[][] {
   return segs;
 }
 
-const WRAPPERS = new Set(["sudo", "doas", "command", "nohup", "time", "exec", "nice", "env", "builtin"]);
+/** Wrapper programs and the flags of theirs that take a separate value. */
+const WRAPPERS = new Map<string, RegExp | null>([
+  ["sudo", /^-[ugCDhpRTU]$|^--(user|group|chdir|prompt)$/], ["doas", /^-[uC]$/], ["command", null], ["nohup", null], ["time", /^-[fo]$/],
+  ["exec", /^-a$/], ["nice", /^-n$|^--adjustment$/], ["env", /^-[uCS]$|^--(unset|chdir)$/], ["builtin", null], ["watch", /^-[nd]$|^--(interval|differences)$/],
+  ["caffeinate", /^-[tw]$/], ["xvfb-run", /^-[ansefwp]$/], ["stdbuf", null], ["ionice", /^-[cnp]$/], ["chronic", null],
+]);
 export function strip(words: readonly string[]): string[] {
   let i = 0;
   while (i < words.length) {
     const w = words[i] ?? "";
-    if (/^(\$env:)?[A-Za-z_][A-Za-z0-9_]*=/.test(w) || WRAPPERS.has(w) || (i > 0 && WRAPPERS.has(words[i - 1] ?? "") && w.startsWith("-"))) i += 1;
-    else if (w === "timeout") { i += 1; while (i < words.length && (words[i] ?? "").startsWith("-")) i += 1; if (/^\d+(\.\d+)?[smhd]?$/.test(words[i] ?? "")) i += 1; }
+    if (/^(\$env:)?[A-Za-z_][A-Za-z0-9_]*=/.test(w)) { i += 1; continue; }
+    const name = path.basename(w);
+    if (WRAPPERS.has(name)) {
+      const valued = WRAPPERS.get(name);
+      i += 1;
+      while (i < words.length && (words[i] ?? "").startsWith("-") && words[i] !== "--") { i += valued?.test(words[i] ?? "") ? 2 : 1; }
+      if (words[i] === "--") i += 1;
+    } else if (w === "timeout") { i += 1; while (i < words.length && (words[i] ?? "").startsWith("-")) i += /^-[sk]$/.test(words[i] ?? "") ? 2 : 1; if (/^\d+(\.\d+)?[smhd]?$/.test(words[i] ?? "")) i += 1; }
     else break;
   }
   return words.slice(i);
+}
+
+const SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh", "fish", "pwsh", "powershell", "pwsh.exe", "powershell.exe"]);
+/** The inner command of `bash -c '…'`, `pwsh -Command …` or `cmd /c …`, if the words are such a wrapper. */
+function innerCommand(w: readonly string[]): string | null {
+  const head = path.basename(w[0] ?? "").toLowerCase();
+  if (SHELLS.has(head)) {
+    const at = w.findIndex((x, i) => i > 0 && (/^-[a-z]*c$/i.test(x) || /^-(command|c)$/i.test(x)));
+    if (at > 0 && w.slice(1, at).every((x) => x.startsWith("-"))) return w[at + 1] ?? null;
+    return null;
+  }
+  if (head === "cmd" || head === "cmd.exe") {
+    const at = w.findIndex((x, i) => i > 0 && /^\/[ck]$/i.test(x));
+    return at > 0 ? w.slice(at + 1).join(" ") : null;
+  }
+  return null;
+}
+
+/** Shell segments with wrappers like `sudo`, `env X=1` and `bash -c '…'` seen through; a sudo outside a shell wrapper stays on the inner commands. */
+export function commandSegments(command: string, depth = 0): string[][] {
+  const out: string[][] = [];
+  for (const seg of shellSegments(command)) {
+    const inner = depth < 3 ? innerCommand(strip(seg)) : null;
+    if (inner == null) { out.push(seg); continue; }
+    const admin = seg[0] === "sudo" || seg[0] === "doas" ? [seg[0]] : [];
+    for (const s of commandSegments(inner, depth + 1)) out.push([...admin, ...s]);
+  }
+  return out;
 }
 
 /** The program name as typed on any platform: `C:\\nodejs\\npm.cmd` and `NPM.EXE` are both `npm`. */
@@ -543,7 +582,7 @@ function commandChecks(s: Step, ctx: Ctx, out: Found[]): void {
   if (/\bterraform\s+(destroy|apply\s+[^;&|]*-destroy)\b|\bpulumi\s+destroy\b/.test(c)) f("A01", "error", "Destroyed cloud infrastructure.");
   if (/\bkubectl\s+delete\b|\bhelm\s+(uninstall|delete)\b/.test(c)) f("A01", "warn", "Deleted Kubernetes resources.");
 
-  for (const seg of shellSegments(c)) {
+  for (const seg of commandSegments(c)) {
     const w = strip(seg);
     const cmd = path.basename(w[0] ?? "");
     const args = w.slice(1);

@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createAssistantService } from "../src/core/service/assistant.ts";
 import { inspectFiles, instructionRisks } from "../src/core/risks.ts";
 import { secretKinds } from "../src/core/secrets.ts";
-import { listSessions, parseSince, reviewSession, shellSegments } from "../src/core/sessions.ts";
+import { commandSegments, listSessions, parseSince, reviewSession, shellSegments } from "../src/core/sessions.ts";
 import { auditSetup, isPinned, parseTomlSubset } from "../src/core/setup.ts";
 import { fixture, tempDir, writeTree, type Fixture } from "./helpers.ts";
 
@@ -199,6 +199,9 @@ test("secret detection ignores placeholders and code references but still masks 
 
 test("session parsing helpers", () => {
   assert.deepEqual(shellSegments(`echo "a;b" && rm -rf 'x y' | tee z`), [["echo", "a;b"], ["rm", "-rf", "x y"], ["tee", "z"]]);
+  assert.deepEqual(commandSegments(`sudo bash -lc "cd /tmp && rm -rf build"`), [["sudo", "cd", "/tmp"], ["sudo", "rm", "-rf", "build"]]);
+  assert.deepEqual(commandSegments(`cmd /c npm test`), [["npm", "test"]]);
+  assert.deepEqual(commandSegments(`bash script.sh`), [["bash", "script.sh"]]);
   const now = Date.parse("2026-11-13T00:00:00Z");
   assert.equal(parseSince("2d", now)?.toISOString(), "2026-11-11T00:00:00.000Z");
   assert.equal(parseSince("nonsense", now), null);
