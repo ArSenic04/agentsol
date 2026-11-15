@@ -576,3 +576,54 @@ test("over MCP, lessons go to the file the erring app reads, and every change ca
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("project_briefing tells an agent starting work what to follow, which lines are out of date and what to ask", async () => {
+  const agents = "# Rules\n\n- Run `npm test` before you commit.\n";
+  const fx = await fixture({ "AGENTS.md": agents, "src/app.ts": "x\n" });
+  const home = await tempDir("home");
+  let client: Client | undefined;
+  try {
+    const T = Date.now() - 2 * 86_400_000;
+    await writeTree(home, {
+      ".codex/sessions/2026/11/01/rollout-2026-11-01T10-00-00-a.jsonl": codexRun(fx.root, T, [["npm test", true], ["pnpm test", false], ["make release", true], ["make release", true]]),
+      ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-b.jsonl": codexRun(fx.root, T + 60_000, [["npm test", true], ["pnpm test", false], ["make release", true]]),
+    });
+    const ws = path.join(home, "ws");
+    const env = { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
+    client = new Client({ name: "briefing-test", version: "0.0.0" });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: REPO, stderr: "pipe", env }));
+    const call = async (args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
+      const r = await client!.callTool({ name: "project_briefing", arguments: args });
+      const c = r.content[0];
+      assert.ok(c && c.type === "text");
+      return { isError: r.isError === true, text: c.text };
+    };
+    const none = await call({ path: path.join(fx.root, "src") });
+    assert.equal(none.isError, true);
+    assert.match(none.text, /npx -y agentsol@alpha start/, "an unregistered folder says how the person sets it up");
+
+    assert.equal(spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "project", "add", fx.root], { env, encoding: "utf8" }).status, 0);
+    const before = await call({ path: path.join(fx.root, "src") });
+    assert.equal(before.isError, false, before.text);
+    assert.ok((JSON.parse(before.text) as { notes: string[] }).notes.some((n) => /never scanned/.test(n)));
+
+    const projectId = (JSON.parse((await client.callTool({ name: "projects_list", arguments: {} }) as { content: { text: string }[] }).content[0]!.text) as { projects: { projectId: string }[] }).projects[0]!.projectId;
+    await client.callTool({ name: "sources_scan", arguments: { projectId } });
+    const b = await call({ path: path.join(fx.root, "src") });
+    assert.equal(b.isError, false, b.text);
+    assert.ok(!b.text.includes(fx.root) && !b.text.includes(home), "no absolute paths");
+    const v = JSON.parse(b.text) as { sessionsRead: number; follow: { rule: string; times: number; inInstructions: boolean }[]; outdated: { file: string; line: number; instead: string }[]; askFirst: string[]; text: string };
+    assert.equal(v.sessionsRead, 2);
+    assert.ok(v.follow.some((f) => f.rule.includes("`pnpm test`") && f.times === 2), JSON.stringify(v.follow));
+    assert.deepEqual(v.outdated.map((o) => [o.file, o.line, o.instead]), [["AGENTS.md", 3, "- Run `pnpm test` before you commit."]]);
+    assert.ok(v.askFirst.some((x) => x.includes("make release")), JSON.stringify(v.askFirst));
+    assert.match(v.text, /^Agentsol briefing for /);
+    assert.match(v.text, /AGENTS\.md:3 says: Run `npm test` before you commit\.\n  Do instead: Run `pnpm test` before you commit\./);
+    assert.match(v.text, /npx -y agentsol@alpha learn --propose/);
+    assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), agents, "a briefing never writes files");
+  } finally {
+    await client?.close();
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});

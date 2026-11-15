@@ -85,6 +85,11 @@ export const Inputs = {
     projectId: z.string().optional().describe("One project; default: every registered project"),
     since: z.string().optional().describe("How far back: 7d, 30d, 12w or an ISO date. Default 30d"),
   }),
+  briefing: z.object({
+    path: z.string().optional().describe("Absolute path of the folder you are working in; the registered project that contains it is used"),
+    projectId: z.string().optional().describe("A registered project id, instead of path"),
+    since: z.string().optional().describe("How far back: 7d, 30d, 12w or an ISO date. Default 30d"),
+  }),
   session: z.object({
     sessionId: z.string().describe("Session id from sessions_list, e.g. claude-1a2b3c4d5e6f"),
     fromStep: z.number().int().min(1).optional().describe(`First timeline step to return (${PAGE_SIZE} per page)`),
@@ -112,6 +117,22 @@ export type ProjectLessons = LessonsReport & {
   /** When the project has no instruction file: which file to create (CLAUDE.md when only Claude Code ran here) and its text. */
   newFile: string | null;
   newFileText: string | null;
+};
+/** What an agent should know before it works in a project, from mistakes agents repeated there. */
+export type ProjectBriefing = {
+  projectId: string;
+  name: string;
+  since: string;
+  sessionsRead: number;
+  /** Rules to follow here, most costly first. */
+  follow: { rule: string; kind: string; times: number; sessions: number; lastSeen: string | null; inInstructions: boolean }[];
+  /** Instruction lines that tell agents to do what fails here, with what works instead. */
+  outdated: { file: string; line: number; says: string; instead: string }[];
+  /** Things that never worked here; ask the person. */
+  askFirst: string[];
+  /** The same briefing as short text to follow. */
+  text: string;
+  notes: string[];
 };
 export type GradeResult = { gradeId: string; sessionId: string; overall: number; replayed: boolean; note: string };
 
@@ -179,6 +200,53 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
   const project = (id: string): ServiceResult<ProjectId> => {
     if (!isProjectId(id) || !store.getProject(id)) return fail("not_found", "Unknown project");
     return ok(id);
+  };
+
+  /** Lessons for one registered project, with the change that puts them where the apps that made the mistakes read them. */
+  const lessonsFor = async (r: ReturnType<typeof roots>[number], list: ReturnType<typeof roots>, since: Date): Promise<ProjectLessons> => {
+    const present = store.listSources(r.projectId).filter((x) => x.status === "present" && x.currentVersionId);
+    const INSTRUCTION = /(^|\/)(AGENTS(\.override)?\.md|CLAUDE(\.local)?\.md)$/;
+    const files = present.filter((x) => INSTRUCTION.test(x.relPath)).flatMap((x) => {
+      const v = store.getVersion(x.currentVersionId!);
+      return v ? [{ src: x, v, file: { relPath: x.relPath, lines: v.lines, redacted: v.redactedLineNumbers } satisfies InstructionFile }] : [];
+    });
+    const first = (rels: string[]) => rels.map((rel) => files.find((x) => x.src.relPath === rel)).find(Boolean) ?? null;
+    const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file) });
+    const clients = new Set(report.lessons.flatMap((l) => l.clients));
+    // Rules go where the apps that made the mistakes will read them.
+    const fl = files.map((x) => x.file);
+    const codexName = codexFileIn("", fl);
+    const claudeOnly = clients.size > 0 && !clients.has("codex") && !readsFile("claude-code", codexName, fl);
+    const claudeFile = first(["CLAUDE.md", ".claude/CLAUDE.md"]);
+    const pick = claudeOnly && claudeFile ? claudeFile : first([codexName, "CLAUDE.md", ".claude/CLAUDE.md"]);
+    if (pick?.src.relPath === codexName && codexName !== "AGENTS.md" && first(["AGENTS.md"])) report.notes.push(`Rules go to ${codexName}: Codex reads it instead of AGENTS.md in the same folder, so rules in AGENTS.md never reach Codex.`);
+    report.lessons = report.lessons.map((l) => ({ ...l, alreadyInFile: pick !== null && l.coveredIn.includes(pick.src.relPath) }));
+    if (pick && pick === claudeFile && claudeOnly && first([codexName])) report.notes.push(`Rules go to ${pick.src.relPath} because only Claude Code made these mistakes and it does not read ${codexName}. If you also use Codex, keep rules in ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
+    const rationale = (what: string): string => `Agentsol lessons: ${what} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`;
+    const change = pick ? lessonsChange(pick.file, report.lessons) : null;
+    const what = (c: { fixed: number; added: string[] }): string => [c.fixed ? `${c.fixed} corrected line${c.fixed === 1 ? "" : "s"}` : "", c.added.length ? `${c.added.length} rule${c.added.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
+    if (pick && change && change.edits.length === 0 && report.lessons.some((l) => l.rule && !l.coveredIn.includes(pick.src.relPath) && l.conflicts.length === 0)) report.notes.push(`The end of ${pick.src.relPath} is masked, so no ready-made change is offered; add the rules by hand.`);
+    const otherChanges = files.filter((x) => x !== pick).flatMap((x) => {
+      const c = lessonsChange(x.file, report.lessons.map((l) => ({ ...l, rule: null })));
+      return c.edits.length ? [{ relPath: x.src.relPath, sourceId: x.src.id, baseVersionId: x.v.id, edits: c.edits, rationale: rationale(what(c)) }] : [];
+    });
+    const has = (rel: string): boolean => files.some((x) => x.src.relPath === rel);
+    if (pick?.src.relPath === codexName && clients.has("claude-code") && !readsFile("claude-code", codexName, fl)) {
+      report.notes.push(has("CLAUDE.md")
+        ? `CLAUDE.md does not import ${codexName}, so Claude Code will not see these rules. Add a line with @${codexName} to CLAUDE.md.`
+        : `Claude Code made some of these mistakes, and it reads CLAUDE.md, not ${codexName}. Create CLAUDE.md with one line: @${codexName}`);
+    }
+    if (pick && pick.src.relPath !== codexName && clients.has("codex")) report.notes.push(`Codex made some of these mistakes, and it reads ${codexName}, not ${pick.src.relPath}. Move the rules to ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
+    const rules = [...new Set(report.lessons.filter((l) => l.rule).map((l) => l.rule as string))].slice(0, 12);
+    const newName = clients.size > 0 && !clients.has("codex") ? "CLAUDE.md" : "AGENTS.md";
+    return {
+      ...report, projectId: r.projectId, name: r.name,
+      target: pick ? { sourceId: pick.src.id, versionId: pick.v.id, relPath: pick.src.relPath } : null,
+      suggestedChange: pick && change && change.edits.length > 0 ? { sourceId: pick.src.id, baseVersionId: pick.v.id, edits: change.edits, rationale: rationale(what(change)) } : null,
+      otherChanges,
+      newFile: !pick && rules.length > 0 ? newName : null,
+      newFileText: !pick && rules.length > 0 ? ["# Agent instructions", "", LESSONS_HEADING, "", ...rules.map((x) => `- ${x}`), ""].join("\n") : null,
+    };
   };
 
   /**
@@ -413,52 +481,52 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
           targets = list.filter((r) => r.projectId === p.value);
         }
         const projects: ProjectLessons[] = [];
-        for (const r of targets) {
-          const present = store.listSources(r.projectId).filter((x) => x.status === "present" && x.currentVersionId);
-          const INSTRUCTION = /(^|\/)(AGENTS(\.override)?\.md|CLAUDE(\.local)?\.md)$/;
-          const files = present.filter((x) => INSTRUCTION.test(x.relPath)).flatMap((x) => {
-            const v = store.getVersion(x.currentVersionId!);
-            return v ? [{ src: x, v, file: { relPath: x.relPath, lines: v.lines, redacted: v.redactedLineNumbers } satisfies InstructionFile }] : [];
-          });
-          const first = (rels: string[]) => rels.map((rel) => files.find((x) => x.src.relPath === rel)).find(Boolean) ?? null;
-          const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file) });
-          const clients = new Set(report.lessons.flatMap((l) => l.clients));
-          // Rules go where the apps that made the mistakes will read them.
-          const fl = files.map((x) => x.file);
-          const codexName = codexFileIn("", fl);
-          const claudeOnly = clients.size > 0 && !clients.has("codex") && !readsFile("claude-code", codexName, fl);
-          const claudeFile = first(["CLAUDE.md", ".claude/CLAUDE.md"]);
-          const pick = claudeOnly && claudeFile ? claudeFile : first([codexName, "CLAUDE.md", ".claude/CLAUDE.md"]);
-          if (pick?.src.relPath === codexName && codexName !== "AGENTS.md" && first(["AGENTS.md"])) report.notes.push(`Rules go to ${codexName}: Codex reads it instead of AGENTS.md in the same folder, so rules in AGENTS.md never reach Codex.`);
-          report.lessons = report.lessons.map((l) => ({ ...l, alreadyInFile: pick !== null && l.coveredIn.includes(pick.src.relPath) }));
-          if (pick && pick === claudeFile && claudeOnly && first([codexName])) report.notes.push(`Rules go to ${pick.src.relPath} because only Claude Code made these mistakes and it does not read ${codexName}. If you also use Codex, keep rules in ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
-          const rationale = (what: string): string => `Agentsol lessons: ${what} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`;
-          const change = pick ? lessonsChange(pick.file, report.lessons) : null;
-          const what = (c: { fixed: number; added: string[] }): string => [c.fixed ? `${c.fixed} corrected line${c.fixed === 1 ? "" : "s"}` : "", c.added.length ? `${c.added.length} rule${c.added.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
-          if (pick && change && change.edits.length === 0 && report.lessons.some((l) => l.rule && !l.coveredIn.includes(pick.src.relPath) && l.conflicts.length === 0)) report.notes.push(`The end of ${pick.src.relPath} is masked, so no ready-made change is offered; add the rules by hand.`);
-          const otherChanges = files.filter((x) => x !== pick).flatMap((x) => {
-            const c = lessonsChange(x.file, report.lessons.map((l) => ({ ...l, rule: null })));
-            return c.edits.length ? [{ relPath: x.src.relPath, sourceId: x.src.id, baseVersionId: x.v.id, edits: c.edits, rationale: rationale(what(c)) }] : [];
-          });
-          const has = (rel: string): boolean => files.some((x) => x.src.relPath === rel);
-          if (pick?.src.relPath === codexName && clients.has("claude-code") && !readsFile("claude-code", codexName, fl)) {
-            report.notes.push(has("CLAUDE.md")
-              ? `CLAUDE.md does not import ${codexName}, so Claude Code will not see these rules. Add a line with @${codexName} to CLAUDE.md.`
-              : `Claude Code made some of these mistakes, and it reads CLAUDE.md, not ${codexName}. Create CLAUDE.md with one line: @${codexName}`);
-          }
-          if (pick && pick.src.relPath !== codexName && clients.has("codex")) report.notes.push(`Codex made some of these mistakes, and it reads ${codexName}, not ${pick.src.relPath}. Move the rules to ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
-          const rules = [...new Set(report.lessons.filter((l) => l.rule).map((l) => l.rule as string))].slice(0, 12);
-          const newName = clients.size > 0 && !clients.has("codex") ? "CLAUDE.md" : "AGENTS.md";
-          projects.push({
-            ...report, projectId: r.projectId, name: r.name,
-            target: pick ? { sourceId: pick.src.id, versionId: pick.v.id, relPath: pick.src.relPath } : null,
-            suggestedChange: pick && change && change.edits.length > 0 ? { sourceId: pick.src.id, baseVersionId: pick.v.id, edits: change.edits, rationale: rationale(what(change)) } : null,
-            otherChanges,
-            newFile: !pick && rules.length > 0 ? newName : null,
-            newFileText: !pick && rules.length > 0 ? ["# Agent instructions", "", LESSONS_HEADING, "", ...rules.map((x) => `- ${x}`), ""].join("\n") : null,
-          });
-        }
+        for (const r of targets) projects.push(await lessonsFor(r, list, since));
         return ok(scrub({ projects, caveats: LESSON_CAVEATS, notice: LESSONS_DISCLOSURE }));
+      }),
+
+    /** A short briefing for an agent starting work in a project: rules from repeated mistakes, outdated instruction lines, and what to ask about. Read-only. */
+    briefing: (input: unknown): Promise<ServiceResult<ProjectBriefing & { caveats: string[]; notice: string }>> =>
+      guardedAsync("project_briefing", sink, async () => {
+        const a = parse(Inputs.briefing, input ?? {});
+        if (!a.ok) return a;
+        const since = parseSince(a.value.since ?? "30d");
+        if (!since) return fail("invalid_input", "since must look like 7d, 30d, 12w or an ISO date");
+        const list = roots();
+        let r: ReturnType<typeof roots>[number] | undefined;
+        if (a.value.projectId !== undefined) {
+          const p = project(a.value.projectId);
+          if (!p.ok) return p;
+          r = list.find((x) => x.projectId === p.value);
+        } else if (a.value.path !== undefined) {
+          if (!path.isAbsolute(a.value.path)) return fail("invalid_input", "path must be absolute");
+          const hit = lookupIn(list)(a.value.path);
+          r = hit ? list.find((x) => x.projectId === hit.projectId) : undefined;
+          if (!r) return fail("not_found", "This folder is not in a registered Agentsol project, so there is no briefing. The person can set it up by running, in that folder: npx -y agentsol@alpha start");
+        } else if (list.length === 1) r = list[0];
+        else return fail("invalid_input", list.length === 0 ? "No project is registered. The person can set one up by running, in the project folder: npx -y agentsol@alpha start" : "Pass path (the folder you work in) or projectId");
+        if (!r) return fail("not_found", "Unknown project");
+        const l = await lessonsFor(r, list, since);
+        const last = (x: ProjectLessons["lessons"][number]): string | null => x.evidence.reduce<string | null>((m, e) => (e.at && (!m || e.at > m) ? e.at : m), null);
+        const follow = l.lessons.filter((x) => x.rule).slice(0, 10).map((x) => ({ rule: x.rule as string, kind: x.kind, times: x.times, sessions: x.sessions, lastSeen: last(x), inInstructions: x.coveredIn.length > 0 }));
+        const seen = new Set<string>();
+        const outdated = l.lessons.flatMap((x) => x.conflicts).filter((c) => { const k = `${c.file}:${c.line}`; if (seen.has(k)) return false; seen.add(k); return true; })
+          .slice(0, 10).map((c) => ({ file: c.file, line: c.line, says: c.text.trim(), instead: c.replacement.trim() }));
+        const askFirst = l.lessons.filter((x) => !x.rule).slice(0, 5).map((x) => `${x.title.replace(/\s*Write down[^.]*\.$/, "")} Ask the person how to do it before trying again.`);
+        const day = (at: string | null): string => (at ? `, last ${at.slice(0, 10)}` : "");
+        const bare = (line: string): string => line.replace(/^(?:[-*+]|\d+[.)])\s+/, "");
+        const missing = follow.filter((x) => !x.inInstructions).length;
+        const text = [
+          `Agentsol briefing for ${l.name}, from ${l.sessionsRead} session${l.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`,
+          ...(follow.length + outdated.length + askFirst.length === 0 ? ["No repeated mistakes found here. Follow the project's instruction files as usual."] : []),
+          ...(follow.length ? ["", "Follow these here; agents got them wrong before:", ...follow.map((x) => `- ${x.rule} Seen ${x.times}× in ${x.sessions} session${x.sessions === 1 ? "" : "s"}${day(x.lastSeen)}.`)] : []),
+          ...(outdated.length ? ["", "These instruction lines are out of date: they tell agents to do what fails here. Do the replacement instead:", ...outdated.map((c) => `- ${c.file}:${c.line} says: ${bare(c.says)}\n  Do instead: ${bare(c.instead)}`)] : []),
+          ...(askFirst.length ? ["", "Ask the person first:", ...askFirst.map((x) => `- ${x}`)] : []),
+          ...(missing || outdated.length ? ["", "The instruction files do not say all of this yet. When you finish, tell the person they can fix them with: npx -y agentsol@alpha learn --propose"] : []),
+        ].join("\n");
+        const notes = [...l.notes];
+        if (!l.target && store.listSources(r.projectId).length === 0) notes.push("The project's instruction files were never scanned, so outdated lines cannot be found. sources_scan reads them.");
+        return ok(scrub({ projectId: r.projectId, name: r.name, since: since.toISOString(), sessionsRead: l.sessionsRead, follow, outdated, askFirst, text, notes, caveats: LESSON_CAVEATS, notice: LESSONS_DISCLOSURE }));
       }),
 
     sessionReview: (input: unknown): Promise<ServiceResult<SessionReviewResult>> =>

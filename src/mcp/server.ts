@@ -22,6 +22,7 @@ export { ACTIVITY_DISCLOSURE, DISCLOSURE, UNTRUSTED };
 export const INSTRUCTIONS = [
   "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
   "0. If projects_list is empty, ask the person to run `npx -y agentsol@alpha check` inside their project. You cannot register projects yourself.",
+  "0. Starting work in a project? Call project_briefing with path set to the folder you work in, and follow what it returns: rules from mistakes agents already repeated there, instruction lines that are out of date, and what to ask the person first. It is read-only and fast.",
   "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
   "2. source_read returns numbered, redacted lines plus the current versionId.",
   "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
@@ -42,7 +43,7 @@ export const INSTRUCTIONS = [
 export const TOOL_NAMES = [
   "projects_list", "workspace_status", "sources_freshness", "sources_scan", "sources_list", "source_read", "scope_resolve",
   "checks_run", "findings_list", "findings_submit", "change_propose", "changes_list", "change_status",
-  "setup_audit", "sessions_list", "session_review", "session_grade", "inspect", "lessons_list",
+  "setup_audit", "sessions_list", "session_review", "session_grade", "inspect", "lessons_list", "project_briefing",
 ] as const;
 export const PROMPT_NAMES = ["audit", "fix", "explain", "review", "setup", "learn"] as const;
 
@@ -206,6 +207,12 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     "lessons_list",
     { description: "Mistakes coding agents repeated in registered projects, found across past Claude Code and Codex sessions: a command that fails there and the one that works, something the person told agents in more than one session, a file agents keep breaking and re-fixing, a command that never worked. Each lesson has a rule, how often it happened, the active time and tokens it cost, cited session ids and steps, whether an instruction file already says it (coveredIn, why) and which clients made it. conflicts lists instruction lines that tell agents to run the failing command or to do what the person keeps telling them not to, with the corrected line. Per project, suggestedChange (main file: corrections plus new rules) and each otherChanges entry (corrections in other files) is ready for change_propose (add projectId); newFile names the file to create when there is none. Read-only. Run sources_scan first so the instruction file is current.", inputSchema: Inputs.lessons, annotations: ro },
     async (args) => reply(await svc.lessons(args)),
+  );
+
+  server.registerTool(
+    "project_briefing",
+    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
+    async (args) => reply(await svc.briefing(args)),
   );
 
   server.registerPrompt(
