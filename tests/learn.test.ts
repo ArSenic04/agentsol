@@ -4,6 +4,8 @@ import { spawnSync } from "node:child_process";
 import { readFile, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fileURLToPath } from "node:url";
 import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection } from "../src/core/learn.ts";
 import { canonicalPath, programName } from "../src/core/sessions.ts";
@@ -249,6 +251,40 @@ test("learn finds the instruction lines that cause the mistake and corrects them
   }
 });
 
+test("a repeated correction that contradicts a written rule corrects that line instead of adding a rule", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": session(fx.root, T, { said: ["no, don't use the staging database, use the local postgres", "never edit the generated files in gen/, run pnpm codegen"], fragile: false }),
+      ".claude/projects/-p/b.jsonl": session(fx.root, T + 86_400_000, { said: ["don't use the staging database, use local postgres", "stop, never edit generated files in gen/ - run pnpm codegen"], fragile: false }),
+    });
+    const agents = [
+      "# Rules", "",
+      "- Use the staging database for integration tests.",
+      "- Edit the generated files in gen/ when the API changes.",
+      "- Keep the staging credentials out of git.",
+      "- Do not edit gen/ by hand.",
+      "```sh", "edit gen/ generated files", "```",
+    ];
+    const files = [{ relPath: "AGENTS.md", lines: agents }];
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0), files, target: "AGENTS.md" });
+    const said = r.lessons.filter((l) => l.kind === "correction");
+    assert.deepEqual(said.map((l) => l.conflicts.map((c) => c.line)).sort(), [[3], [4]], JSON.stringify(said.map((l) => [l.rule, l.conflicts])));
+    for (const l of said) {
+      assert.equal(l.conflicts[0]!.replacement, `- ${l.rule}`);
+      assert.deepEqual(l.coveredIn, [], "a line that says the opposite does not cover the correction");
+    }
+    const change = lessonsChange(files[0]!, said);
+    assert.equal(change.fixed, 2);
+    assert.deepEqual(change.added, []);
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {
   const fx = await fixture({});
   const home = await tempDir("home");
@@ -399,6 +435,53 @@ test("learn reads newer Codex transcripts and CRLF instruction files, and the re
     assert.match(diff, /@@ -1,4 \+1,4 @@\n # Rules\n \n-- Run `npm test` before you commit\.\n\+- Run `pnpm test` before you commit\.\n-- Format with `npm run fmt`\.\n\+- Format with `pnpm run fmt`\.\n/);
     assert.equal((diff.match(/^@@/gm) ?? []).length, 1, "adjacent edits share one hunk");
   } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("over MCP, lessons go to the file the erring app reads, and every change can be proposed without writing files", async () => {
+  const agents = "# Rules\n\n- Keep functions small.\n";
+  const claudeMd = "# Claude\n\nBuild with `npm run build`.\n";
+  const fx = await fixture({ "AGENTS.md": agents, "CLAUDE.md": claudeMd });
+  const home = await tempDir("home");
+  let client: Client | undefined;
+  try {
+    const T = Date.now() - 2 * 86_400_000;
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": claudeRun(fx.root, T, [["npm test", true], ["pnpm test", false], ["npm run build", true], ["pnpm run build", false]]),
+      ".claude/projects/-p/b.jsonl": claudeRun(fx.root, T + 60_000, [["npm test", true], ["pnpm test", false]]),
+    });
+    const ws = path.join(home, "ws");
+    const env = { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
+    assert.equal(spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "project", "add", fx.root], { env, encoding: "utf8" }).status, 0);
+    client = new Client({ name: "learn-test", version: "0.0.0" });
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: REPO, stderr: "pipe", env }));
+    const call = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
+      const r = await client!.callTool({ name, arguments: args });
+      const c = r.content[0];
+      assert.ok(c && c.type === "text");
+      return { isError: r.isError === true, text: c.text };
+    };
+    const projectId = (JSON.parse((await call("projects_list", {})).text) as { projects: { projectId: string }[] }).projects[0]!.projectId;
+    assert.equal((await call("sources_scan", { projectId })).isError, false);
+    const lr = await call("lessons_list", { projectId, since: "30d" });
+    assert.equal(lr.isError, false);
+    assert.ok(!lr.text.includes(fx.root) && !lr.text.includes(home), "no absolute paths over MCP");
+    type Change = { sourceId: string; baseVersionId: string; edits: { startLine: number; replacementLines: string[] }[]; rationale: string };
+    const L = (JSON.parse(lr.text) as { projects: { target: { relPath: string }; suggestedChange: Change; otherChanges: (Change & { relPath: string })[]; notes: string[]; lessons: { conflicts: { file: string; line: number }[] }[] }[] }).projects[0]!;
+    assert.equal(L.target.relPath, "CLAUDE.md", "only Claude Code erred and CLAUDE.md does not import AGENTS.md");
+    assert.deepEqual(L.lessons[0]?.conflicts.map((c) => [c.file, c.line]), [["CLAUDE.md", 3]]);
+    assert.deepEqual(L.suggestedChange.edits.map((e) => e.startLine), [3], "the corrected line is the whole fix");
+    assert.deepEqual(L.otherChanges, []);
+    assert.ok(L.notes.some((n) => /Rules go to CLAUDE\.md because only Claude Code made these mistakes/.test(n)));
+    const pr = await call("change_propose", { projectId, sourceId: L.suggestedChange.sourceId, baseVersionId: L.suggestedChange.baseVersionId, edits: L.suggestedChange.edits, rationale: L.suggestedChange.rationale, requestKey: "learn-test-0001" });
+    assert.equal(pr.isError, false, pr.text);
+    assert.match(pr.text, /\+Build with `pnpm run build`\./);
+    assert.equal(await readFile(path.join(fx.root, "CLAUDE.md"), "utf8"), claudeMd, "proposing never writes the file");
+    assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), agents);
+  } finally {
+    await client?.close();
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
   }

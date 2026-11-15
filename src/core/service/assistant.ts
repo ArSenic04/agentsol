@@ -420,8 +420,15 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
             const v = store.getVersion(x.currentVersionId!);
             return v ? [{ src: x, v, file: { relPath: x.relPath, lines: v.lines, redacted: v.redactedLineNumbers } satisfies InstructionFile }] : [];
           });
-          const pick = ["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"].map((rel) => files.find((x) => x.src.relPath === rel)).find(Boolean) ?? null;
-          const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file), ...(pick ? { target: pick.src.relPath } : {}) });
+          const first = (rels: string[]) => rels.map((rel) => files.find((x) => x.src.relPath === rel)).find(Boolean) ?? null;
+          const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file) });
+          const clients = new Set(report.lessons.flatMap((l) => l.clients));
+          // Rules go where the apps that made the mistakes will read them.
+          const claudeOnly = clients.size > 0 && !clients.has("codex") && !readsFile("claude-code", "AGENTS.md", files.map((x) => x.file));
+          const claudeFile = first(["CLAUDE.md", ".claude/CLAUDE.md"]);
+          const pick = claudeOnly && claudeFile ? claudeFile : first(["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"]);
+          report.lessons = report.lessons.map((l) => ({ ...l, alreadyInFile: pick !== null && l.coveredIn.includes(pick.src.relPath) }));
+          if (pick && pick === claudeFile && claudeOnly && first(["AGENTS.md"])) report.notes.push(`Rules go to ${pick.src.relPath} because only Claude Code made these mistakes and it does not read AGENTS.md. If you also use Codex, keep rules in AGENTS.md and add a line with @AGENTS.md to ${pick.src.relPath}.`);
           const rationale = (what: string): string => `Agentsol lessons: ${what} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`;
           const change = pick ? lessonsChange(pick.file, report.lessons) : null;
           const what = (c: { fixed: number; added: string[] }): string => [c.fixed ? `${c.fixed} corrected line${c.fixed === 1 ? "" : "s"}` : "", c.added.length ? `${c.added.length} rule${c.added.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
@@ -430,7 +437,6 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
             const c = lessonsChange(x.file, report.lessons.map((l) => ({ ...l, rule: null })));
             return c.edits.length ? [{ relPath: x.src.relPath, sourceId: x.src.id, baseVersionId: x.v.id, edits: c.edits, rationale: rationale(what(c)) }] : [];
           });
-          const clients = new Set(report.lessons.flatMap((l) => l.clients));
           const has = (rel: string): boolean => files.some((x) => x.src.relPath === rel);
           if (pick?.src.relPath === "AGENTS.md" && clients.has("claude-code") && !readsFile("claude-code", "AGENTS.md", files.map((x) => x.file))) {
             report.notes.push(has("CLAUDE.md")

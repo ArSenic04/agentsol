@@ -118,7 +118,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
         card("↻", "", "Commands that fail here", "The agent runs a command, it fails, and a different one works. Seen twice, it becomes a rule: Use pnpm, not npm."),
         card("“", "agent", "Things you keep saying", "When you tell agents the same thing in two sessions (never edit gen/, use the staging database), it becomes a rule in your words, masked."),
         card("⚠", "violet", "Files they keep breaking", "Edit, fail, edit the same file again. Agentsol names the file and the check that finally passed, so the next agent runs it first."),
-        card("✎", "", "Instructions that cause it", "When AGENTS.md or CLAUDE.md says npm test and npm fails here, that line is the bug. Agentsol shows the line and its corrected version, and says when an app never reads the file the rule is in.")),
+        card("✎", "", "Instructions that cause it", "When AGENTS.md or CLAUDE.md says npm test and npm fails here, that line is the bug. The same when it says the opposite of what you keep telling agents. Agentsol shows the line and its corrected version, and says when an app never reads the file the rule is in.")),
       h("p", { class: "muted small" }, "Every lesson cites the session and step it came from, the app that made the mistake, and whether an instruction file already had the rule. Lost time is active time between steps, with long pauses capped. Nothing leaves your machine, and nothing is written until you approve. In your assistant: ", h("code", {}, "/learn"), ".")),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "why" } },

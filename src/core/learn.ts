@@ -296,6 +296,37 @@ const NEGATED = /\b(never|don'?t|do not|not|avoid|instead|rather than|no longer|
 const COMMON_SUBS = ["run", "test", "install", "i", "ci", "add", "exec", "x", "start", "build", "lint", "dev"];
 const BEFORE = "(^|[\\s`'\"(>])";
 
+const NEGATION = /\b(never|don'?t|do not|stop|avoid|no longer)\s+/i;
+/**
+ * Lines that tell agents to do what a repeated correction forbids ("never edit gen/" against
+ * "Edit gen/ when the API changes"), each replaced by the correction's rule.
+ */
+export function saidConflicts(rule: string, files: readonly InstructionFile[]): LessonConflict[] {
+  const m = NEGATION.exec(rule);
+  if (!m) return [];
+  const body = rule.slice(m.index + m[0].length);
+  const lead = /^(?:use|run)\s+/i.exec(body)?.[0] ?? "";
+  const clause = lead + (body.slice(lead.length).split(/[,;.!]|\b(?:use|run|instead|rather|but|and then)\b/i)[0] ?? "");
+  const banned = words(clause);
+  if (banned.size === 0) return [];
+  const out: LessonConflict[] = [];
+  for (const f of files) {
+    const masked = new Set(f.redacted ?? []);
+    let fenced = false;
+    f.lines.forEach((text, i) => {
+      if (/^\s*(```|~~~)/.test(text)) { fenced = !fenced; return; }
+      if (fenced || masked.has(i + 1) || /^\s*(#|>|<!--)/.test(text) || NEGATED.test(text)) return;
+      const have = words(text);
+      let shared = 0;
+      for (const w of banned) if (have.has(w)) shared += 1;
+      if (shared < Math.min(2, banned.size) || shared / banned.size < 0.6) return;
+      const prefix = /^\s*(?:[-*+]|\d+[.)])\s+/.exec(text)?.[0] ?? "";
+      out.push({ file: f.relPath, line: i + 1, text, replacement: `${prefix}${rule}` });
+    });
+  }
+  return out;
+}
+
 /** Lines in instruction files that tell agents to run what fails here, each with the corrected line. */
 export function conflictsFor(swap: Swap | undefined, files: readonly InstructionFile[]): LessonConflict[] {
   if (!swap) return [];
@@ -390,7 +421,7 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
       const sessions = new Set(g.hits.map((h) => h.sessionId));
       const sum = (k: "lostSteps" | "lostMs" | "lostTokens"): number => g.hits.reduce((a, h) => a + h[k], 0);
       const key = `${g.kind}:${g.rule ?? g.title}`;
-      const conflicts = conflictsFor(g.swap, files);
+      const conflicts = g.kind === "correction" && g.rule ? saidConflicts(g.rule, files) : conflictsFor(g.swap, files);
       const coveredIn = files.filter((f) => !conflicts.some((c) => c.file === f.relPath) && covered(g, f.lines.join("\n"))).map((f) => f.relPath);
       const clients = [...new Set(g.hits.map((h) => h.client))].sort();
       const first = conflicts[0];
