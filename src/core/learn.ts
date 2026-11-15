@@ -115,7 +115,20 @@ export function commandAdvice(command: string, lessons: readonly Pick<Lesson, "i
   const w = mainCommand(command);
   if (!w) return [];
   const line = join(w);
-  const swapWord = (bad: string, good: string): string => command.replace(new RegExp(`(^|[\\s;&|('"])(?:[^\\s;&|()'"]*[\\\\/])?${esc(bad)}(?:\\.(?:cmd|exe))?(?=\\s|$|[;&|)'"])`, "i"), (_m, pre: string) => `${pre}${good}`);
+  // Swap only where the program is the command being run, not an argument such as `echo npm`.
+  const isHead = (before: string): boolean => {
+    const seg = before.split(/[;&|(\n]|(?:^|\s)-\w*c\s+['"]|\/[ck]\s+/i).pop() ?? "";
+    const ws = seg.trim().split(/\s+/).filter(Boolean);
+    return strip([...ws, "\0"]).length === 1;
+  };
+  const swapWord = (bad: string, good: string): string => {
+    let done = false;
+    return command.replace(new RegExp(`(^|[\\s;&|('"])((?:[^\\s;&|()'"]*[\\\\/])?${esc(bad)}(?:\\.(?:cmd|exe))?)(?=\\s|$|[;&|)'"])`, "gi"), (m, pre: string, _w: string, at: number) => {
+      if (done || !isHead(command.slice(0, at + pre.length))) return m;
+      done = true;
+      return `${pre}${good}`;
+    });
+  };
   const out: CommandAdvice[] = [];
   const count = (l: { times: number; sessions: number }): string => `${l.times} time${l.times === 1 ? "" : "s"} in ${l.sessions} session${l.sessions === 1 ? "" : "s"}`;
   for (const l of lessons) {

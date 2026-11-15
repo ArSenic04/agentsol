@@ -655,6 +655,10 @@ test("commandAdvice matches a command against lessons before it runs", () => {
   assert.deepEqual(ask("npm.cmd test"), [["L-pm", "change", "pnpm test"]]);
   assert.deepEqual(ask("bash -lc 'npm ci'"), [["L-pm", "change", "bash -lc 'pnpm ci'"]]);
   assert.deepEqual(ask("pnpm test"), []);
+  assert.deepEqual(ask("echo npm && npm test"), [["L-pm", "change", "echo npm && pnpm test"]]);
+  assert.deepEqual(ask("sudo -E npm install"), [["L-pm", "change", "sudo -E pnpm install"]]);
+  assert.deepEqual(ask("CI=1 npm test"), [["L-pm", "change", "CI=1 pnpm test"]]);
+  assert.deepEqual(ask("cmd /c npm test"), [["L-pm", "change", "cmd /c pnpm test"]]);
   assert.deepEqual(ask("npx jest"), []);
   assert.deepEqual(ask("jest --ci"), [["L-run", "change", "npx jest --ci"]]);
   assert.deepEqual(ask("npm run tst").map((x) => x[0]), ["L-pm", "L-cmd"]);
