@@ -132,7 +132,7 @@ try {
   const info = client.getServerVersion();
   const tools = (await client.listTools()).tools.map((t) => t.name).sort();
   record("MCP handshake with the installed server", info?.name === "agentsol" && info?.version === installedPkg.version, `server ${info?.name} ${info?.version}, protocol ${client.getNegotiatedProtocolVersion()}`);
-  record("MCP tools exposed (no approve/apply)", tools.length === 19 && !tools.some((t) => /approve|apply|reject|register|shell/.test(t)), tools.join(" "));
+  record("MCP tools exposed (no approve/apply)", tools.length === 20 && !tools.some((t) => /approve|apply|reject|register|shell/.test(t)), tools.join(" "));
   const call = async (name: string, args: Record<string, unknown>) => {
     const r = await client.callTool({ name, arguments: args });
     const first = r.content[0];
