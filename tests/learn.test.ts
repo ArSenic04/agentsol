@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fileURLToPath } from "node:url";
-import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection } from "../src/core/learn.ts";
+import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts } from "../src/core/learn.ts";
 import { canonicalPath, programName } from "../src/core/sessions.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
 
@@ -283,6 +283,17 @@ test("a repeated correction that contradicts a written rule corrects that line i
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("a correction contradicts only lines that order the opposite, in the same scope", () => {
+  const lines = ["- Use the staging database for integration tests.", "- Run yarn install, then yarn build.", "- We migrated off yarn in 2025.", "- Mock the network in unit tests.", "- Use npm for scripts."];
+  const f = [{ relPath: "AGENTS.md", lines }];
+  const at = (rule: string): number[] => saidConflicts(rule, f).map((c) => c.line);
+  assert.deepEqual(at("Never use yarn."), [2], "prose that mentions yarn is not an order");
+  assert.deepEqual(at("Use local postgres instead of the staging database."), [1]);
+  assert.deepEqual(at("Use pnpm, not npm, in this repo."), [5]);
+  assert.deepEqual(at("Don't mock the network in integration tests."), [], "unit tests are a different scope");
+  assert.deepEqual(at("Keep changes small."), []);
 });
 
 test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {

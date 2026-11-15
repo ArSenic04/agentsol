@@ -297,18 +297,28 @@ const COMMON_SUBS = ["run", "test", "install", "i", "ci", "add", "exec", "x", "s
 const BEFORE = "(^|[\\s`'\"(>])";
 
 const NEGATION = /\b(never|don'?t|do not|stop|avoid|no longer)\s+/i;
+const INSTEAD = /\b(?:instead of|rather than)\s+|,\s*not\s+/i;
+/** "in unit tests" → "unit": a rule about integration tests does not contradict one about unit tests. */
+const scopeOf = (text: string): string | null => {
+  const m = /\b(?:in|for|during)\s+(?:the\s+|a\s+|an\s+)?([a-z0-9_.-]+)/i.exec(text);
+  return m ? m[1]!.toLowerCase() : null;
+};
 /**
  * Lines that tell agents to do what a repeated correction forbids ("never edit gen/" against
  * "Edit gen/ when the API changes"), each replaced by the correction's rule.
  */
 export function saidConflicts(rule: string, files: readonly InstructionFile[]): LessonConflict[] {
-  const m = NEGATION.exec(rule);
+  const m = NEGATION.exec(rule) ?? INSTEAD.exec(rule);
   if (!m) return [];
   const body = rule.slice(m.index + m[0].length);
   const lead = /^(?:use|run)\s+/i.exec(body)?.[0] ?? "";
-  const clause = lead + (body.slice(lead.length).split(/[,;.!]|\b(?:use|run|instead|rather|but|and then)\b/i)[0] ?? "");
+  const clause = lead + (body.slice(lead.length).split(/[,;.!]|\b(?:use|run|instead|rather|but|and then|in this)\b/i)[0] ?? "");
   const banned = words(clause);
   if (banned.size === 0) return [];
+  // One banned word ("never use yarn") only counts where the line tells agents to use it, not in prose.
+  const only = banned.size === 1 ? esc([...banned][0]!) : null;
+  const ruleScope = scopeOf(clause);
+  const asOrder = only ?new RegExp(`\`${only}|^\\s*(?:[-*+]|\\d+[.)])?\\s*${only}\\b|\\b(?:use|run|with|via|using)\\s+${only}\\b`, "i") : null;
   const out: LessonConflict[] = [];
   for (const f of files) {
     const masked = new Set(f.redacted ?? []);
@@ -319,7 +329,9 @@ export function saidConflicts(rule: string, files: readonly InstructionFile[]): 
       const have = words(text);
       let shared = 0;
       for (const w of banned) if (have.has(w)) shared += 1;
-      if (shared < Math.min(2, banned.size) || shared / banned.size < 0.6) return;
+      if (shared < Math.min(2, banned.size) || shared / banned.size < 0.6 || (asOrder && !asOrder.test(text))) return;
+      const lineScope = scopeOf(text);
+      if (ruleScope && lineScope && ruleScope !== lineScope) return;
       const prefix = /^\s*(?:[-*+]|\d+[.)])\s+/.exec(text)?.[0] ?? "";
       out.push({ file: f.relPath, line: i + 1, text, replacement: `${prefix}${rule}` });
     });
