@@ -187,7 +187,7 @@ const parse = <S extends z.ZodType>(schema: S, input: unknown): ServiceResult<z.
   return fail("invalid_input", "Input does not match the schema", r.error.issues.slice(0, 10).map((i) => ({ path: i.path.join("."), message: publicText(i.message) })));
 };
 
-export type AssistantServiceOptions = { reporter: () => string; onInternalError: InternalErrorSink; machine?: MachineContext };
+export type AssistantServiceOptions = { reporter: () => string; onInternalError: InternalErrorSink; machine?: MachineContext; workingDir?: string };
 
 export function createAssistantService(store: WorkspaceStore, opts: AssistantServiceOptions) {
   const sink = opts.onInternalError;
@@ -222,6 +222,9 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
       const r = hit ? list.find((x) => x.projectId === hit.projectId) : undefined;
       return r ? ok(r) : fail("not_found", `This folder is not in a registered Agentsol project, so there are no lessons for it. ${setUp}`);
     }
+    const here = opts.workingDir ? lookupIn(list)(opts.workingDir) : null;
+    const mine = here ? list.find((x) => x.projectId === here.projectId) : undefined;
+    if (mine) return ok(mine);
     if (list.length === 1 && list[0]) return ok(list[0]);
     return fail("invalid_input", list.length === 0 ? `No project is registered. ${setUp}` : "Pass path (the folder you work in) or projectId");
   };

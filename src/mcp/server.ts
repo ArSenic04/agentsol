@@ -93,7 +93,7 @@ const stderrSink: InternalErrorSink = (operation, error) => {
 };
 
 /** Builds the MCP server. Exposes inspection, findings, proposals and status only. */
-export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink; machine?: MachineContext } = {}): McpServer {
+export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalError?: InternalErrorSink; machine?: MachineContext; cwd?: string } = {}): McpServer {
   const server = new McpServer({ name: "agentsol", version: PRODUCT_VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10_000 });
   const svc = createAssistantService(store, {
     reporter: () => {
@@ -102,6 +102,8 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
     },
     onInternalError: opts.onInternalError ?? stderrSink,
     ...(opts.machine ? { machine: opts.machine } : {}),
+    // Claude Code and Codex start the server in the project folder, so a call without path means this folder.
+    workingDir: opts.cwd ?? process.cwd(),
   });
   const ro = { readOnlyHint: true } as const;
   const write = { readOnlyHint: false, destructiveHint: false } as const;
@@ -211,7 +213,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
 
   server.registerTool(
     "project_briefing",
-    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
+    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId; without either, the folder the server started in is used. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
     async (args) => reply(await svc.briefing(args)),
   );
 

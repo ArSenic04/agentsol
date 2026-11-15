@@ -632,6 +632,22 @@ test("project_briefing tells an agent starting work what to follow, which lines 
     assert.match(npmTest.text, /Run instead: pnpm test/);
     assert.equal((await check("make release")).verdict, "ask");
     assert.equal((await check("pnpm test")).verdict, "ok");
+
+    const other = await fixture({ "AGENTS.md": "# Other\n" });
+    let here: Client | undefined;
+    try {
+      assert.equal(spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "project", "add", other.root], { env, encoding: "utf8" }).status, 0);
+      const vague = await call({});
+      assert.equal(vague.isError, true, "two projects and a server started elsewhere: the agent must say where it works");
+      here = new Client({ name: "briefing-here", version: "0.0.0" });
+      await here.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: path.join(fx.root, "src"), stderr: "pipe", env }));
+      const r = await here.callTool({ name: "project_briefing", arguments: {} });
+      assert.ok(r.isError !== true, JSON.stringify(r));
+      assert.equal((JSON.parse((r.content as { text: string }[])[0]!.text) as { sessionsRead: number }).sessionsRead, 2, "without path, the folder the server started in is used");
+    } finally {
+      await here?.close();
+      await other.cleanup();
+    }
     assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), agents, "a briefing never writes files");
   } finally {
     await client?.close();
