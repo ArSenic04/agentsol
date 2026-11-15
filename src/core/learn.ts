@@ -88,14 +88,17 @@ function activeMs(steps: readonly SessionStep[], from: number, to: number): numb
 }
 
 /** The command that matters in a command line: skips cd, echo, pipes into tail or grep, and redirections. */
-export function mainCommand(command: string): string[] | null {
+function realCommands(command: string): string[][] {
+  const out: string[][] = [];
   for (const seg of commandSegments(command)) {
     const w = strip(seg).filter((x, i, all) => !/^\d*[<>]/.test(x) && !/^\d*[<>]+$/.test(all[i - 1] ?? ""));
     const head = programName(w[0] ?? "");
-    if (!head || IDLE.has(head)) continue;
-    return [head, ...w.slice(1, 8)];
+    if (head && !IDLE.has(head)) out.push([head, ...w.slice(1, 8)]);
   }
-  return null;
+  return out;
+}
+export function mainCommand(command: string): string[] | null {
+  return realCommands(command)[0] ?? null;
 }
 
 const join = (w: readonly string[]): string => w.join(" ");
@@ -112,12 +115,31 @@ function matchOf(g: Group): LessonMatch | null {
 export type CommandAdvice = { lessonId: string; verdict: "change" | "ask"; reason: string; instead: string | null };
 /** What past sessions say about a command before it runs: a version that works here, or that it never worked. */
 export function commandAdvice(command: string, lessons: readonly Pick<Lesson, "id" | "kind" | "rule" | "title" | "times" | "sessions" | "match">[]): CommandAdvice[] {
-  const w = mainCommand(command);
-  if (!w) return [];
-  const line = join(w);
+  const all = realCommands(command);
+  if (!all.length) return [];
+  const heads = new Set(all.map((w) => w[0]));
+  const lines = all.map(join);
   // Swap only where the program is the command being run, not an argument such as `echo npm`.
   const isHead = (before: string): boolean => {
-    const seg = before.split(/[;&|(\n]|(?:^|\s)-\w*c\s+['"]|\/[ck]\s+/i).pop() ?? "";
+    // Separators inside quoted text don't start a command; a quote after `-c` or `/c` does.
+    let start = 0;
+    let quote = "";
+    for (let i = 0; i < before.length; i++) {
+      const ch = before.charAt(i);
+      if (quote) {
+        if (ch === "\\" && quote === '"') i++;
+        else if (ch === quote) quote = "";
+        continue;
+      }
+      if (ch === "\\") i++;
+      else if (/[;&|(\n]/.test(ch)) start = i + 1;
+      else if (ch === "'" || ch === '"') {
+        if (/(?:^|\s)-\w*c\s+$|(?:^|\s)\/[ck]\s+$/i.test(before.slice(start, i))) start = i + 1;
+        else quote = ch;
+      }
+    }
+    if (quote) return false;
+    const seg = before.slice(start).split(/(?:^|\s)\/[ck]\s+/i).pop() ?? "";
     const ws = seg.trim().split(/\s+/).filter(Boolean);
     return strip([...ws, "\0"]).length === 1;
   };
@@ -133,10 +155,10 @@ export function commandAdvice(command: string, lessons: readonly Pick<Lesson, "i
   const count = (l: { times: number; sessions: number }): string => `${l.times} time${l.times === 1 ? "" : "s"} in ${l.sessions} session${l.sessions === 1 ? "" : "s"}`;
   for (const l of lessons) {
     const m = l.match;
-    if (m?.kind === "program" && w[0] === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `\`${m.bad}\` failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
-    else if (m?.kind === "runner" && w[0] === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `Running \`${m.bad}\` directly failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
-    else if (m?.kind === "command" && m.bad && line === m.bad) out.push({ lessonId: l.id, verdict: "change", reason: `This failed here ${count(l)}; \`${m.good}\` worked.`, instead: m.good });
-    else if (m?.kind === "never" && (line === m.bad || line.startsWith(`${m.bad} `))) out.push({ lessonId: l.id, verdict: "ask", reason: `This failed here ${count(l)} and was never fixed. Ask the person how to run it.`, instead: null });
+    if (m?.kind === "program" && heads.has(m.bad)) out.push({ lessonId: l.id, verdict: "change", reason: `\`${m.bad}\` failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
+    else if (m?.kind === "runner" && heads.has(m.bad)) out.push({ lessonId: l.id, verdict: "change", reason: `Running \`${m.bad}\` directly failed here ${count(l)}; \`${m.good}\` worked.`, instead: swapWord(m.bad, m.good) });
+    else if (m?.kind === "command" && m.bad && lines.includes(m.bad)) out.push({ lessonId: l.id, verdict: "change", reason: `\`${m.bad}\` failed here ${count(l)}; \`${m.good}\` worked.`, instead: command.includes(m.bad) ? command.replace(m.bad, () => m.good) : all.length === 1 ? m.good : null });
+    else if (m?.kind === "never" && lines.some((x) => x === m.bad || x.startsWith(`${m.bad} `))) out.push({ lessonId: l.id, verdict: "ask", reason: `This failed here ${count(l)} and was never fixed. Ask the person how to run it.`, instead: null });
     else if (l.kind === "correction" && l.rule && saidConflicts(l.rule, [{ relPath: "command", lines: [`\`${command.replace(/`/g, "")}\``] }]).length > 0) out.push({ lessonId: l.id, verdict: "ask", reason: `The person told agents more than once: ${l.rule}`, instead: null });
   }
   return out;

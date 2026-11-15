@@ -675,9 +675,15 @@ test("commandAdvice matches a command against lessons before it runs", () => {
   assert.deepEqual(ask("sudo -E npm install"), [["L-pm", "change", "sudo -E pnpm install"]]);
   assert.deepEqual(ask("CI=1 npm test"), [["L-pm", "change", "CI=1 pnpm test"]]);
   assert.deepEqual(ask("cmd /c npm test"), [["L-pm", "change", "cmd /c pnpm test"]]);
+  assert.deepEqual(ask(`cmd /c "npm test"`), [["L-pm", "change", `cmd /c "pnpm test"`]]);
+  assert.deepEqual(ask(`echo "a; npm" && npm test`), [["L-pm", "change", `echo "a; npm" && pnpm test`]]);
+  assert.deepEqual(ask("git commit -m 'drop npm; npm is slow' && npm ci"), [["L-pm", "change", "git commit -m 'drop npm; npm is slow' && pnpm ci"]]);
+  assert.deepEqual(ask("git add -A && npm test"), [["L-pm", "change", "git add -A && pnpm test"]]);
+  assert.deepEqual(ask("cd app && make release VERSION=1"), [["L-never", "ask", null]]);
   assert.deepEqual(ask("npx jest"), []);
   assert.deepEqual(ask("jest --ci"), [["L-run", "change", "npx jest --ci"]]);
   assert.deepEqual(ask("npm run tst").map((x) => x[0]), ["L-pm", "L-cmd"]);
+  assert.deepEqual(ask("cd app && npm run tst").find((x) => x[0] === "L-cmd"), ["L-cmd", "change", "cd app && npm run test"]);
   assert.deepEqual(ask("make release VERSION=1"), [["L-never", "ask", null]]);
   assert.deepEqual(ask("make test"), []);
   assert.deepEqual(ask("git push --force origin main"), [["L-said", "ask", null]]);
