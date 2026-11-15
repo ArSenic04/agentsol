@@ -33,7 +33,7 @@ import type { WorkspaceStore } from "../store.ts";
 import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type ServiceResult } from "./errors.ts";
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
-import { learnLessons, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
+import { codexFileIn, learnLessons, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
 import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
@@ -424,11 +424,14 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
           const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file) });
           const clients = new Set(report.lessons.flatMap((l) => l.clients));
           // Rules go where the apps that made the mistakes will read them.
-          const claudeOnly = clients.size > 0 && !clients.has("codex") && !readsFile("claude-code", "AGENTS.md", files.map((x) => x.file));
+          const fl = files.map((x) => x.file);
+          const codexName = codexFileIn("", fl);
+          const claudeOnly = clients.size > 0 && !clients.has("codex") && !readsFile("claude-code", codexName, fl);
           const claudeFile = first(["CLAUDE.md", ".claude/CLAUDE.md"]);
-          const pick = claudeOnly && claudeFile ? claudeFile : first(["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"]);
+          const pick = claudeOnly && claudeFile ? claudeFile : first([codexName, "CLAUDE.md", ".claude/CLAUDE.md"]);
+          if (pick?.src.relPath === codexName && codexName !== "AGENTS.md" && first(["AGENTS.md"])) report.notes.push(`Rules go to ${codexName}: Codex reads it instead of AGENTS.md in the same folder, so rules in AGENTS.md never reach Codex.`);
           report.lessons = report.lessons.map((l) => ({ ...l, alreadyInFile: pick !== null && l.coveredIn.includes(pick.src.relPath) }));
-          if (pick && pick === claudeFile && claudeOnly && first(["AGENTS.md"])) report.notes.push(`Rules go to ${pick.src.relPath} because only Claude Code made these mistakes and it does not read AGENTS.md. If you also use Codex, keep rules in AGENTS.md and add a line with @AGENTS.md to ${pick.src.relPath}.`);
+          if (pick && pick === claudeFile && claudeOnly && first([codexName])) report.notes.push(`Rules go to ${pick.src.relPath} because only Claude Code made these mistakes and it does not read ${codexName}. If you also use Codex, keep rules in ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
           const rationale = (what: string): string => `Agentsol lessons: ${what} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`;
           const change = pick ? lessonsChange(pick.file, report.lessons) : null;
           const what = (c: { fixed: number; added: string[] }): string => [c.fixed ? `${c.fixed} corrected line${c.fixed === 1 ? "" : "s"}` : "", c.added.length ? `${c.added.length} rule${c.added.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
@@ -438,12 +441,12 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
             return c.edits.length ? [{ relPath: x.src.relPath, sourceId: x.src.id, baseVersionId: x.v.id, edits: c.edits, rationale: rationale(what(c)) }] : [];
           });
           const has = (rel: string): boolean => files.some((x) => x.src.relPath === rel);
-          if (pick?.src.relPath === "AGENTS.md" && clients.has("claude-code") && !readsFile("claude-code", "AGENTS.md", files.map((x) => x.file))) {
+          if (pick?.src.relPath === codexName && clients.has("claude-code") && !readsFile("claude-code", codexName, fl)) {
             report.notes.push(has("CLAUDE.md")
-              ? "CLAUDE.md does not import AGENTS.md, so Claude Code will not see these rules. Add a line with @AGENTS.md to CLAUDE.md."
-              : "Claude Code made some of these mistakes, and it reads CLAUDE.md, not AGENTS.md. Create CLAUDE.md with one line: @AGENTS.md");
+              ? `CLAUDE.md does not import ${codexName}, so Claude Code will not see these rules. Add a line with @${codexName} to CLAUDE.md.`
+              : `Claude Code made some of these mistakes, and it reads CLAUDE.md, not ${codexName}. Create CLAUDE.md with one line: @${codexName}`);
           }
-          if (pick && pick.src.relPath !== "AGENTS.md" && clients.has("codex")) report.notes.push(`Codex made some of these mistakes, and it reads AGENTS.md, not ${pick.src.relPath}. Move the rules to AGENTS.md and add a line with @AGENTS.md to ${pick.src.relPath}.`);
+          if (pick && pick.src.relPath !== codexName && clients.has("codex")) report.notes.push(`Codex made some of these mistakes, and it reads ${codexName}, not ${pick.src.relPath}. Move the rules to ${codexName} and add a line with @${codexName} to ${pick.src.relPath}.`);
           const rules = [...new Set(report.lessons.filter((l) => l.rule).map((l) => l.rule as string))].slice(0, 12);
           const newName = clients.size > 0 && !clients.has("codex") ? "CLAUDE.md" : "AGENTS.md";
           projects.push({

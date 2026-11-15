@@ -387,14 +387,21 @@ export function conflictsFor(swap: Swap | undefined, files: readonly Instruction
 
 const CLIENT_NAME: Record<SessionClient, string> = { "claude-code": "Claude Code", codex: "Codex" };
 const base = (rel: string): string => rel.split("/").pop() ?? rel;
+const dirOf = (rel: string): string => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/") + 1) : "");
+/** The file Codex loads from a folder: a non-empty AGENTS.override.md replaces AGENTS.md there. */
+export function codexFileIn(dir: string, files: readonly InstructionFile[]): string {
+  const over = files.find((f) => f.relPath === `${dir}AGENTS.override.md` && f.lines.some((l) => l.trim() !== ""));
+  return over ? over.relPath : `${dir}AGENTS.md`;
+}
 /** Whether an app loads this instruction file on its own. Claude Code reads AGENTS.md only through an @AGENTS.md import. */
 export function readsFile(client: SessionClient, rel: string, files: readonly InstructionFile[]): boolean {
   const b = base(rel);
-  if (client === "codex") return b === "AGENTS.md" || b === "AGENTS.override.md";
+  const dir = dirOf(rel);
+  if (client === "codex") return (b === "AGENTS.md" || b === "AGENTS.override.md") && codexFileIn(dir, files) === rel;
   if (b === "CLAUDE.md" || b === "CLAUDE.local.md") return true;
-  if (b !== "AGENTS.md") return false;
-  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/") + 1) : "";
-  return files.some((f) => base(f.relPath) === "CLAUDE.md" && (f.relPath.startsWith(dir) || f.relPath === ".claude/CLAUDE.md") && f.lines.some((l) => new RegExp(`^\\s*@(\\./)?${esc(rel.slice(dir.length))}\\b`).test(l) || /^\s*@(\.\/)?AGENTS\.md\b/.test(l)));
+  if (b !== "AGENTS.md" && b !== "AGENTS.override.md") return false;
+  const name = new RegExp(`^\\s*@(\\./)?${esc(b)}(?![\\w.])`);
+  return files.some((f) => base(f.relPath) === "CLAUDE.md" && (f.relPath.startsWith(dir) || f.relPath === ".claude/CLAUDE.md") && f.lines.some((l) => name.test(l)));
 }
 
 function whyRepeated(clients: readonly SessionClient[], coveredIn: readonly string[], files: readonly InstructionFile[]): string | null {
@@ -403,8 +410,10 @@ function whyRepeated(clients: readonly SessionClient[], coveredIn: readonly stri
   const where = coveredIn.join(" and ");
   if (blind.length === 0) return `Agents had this rule in ${where} and repeated the mistake anyway. Make it more specific (the exact command or file), or move it near the top.`;
   const names = blind.map((c) => CLIENT_NAME[c]).join(" and ");
-  if (blind.includes("codex")) return `The rule is in ${where}, but ${names} made this mistake and ${blind.length === 1 ? "does" : "do"} not read ${coveredIn.length === 1 ? "it" : "them"}. Codex reads AGENTS.md; put the rule there${blind.includes("claude-code") ? " and add @AGENTS.md to CLAUDE.md" : ""}.`;
-  return `The rule is in ${where}, but Claude Code made this mistake and does not read ${coveredIn.length === 1 ? "it" : "them"}. Add a line with @AGENTS.md to CLAUDE.md, or put the rule in CLAUDE.md.`;
+  const codex = codexFileIn("", files);
+  const reads = codex === "AGENTS.md" ? "Codex reads AGENTS.md" : `Here Codex reads ${codex}, which replaces AGENTS.md`;
+  if (blind.includes("codex")) return `The rule is in ${where}, but ${names} made this mistake and ${blind.length === 1 ? "does" : "do"} not read ${coveredIn.length === 1 ? "it" : "them"}. ${reads}; put the rule there${blind.includes("claude-code") ? ` and add @${codex} to CLAUDE.md` : ""}.`;
+  return `The rule is in ${where}, but Claude Code made this mistake and does not read ${coveredIn.length === 1 ? "it" : "them"}. Add a line with @${base(coveredIn.find((f) => base(f).startsWith("AGENTS")) ?? "AGENTS.md")} to CLAUDE.md, or put the rule in CLAUDE.md.`;
 }
 
 export type LearnOptions = {

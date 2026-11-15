@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fileURLToPath } from "node:url";
-import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts } from "../src/core/learn.ts";
+import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts, codexFileIn } from "../src/core/learn.ts";
 import { canonicalPath, programName } from "../src/core/sessions.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
 
@@ -294,6 +294,24 @@ test("a correction contradicts only lines that order the opposite, in the same s
   assert.deepEqual(at("Use pnpm, not npm, in this repo."), [5]);
   assert.deepEqual(at("Don't mock the network in integration tests."), [], "unit tests are a different scope");
   assert.deepEqual(at("Keep changes small."), []);
+});
+
+test("Codex reads a non-empty AGENTS.override.md instead of AGENTS.md in the same folder", () => {
+  const files = [
+    { relPath: "AGENTS.md", lines: ["- Use pnpm."] },
+    { relPath: "AGENTS.override.md", lines: ["- Keep diffs small."] },
+    { relPath: "CLAUDE.md", lines: ["@AGENTS.md"] },
+    { relPath: "pkg/AGENTS.md", lines: ["- Run make."] },
+    { relPath: "pkg/AGENTS.override.md", lines: ["", "  "] },
+  ];
+  assert.equal(codexFileIn("", files), "AGENTS.override.md");
+  assert.equal(codexFileIn("pkg/", files), "pkg/AGENTS.md", "an empty override is skipped");
+  assert.equal(readsFile("codex", "AGENTS.md", files), false);
+  assert.equal(readsFile("codex", "AGENTS.override.md", files), true);
+  assert.equal(readsFile("codex", "pkg/AGENTS.md", files), true);
+  assert.equal(readsFile("claude-code", "AGENTS.md", files), true);
+  assert.equal(readsFile("claude-code", "AGENTS.override.md", files), false, "@AGENTS.md does not import the override");
+  assert.equal(readsFile("claude-code", "AGENTS.override.md", [...files.slice(0, 2), { relPath: "CLAUDE.md", lines: ["@AGENTS.override.md"] }]), true);
 });
 
 test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {
