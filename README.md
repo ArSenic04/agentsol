@@ -142,7 +142,7 @@ It exits 1 on danger, so it works as a CI gate. The same engine runs as the `ins
 Agents forget between sessions, so they repeat the same mistakes in the same project. `learn` reads the Claude Code and Codex transcripts on your machine for sessions started in this folder and finds four kinds of lesson:
 
 - **command**: a command that fails here and the one that works (`npm test` fails, `pnpm test` works).
-- **you said**: something you told agents in two or more sessions, quoted masked and shortened.
+- **you said**: something you told agents in two or more sessions ("no, use pnpm", "from now on…", "make sure you…", "I told you to…"), turned into a plain rule, masked and shortened. Text the app adds itself, like Codex's copy of AGENTS.md, is never counted as you.
 - **fragile**: a file agents edit, break and re-edit before a check passes, with the check that finally passed.
 - **failing**: a command that failed in several sessions and never worked anywhere; it asks you how to run it.
 

@@ -92,7 +92,7 @@ type Parsed = {
 export type Said = { at: string | null; afterStep: number; text: string };
 export type ParsedSession = Parsed;
 
-const CORRECTION = /^(no\b|nope\b|wrong\b|stop\b|don'?t\b|do not\b|never\b|not that\b|that'?s (wrong|not)\b|i (said|told you|asked)\b|please (don'?t|do not|stop|use|always|never)\b|you (should|need to|forgot|must)\b|always\b|use\b)|\b(instead of|rather than|i told you|i said|you forgot|again[,.!]|every time|not npm|not yarn)\b/i;
+const CORRECTION = /^(no\b|nope\b|wrong\b|stop\b|don'?t\b|do not\b|never\b|not that\b|that'?s (wrong|not)\b|i (said|told you|asked)\b|please (don'?t|do not|stop|use|always|never)\b|you (should|need to|forgot|must)\b|always\b|use\b|(actually|wait|hmm|ugh)[\s,.!-]+(no\b|use\b|run\b|don'?t\b|never\b|always\b))|\b(from now on|going forward|in (the )?future|remember to|make sure (to|you)|instead of|rather than|i told you|i said|you forgot|again[,.!]|every time|not npm|not yarn)\b/i;
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Rec) : null);
@@ -146,7 +146,8 @@ class Builder {
   }
   userText(text: string, at: string | null = null): void {
     const t = text.trim();
-    if (!t || t.startsWith("<") || t.startsWith("[")) return;
+    // Codex adds AGENTS.md and environment context as user messages; they are files, not the person.
+    if (!t || t.startsWith("<") || t.startsWith("[") || t.startsWith("# AGENTS.md instructions for ")) return;
     this.userTurns += 1;
     if (t.length <= 400 && !t.includes("\n\n") && CORRECTION.test(t)) this.said.push({ at, afterStep: this.steps.length, text: t });
     for (const k of secretKinds(t.slice(0, MAX_SCAN_CHARS))) if (!this.userSecrets.includes(k)) this.userSecrets.push(k);

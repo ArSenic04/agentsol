@@ -103,6 +103,10 @@ test("lesson helpers", () => {
     assert.deepEqual(mainCommand(c), ["npm", "test"], c);
   }
   assert.equal(ruleFromCorrection("no, always run the linter"), "Always run the linter.");
+  assert.equal(ruleFromCorrection("from now on use pnpm"), "Use pnpm.");
+  assert.equal(ruleFromCorrection("make sure you run the tests before committing"), "Run the tests before committing.");
+  assert.equal(ruleFromCorrection("I told you to use uv"), "Use uv.");
+  assert.equal(ruleFromCorrection("make sure that the build passes"), "Make sure that the build passes.");
   const add = lessonsEdit(["# Rules", "", "- one", ""], ["Use `pnpm`."]);
   assert.deepEqual(add, { startLine: 3, endLine: 3, expectedText: "- one", replacementLines: ["- one", "", LESSONS_HEADING, "", add!.replacementLines[4]!, "", "- Use `pnpm`."] });
   const more = lessonsEdit(["# Rules", LESSONS_HEADING, "", "- old", "", "## Other", "x"], ["New."]);

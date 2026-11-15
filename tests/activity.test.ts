@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createAssistantService } from "../src/core/service/assistant.ts";
 import { inspectFiles, instructionRisks } from "../src/core/risks.ts";
 import { secretKinds } from "../src/core/secrets.ts";
-import { commandSegments, listSessions, parseSince, reviewSession, shellSegments } from "../src/core/sessions.ts";
+import { commandSegments, listSessions, parseSince, parseTranscript, reviewSession, shellSegments } from "../src/core/sessions.ts";
 import { auditSetup, isPinned, parseTomlSubset } from "../src/core/setup.ts";
 import { fixture, tempDir, writeTree, type Fixture } from "./helpers.ts";
 
@@ -205,6 +205,21 @@ test("session parsing helpers", () => {
   const now = Date.parse("2026-11-13T00:00:00Z");
   assert.equal(parseSince("2d", now)?.toISOString(), "2026-11-11T00:00:00.000Z");
   assert.equal(parseSince("nonsense", now), null);
+});
+
+test("Codex's injected AGENTS.md is not something the person typed", async () => {
+  const dir = await tempDir("codex-inject");
+  try {
+    const user = (text: string): string => JSON.stringify({ timestamp: at(1), type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text }] } });
+    const file = path.join(dir, "rollout.jsonl");
+    await writeTree(dir, { "rollout.jsonl": [user(`# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\n- Never use npm. Example key ${FAKE}\n</INSTRUCTIONS>`), user("<environment_context>x</environment_context>"), user("from now on use pnpm")].join("\n") + "\n" });
+    const p = await parseTranscript(file, "codex");
+    assert.equal(p.userTurns, 1);
+    assert.deepEqual(p.userSecrets, []);
+    assert.deepEqual(p.said.map((x) => x.text), ["from now on use pnpm"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("assistant service: sessions limited to registered projects, paths hidden, grades validated", async () => {

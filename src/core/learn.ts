@@ -126,8 +126,8 @@ const tokensFor = (s: LoadedSession, lostSteps: number): number => {
 
 /** Turns a correction the person typed into a rule line. */
 export function ruleFromCorrection(text: string): string {
-  let t = text.replace(/\s+/g, " ").trim().replace(/^((no|nope|wrong|stop|ugh|again|hey|ok|okay)\b[\s,.!:;-]*)+/i, "").trim();
-  t = t.replace(/^please\s+/i, "");
+  const lead = /^((no|nope|wrong|stop|ugh|again|hey|ok|okay|actually|wait|hmm|so|and|also)\b[\s,.!:;-]*|(from now on|going forward|in (the )?future|next time)\b[\s,:;-]*|please\s+|(i (said|told you|asked you)|you (should|need to|must|forgot)|remember(?= to\b)|make sure(?! that\b)( you)?)\s+(to\s+)?)+/i;
+  let t = text.replace(/\s+/g, " ").trim().replace(lead, "").trim();
   if (t.length > 200) t = `${t.slice(0, 197).replace(/\s+\S*$/, "")}…`;
   t = t.charAt(0).toUpperCase() + t.slice(1);
   return /[.!?…]$/.test(t) ? t : `${t}.`;
