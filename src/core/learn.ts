@@ -63,6 +63,7 @@ export const LESSON_KINDS: Record<LessonKind, string> = {
   failing: "a command that keeps failing and was never fixed",
 };
 export const LESSONS_HEADING = "## Lessons from past agent sessions";
+export const LESSONS_INTRO = "Rules learned from mistakes agents repeated in this project. Added after review with `agentsol learn`. If the agentsol tools are connected, call project_briefing with this folder before you start: it has lessons newer than this list.";
 export const LESSON_CAVEATS = [
   "Lessons come from patterns in Claude Code and Codex transcripts on this machine. They can miss mistakes and can suggest a rule that was right only once; read each before adding it.",
   "Time lost is the active time from the first failure to the fix, with pauses over 5 minutes counted as 5 minutes. Tokens lost are the session's tokens in proportion to the steps lost.",
@@ -561,8 +562,7 @@ export function lessonsEdit(lines: readonly string[], rules: readonly string[]):
   }
   let last = lines.length - 1;
   while (last > 0 && (lines[last] ?? "").trim() === "") last -= 1;
-  const intro = "Rules learned from mistakes agents repeated in this project. Added after review with `agentsol learn`.";
-  return { startLine: last + 1, endLine: last + 1, expectedText: lines[last] ?? "", replacementLines: [lines[last] ?? "", "", LESSONS_HEADING, "", intro, "", ...bullets] };
+  return { startLine: last + 1, endLine: last + 1, expectedText: lines[last] ?? "", replacementLines: [lines[last] ?? "", "", LESSONS_HEADING, "", LESSONS_INTRO, "", ...bullets] };
 }
 
 export type LessonEdit = { startLine: number; endLine: number; expectedText: string; replacementLines: string[] };

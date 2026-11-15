@@ -33,7 +33,7 @@ import type { WorkspaceStore } from "../store.ts";
 import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type ServiceResult } from "./errors.ts";
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
-import { codexFileIn, commandAdvice, learnLessons, type CommandAdvice, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
+import { codexFileIn, commandAdvice, learnLessons, type CommandAdvice, LESSON_CAVEATS, LESSONS_HEADING, LESSONS_INTRO, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
 import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
@@ -282,7 +282,7 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
       suggestedChange: pick && change && change.edits.length > 0 ? { sourceId: pick.src.id, baseVersionId: pick.v.id, edits: change.edits, rationale: rationale(what(change)) } : null,
       otherChanges,
       newFile: !pick && rules.length > 0 ? newName : null,
-      newFileText: !pick && rules.length > 0 ? ["# Agent instructions", "", LESSONS_HEADING, "", ...rules.map((x) => `- ${x}`), ""].join("\n") : null,
+      newFileText: !pick && rules.length > 0 ? ["# Agent instructions", "", LESSONS_HEADING, "", LESSONS_INTRO, "", ...rules.map((x) => `- ${x}`), ""].join("\n") : null,
     };
   };
 

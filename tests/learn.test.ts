@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { fileURLToPath } from "node:url";
-import { commandAdvice, learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection, saidConflicts, codexFileIn } from "../src/core/learn.ts";
+import { commandAdvice, learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, LESSONS_INTRO, mainCommand, readsFile, ruleFromCorrection, saidConflicts, codexFileIn } from "../src/core/learn.ts";
 import { canonicalPath, programName } from "../src/core/sessions.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
 
@@ -108,7 +108,8 @@ test("lesson helpers", () => {
   assert.equal(ruleFromCorrection("I told you to use uv"), "Use uv.");
   assert.equal(ruleFromCorrection("make sure that the build passes"), "Make sure that the build passes.");
   const add = lessonsEdit(["# Rules", "", "- one", ""], ["Use `pnpm`."]);
-  assert.deepEqual(add, { startLine: 3, endLine: 3, expectedText: "- one", replacementLines: ["- one", "", LESSONS_HEADING, "", add!.replacementLines[4]!, "", "- Use `pnpm`."] });
+  assert.deepEqual(add, { startLine: 3, endLine: 3, expectedText: "- one", replacementLines: ["- one", "", LESSONS_HEADING, "", LESSONS_INTRO, "", "- Use `pnpm`."] });
+  assert.match(LESSONS_INTRO, /call project_briefing/);
   const more = lessonsEdit(["# Rules", LESSONS_HEADING, "", "- old", "", "## Other", "x"], ["New."]);
   assert.deepEqual(more, { startLine: 4, endLine: 4, expectedText: "- old", replacementLines: ["- old", "- New."] });
 });
@@ -457,6 +458,7 @@ test("agentsol learn --propose corrects every file that is wrong; with no file i
     const n = JSON.parse(none.stdout) as { newFile: string | null; newFileText: string | null };
     assert.equal(n.newFile, "CLAUDE.md", "only Claude Code ran here, so the rules go where it reads them");
     assert.match(n.newFileText ?? "", /- Use `pnpm`, not `npm`/);
+    assert.ok((n.newFileText ?? "").includes(LESSONS_INTRO));
   } finally {
     await fx.cleanup();
     await bare.cleanup();
