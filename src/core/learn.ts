@@ -6,11 +6,14 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { containsSecretLike } from "./secrets.ts";
-import { listSessions, shellSegments, showCommand, strip, VERIFY, type LoadedSession, type ProjectLookup, type SessionContext, type SessionStep } from "./sessions.ts";
+import { canonicalPath, listSessions, programName, shellSegments, showCommand, strip, VERIFY, type LoadedSession, type ProjectLookup, type SessionClient, type SessionContext, type SessionStep } from "./sessions.ts";
 import { maskLaunch } from "./setup.ts";
 
 export type LessonKind = "command" | "correction" | "fragile" | "failing";
 export type LessonEvidence = { sessionId: string; step: number | null; at: string | null };
+/** A line in an instruction file that tells agents to do the thing that fails, and the fixed line. */
+export type LessonConflict = { file: string; line: number; text: string; replacement: string };
+export type InstructionFile = { relPath: string; lines: readonly string[]; redacted?: readonly number[] };
 export type Lesson = {
   id: string;
   kind: LessonKind;
@@ -22,8 +25,16 @@ export type Lesson = {
   lostSteps: number;
   lostMs: number;
   lostTokens: number;
-  /** The instruction file already covers this, yet agents still repeated it. */
+  /** The target instruction file already covers this, yet agents still repeated it. */
   alreadyInFile: boolean;
+  /** Instruction files that already state this rule. */
+  coveredIn: string[];
+  /** Lines in instruction files that tell agents to do what fails here. */
+  conflicts: LessonConflict[];
+  /** Which apps made the mistake. */
+  clients: SessionClient[];
+  /** Why a rule that is already written down did not stop the mistake, when that is knowable. */
+  why: string | null;
   evidence: LessonEvidence[];
 };
 export type LessonsReport = {
@@ -73,7 +84,7 @@ function activeMs(steps: readonly SessionStep[], from: number, to: number): numb
 export function mainCommand(command: string): string[] | null {
   for (const seg of shellSegments(command)) {
     const w = strip(seg).filter((x, i, all) => !/^\d*[<>]/.test(x) && !/^\d*[<>]+$/.test(all[i - 1] ?? ""));
-    const head = path.basename(w[0] ?? "");
+    const head = programName(w[0] ?? "");
     if (!head || IDLE.has(head)) continue;
     return [head, ...w.slice(1, 8)];
   }
@@ -95,8 +106,10 @@ function fixKind(a: readonly string[], b: readonly string[]): "program" | "runne
   return null;
 }
 
-type Hit = { sessionId: string; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
-type Group = { kind: LessonKind; title: string; rule: string | null; probe: string[]; hits: Hit[] };
+type Hit = { sessionId: string; client: SessionClient; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
+/** For command lessons: the program swap (npm to pnpm, with the subcommands seen) or the exact command pair. */
+type Swap = { program: [bad: string, good: string]; subs: Set<string> } | { command: [bad: string, good: string]; runner?: boolean };
+type Group = { kind: LessonKind; title: string; rule: string | null; probe: string[]; hits: Hit[]; swap?: Swap };
 
 const words = (t: string): Set<string> => new Set((t.toLowerCase().match(/[a-z0-9_.:@/`'-]{3,}/g) ?? []).map((x) => x.replace(/^[`'.]+|[`'.,:]+$/g, "")).filter((x) => x.length >= 3 && !STOP.has(x)));
 const jaccard = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => {
@@ -128,7 +141,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
     if (!x) { x = { ...g, hits: [] }; groups.set(key, x); }
     return x;
   };
-  const corrections: { sessionId: string; step: number | null; at: string | null; text: string; words: Set<string> }[] = [];
+  const corrections: { sessionId: string; client: SessionClient; step: number | null; at: string | null; text: string; words: Set<string> }[] = [];
   const failing = new Map<string, { shown: string; hits: Hit[] }>();
   const fragile = new Map<string, { verify: Map<string, number>; hits: Hit[] }>();
   const worked = new Set<string>();
@@ -137,6 +150,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
   for (const { session, root } of all) {
     const steps = session.parsed.steps;
     const id = session.summary.id;
+    const client = session.summary.client;
     const show = (w: readonly string[]): string => showCommand(join(w), session.actx);
     const fixed = new Set<number>();
     const resolved = new Set<number>();
@@ -159,12 +173,17 @@ function analyze(all: readonly Collected[], home: string): Group[] {
           fixed.add(j);
           resolved.add(i);
           const lostSteps = j - i;
-          const hit: Hit = { sessionId: id, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
+          const hit: Hit = { sessionId: id, client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
           const [a0, b0] = [a[0] ?? "", b[0] ?? ""];
           if (kind === "program" && a.length > 1) {
-            group(`program:${a0}>${b0}`, { kind: "command", title: `Agents use \`${a0}\` here, which fails; \`${b0}\` works (for example \`${show(b)}\`).`, rule: `Use \`${b0}\`, not \`${a0}\` (for example \`${show(b)}\`).`, probe: [b0] }).hits.push(hit);
+            const g = group(`program:${a0}>${b0}`, { kind: "command", title: `Agents use \`${a0}\` here, which fails; \`${b0}\` works (for example \`${show(b)}\`).`, rule: `Use \`${b0}\`, not \`${a0}\` (for example \`${show(b)}\`).`, probe: [b0], swap: { program: [a0, b0], subs: new Set() } });
+            g.hits.push(hit);
+            if (g.swap && "program" in g.swap && a[1]) g.swap.subs.add(a[1]);
+          } else if (kind === "runner" && b.length > a.length) {
+            const runner = show(b.slice(0, b.length - a.length));
+            group(`runner:${a0}>${runner}`, { kind: "command", title: `Agents run \`${a0}\` directly, which fails here; \`${runner} ${a0}\` works (for example \`${show(b)}\`).`, rule: `Run \`${a0}\` as \`${runner} ${a0}\` (for example \`${show(b)}\`).`, probe: [`${runner} ${a0}`], swap: { command: [a0, `${runner} ${a0}`], runner: true } }).hits.push(hit);
           } else {
-            group(`cmd:${join(a)}>${join(b)}`, { kind: "command", title: `Agents run \`${show(a)}\`, which fails here; \`${show(b)}\` works.`, rule: `Run \`${show(b)}\`, not \`${show(a)}\`.`, probe: [show(b)] }).hits.push(hit);
+            group(`cmd:${join(a)}>${join(b)}`, { kind: "command", title: `Agents run \`${show(a)}\`, which fails here; \`${show(b)}\` works.`, rule: `Run \`${show(b)}\`, not \`${show(a)}\`.`, probe: [show(b)], swap: { command: [show(a), show(b)] } }).hits.push(hit);
           }
         } else if (fixed.has(j)) resolved.add(i);
         break;
@@ -172,7 +191,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       if (!resolved.has(i) && !worked.has(join(a))) {
         const k = join(a);
         const f = failing.get(k) ?? { shown: show(a), hits: [] };
-        f.hits.push({ sessionId: id, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
+        f.hits.push({ sessionId: id, client, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
         failing.set(k, f);
       }
     }
@@ -201,8 +220,9 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       }
     }
     for (const [file, l] of loops) {
-      if (l.n < 2 || !(file === root || file.startsWith(root + path.sep))) continue;
-      const rel = path.relative(root, file).split(path.sep).join("/");
+      const real = canonicalPath(file);
+      if (l.n < 2 || !(real === root || real.startsWith(root + path.sep))) continue;
+      const rel = path.relative(root, real).split(path.sep).join("/");
       if (!rel || rel.startsWith("..")) continue;
       const pass = steps.slice(l.last + 1).find((t) => t.kind === "command" && t.failed === false && VERIFY.test(t.command ?? ""));
       const end = pass ? steps.indexOf(pass) : l.last;
@@ -210,14 +230,14 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       const v = pass ? mainCommand(pass.command ?? "") : null;
       if (v) { const shown = show(v); f.verify.set(shown, (f.verify.get(shown) ?? 0) + 1); }
       const lostSteps = steps.slice(l.first, end + 1).filter((t) => t.kind === "command" && t.failed === true).length + l.n;
-      f.hits.push({ sessionId: id, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
+      f.hits.push({ sessionId: id, client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
       fragile.set(rel, f);
     }
 
     for (const said of session.parsed.said) {
       const text = maskLaunch(said.text, home, 240);
       if (containsSecretLike(said.text)) continue;
-      corrections.push({ sessionId: id, step: said.afterStep > 0 ? said.afterStep : null, at: said.at, text, words: words(text) });
+      corrections.push({ sessionId: id, client, step: said.afterStep > 0 ? said.afterStep : null, at: said.at, text, words: words(text) });
     }
   }
 
@@ -253,7 +273,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       same.title += ` You also told agents this yourself in ${sessions.size} sessions.`;
       return;
     }
-    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
+    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
   });
 
   return [...groups.values()];
@@ -270,7 +290,89 @@ function covered(g: Group, fileText: string): boolean {
   return g.probe.length > 0 && g.probe.every((p) => lower.includes(p.toLowerCase().replace(/^`|`$/g, "")));
 }
 
-export type LearnOptions = { root: string; since: Date; project?: ProjectLookup; requireProject?: boolean; instructionText?: string; limit?: number };
+const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Lines that already warn against the command are advice, not a conflict. */
+const NEGATED = /\b(never|don'?t|do not|not|avoid|instead|rather than|no longer|deprecated|fails?|broken)\b/i;
+const COMMON_SUBS = ["run", "test", "install", "i", "ci", "add", "exec", "x", "start", "build", "lint", "dev"];
+const BEFORE = "(^|[\\s`'\"(>])";
+
+/** Lines in instruction files that tell agents to run what fails here, each with the corrected line. */
+export function conflictsFor(swap: Swap | undefined, files: readonly InstructionFile[]): LessonConflict[] {
+  if (!swap) return [];
+  let find: RegExp;
+  let good: RegExp;
+  let fix: (line: string) => string;
+  if ("program" in swap) {
+    const [bad, ok] = swap.program;
+    const subs = [...new Set([...swap.subs, ...COMMON_SUBS])].map(esc).join("|");
+    find = new RegExp(`${BEFORE}${esc(bad)}(?=\\s+(?:${subs})(?![\\w-]))`, "g");
+    good = new RegExp(`${BEFORE}${esc(ok)}(?![\\w-])`);
+    fix = (line) => line.replace(find, (_m, pre: string) => `${pre}${ok}`);
+  } else {
+    const [bad, ok] = swap.command;
+    // `uv run pytest` or `python -m pytest` already goes through a runner.
+    const via = swap.runner ? `(?<!(?:${[...RUNNERS].map(esc).join("|")})\\s+(?:run\\s+|exec\\s+|-m\\s+)?)` : "";
+    find = new RegExp(`${BEFORE}${via}${esc(bad)}(?![\\w:@/-]|\\.\\w)`, "g");
+    good = new RegExp(esc(ok));
+    fix = (line) => line.replace(find, (_m, pre: string) => `${pre}${ok}`);
+  }
+  // A bare word like `pytest` is only a command in code or right after "run"; in prose it is a topic.
+  const asCode = (text: string, fenced: boolean): boolean => {
+    if (fenced || "program" in swap) return true;
+    find.lastIndex = 0;
+    for (let m = find.exec(text); m; m = find.exec(text)) {
+      const before = text.slice(0, m.index + (m[1]?.length ?? 0));
+      if ((before.split("`").length - 1) % 2 === 1 || /\b(run|runs|running|execute|with)\s+$/i.test(before) || /^\s*([-*]\s+)?\$?\s*$/.test(before)) return true;
+    }
+    return false;
+  };
+  const out: LessonConflict[] = [];
+  for (const f of files) {
+    const masked = new Set(f.redacted ?? []);
+    let fenced = false;
+    f.lines.forEach((text, i) => {
+      if (/^\s*(```|~~~)/.test(text)) { fenced = !fenced; return; }
+      find.lastIndex = 0;
+      if (masked.has(i + 1) || !find.test(text) || good.test(text) || NEGATED.test(text) || !asCode(text, fenced)) return;
+      find.lastIndex = 0;
+      const replacement = fix(text);
+      if (replacement !== text) out.push({ file: f.relPath, line: i + 1, text, replacement });
+    });
+  }
+  return out;
+}
+
+const CLIENT_NAME: Record<SessionClient, string> = { "claude-code": "Claude Code", codex: "Codex" };
+const base = (rel: string): string => rel.split("/").pop() ?? rel;
+/** Whether an app loads this instruction file on its own. Claude Code reads AGENTS.md only through an @AGENTS.md import. */
+export function readsFile(client: SessionClient, rel: string, files: readonly InstructionFile[]): boolean {
+  const b = base(rel);
+  if (client === "codex") return b === "AGENTS.md" || b === "AGENTS.override.md";
+  if (b === "CLAUDE.md" || b === "CLAUDE.local.md") return true;
+  if (b !== "AGENTS.md") return false;
+  const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/") + 1) : "";
+  return files.some((f) => base(f.relPath) === "CLAUDE.md" && (f.relPath.startsWith(dir) || f.relPath === ".claude/CLAUDE.md") && f.lines.some((l) => new RegExp(`^\\s*@(\\./)?${esc(rel.slice(dir.length))}\\b`).test(l) || /^\s*@(\.\/)?AGENTS\.md\b/.test(l)));
+}
+
+function whyRepeated(clients: readonly SessionClient[], coveredIn: readonly string[], files: readonly InstructionFile[]): string | null {
+  if (coveredIn.length === 0) return null;
+  const blind = clients.filter((c) => !coveredIn.some((f) => readsFile(c, f, files)));
+  const where = coveredIn.join(" and ");
+  if (blind.length === 0) return `Agents had this rule in ${where} and repeated the mistake anyway. Make it more specific (the exact command or file), or move it near the top.`;
+  const names = blind.map((c) => CLIENT_NAME[c]).join(" and ");
+  if (blind.includes("codex")) return `The rule is in ${where}, but ${names} made this mistake and ${blind.length === 1 ? "does" : "do"} not read ${coveredIn.length === 1 ? "it" : "them"}. Codex reads AGENTS.md; put the rule there${blind.includes("claude-code") ? " and add @AGENTS.md to CLAUDE.md" : ""}.`;
+  return `The rule is in ${where}, but Claude Code made this mistake and does not read ${coveredIn.length === 1 ? "it" : "them"}. Add a line with @AGENTS.md to CLAUDE.md, or put the rule in CLAUDE.md.`;
+}
+
+export type LearnOptions = {
+  root: string; since: Date; project?: ProjectLookup; requireProject?: boolean; limit?: number;
+  /** Text of the target instruction file (kept for callers that only have one file). */
+  instructionText?: string;
+  /** Every instruction file in the project, for conflicts and for where rules already live. */
+  files?: readonly InstructionFile[];
+  /** relPath of the file new rules go into. */
+  target?: string;
+};
 
 /** Reads past sessions that ran inside `root` and returns the lessons, most costly first. */
 export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Promise<LessonsReport> {
@@ -278,19 +380,30 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
   const list = await listSessions(ctx, {
     since: opts.since, limit: opts.limit ?? 300, cwdWithin: opts.root, requireProject: opts.requireProject ?? false,
     ...(opts.project ? { project: opts.project } : {}),
-    onLoaded: (session) => collected.push({ session, root: opts.root }),
+    onLoaded: (session) => collected.push({ session, root: canonicalPath(opts.root) }),
   });
+  const files: readonly InstructionFile[] = opts.files ?? (opts.instructionText ? [{ relPath: opts.target ?? "AGENTS.md", lines: opts.instructionText.split(/\r?\n/) }] : []);
+  const target = opts.target ?? files[0]?.relPath ?? null;
   const lessons: Lesson[] = analyze(collected, ctx.home)
     .filter((g) => g.kind !== "command" || g.hits.length >= 2 || g.title.includes("for example"))
     .map((g): Lesson => {
       const sessions = new Set(g.hits.map((h) => h.sessionId));
       const sum = (k: "lostSteps" | "lostMs" | "lostTokens"): number => g.hits.reduce((a, h) => a + h[k], 0);
       const key = `${g.kind}:${g.rule ?? g.title}`;
+      const conflicts = conflictsFor(g.swap, files);
+      const coveredIn = files.filter((f) => !conflicts.some((c) => c.file === f.relPath) && covered(g, f.lines.join("\n"))).map((f) => f.relPath);
+      const clients = [...new Set(g.hits.map((h) => h.client))].sort();
+      const first = conflicts[0];
+      const title = first
+        ? `Your instructions tell agents to do this (${conflicts.slice(0, 4).map((c) => `${c.file}:${c.line}`).join(", ")}${conflicts.length > 4 ? ", …" : ""}). ${g.title}`
+        : g.title;
       return {
         id: `L-${createHash("sha256").update(key).digest("hex").slice(0, 8)}`,
-        kind: g.kind, title: g.title, rule: g.rule, times: g.hits.length, sessions: sessions.size,
+        kind: g.kind, title, rule: g.rule, times: g.hits.length, sessions: sessions.size,
         lostSteps: sum("lostSteps"), lostMs: sum("lostMs"), lostTokens: sum("lostTokens"),
-        alreadyInFile: covered(g, opts.instructionText ?? ""),
+        alreadyInFile: target !== null && coveredIn.includes(target),
+        coveredIn, conflicts, clients,
+        why: conflicts.length > 0 ? null : whyRepeated(clients, coveredIn, files),
         evidence: g.hits.slice(0, 6).map((h) => ({ sessionId: h.sessionId, step: h.step, at: h.at })),
       };
     })
@@ -324,4 +437,33 @@ export function lessonsEdit(lines: readonly string[], rules: readonly string[]):
   while (last > 0 && (lines[last] ?? "").trim() === "") last -= 1;
   const intro = "Rules learned from mistakes agents repeated in this project. Added after review with `agentsol learn`.";
   return { startLine: last + 1, endLine: last + 1, expectedText: lines[last] ?? "", replacementLines: [lines[last] ?? "", "", LESSONS_HEADING, "", intro, "", ...bullets] };
+}
+
+export type LessonEdit = { startLine: number; endLine: number; expectedText: string; replacementLines: string[] };
+
+/**
+ * Every edit for one file: conflicting lines are corrected in place, and rules not already
+ * written there (or fixed by a correction) are added under the lessons heading.
+ */
+export function lessonsChange(file: InstructionFile, lessons: readonly Lesson[]): { edits: LessonEdit[]; fixed: number; added: string[] } {
+  const masked = new Set(file.redacted ?? []);
+  const lines = [...file.lines];
+  const fixedLines = new Map<number, string>();
+  const solved = new Set<string>();
+  for (const l of lessons) for (const c of l.conflicts) {
+    if (c.file !== file.relPath || masked.has(c.line)) continue;
+    if (fixedLines.has(c.line) || lines[c.line - 1] !== c.text) continue;
+    fixedLines.set(c.line, c.replacement);
+    solved.add(l.id);
+  }
+  const added = [...new Set(lessons.filter((l) => l.rule && !solved.has(l.id) && !l.coveredIn.includes(file.relPath)).map((l) => l.rule as string))].slice(0, 12);
+  const edits: LessonEdit[] = [];
+  const append = lessonsEdit(lines, added);
+  if (append && masked.has(append.startLine)) return { edits: [...fixedLines].map(([n, t]) => ({ startLine: n, endLine: n, expectedText: lines[n - 1] ?? "", replacementLines: [t] })), fixed: fixedLines.size, added: [] };
+  for (const [n, t] of fixedLines) if (!append || n !== append.startLine) edits.push({ startLine: n, endLine: n, expectedText: lines[n - 1] ?? "", replacementLines: [t] });
+  if (append) {
+    const own = fixedLines.get(append.startLine);
+    edits.push(own === undefined ? append : { ...append, replacementLines: [own, ...append.replacementLines.slice(1)] });
+  }
+  return { edits: edits.sort((a, b) => a.startLine - b.startLine), fixed: fixedLines.size, added };
 }

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { learnLessons, lessonsEdit, LESSONS_HEADING, mainCommand, ruleFromCorrection } from "../src/core/learn.ts";
+import { learnLessons, lessonsChange, lessonsEdit, LESSONS_HEADING, mainCommand, readsFile, ruleFromCorrection } from "../src/core/learn.ts";
+import { canonicalPath, programName } from "../src/core/sessions.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -172,6 +173,167 @@ test("learn combines Claude Code and Codex sessions into the same lessons", asyn
     assert.ok(!JSON.stringify(r).includes("environment_context"));
   } finally {
     await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+type Cmd = [command: string, failed: boolean];
+/** A Claude Code transcript that runs these commands in order. */
+function claudeRun(cwd: string, startMs: number, cmds: readonly Cmd[]): string {
+  let t = startMs;
+  const at = (): string => new Date((t += 20_000)).toISOString();
+  const lines: unknown[] = [{ type: "user", cwd, timestamp: at(), message: { role: "user", content: "go" } }];
+  cmds.forEach(([command, failed], i) => {
+    lines.push({ type: "assistant", cwd, timestamp: at(), message: { id: `m${i}`, usage: { input_tokens: 500, output_tokens: 50 }, content: [{ type: "tool_use", id: `t${i}`, name: "Bash", input: { command } }] } });
+    lines.push({ type: "user", cwd, timestamp: at(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: failed, content: failed ? "Exit code 1" : "ok" }] } });
+  });
+  return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+}
+function codexRun(cwd: string, startMs: number, cmds: readonly Cmd[]): string {
+  let t = startMs;
+  const at = (): string => new Date((t += 20_000)).toISOString();
+  const lines: unknown[] = [{ timestamp: at(), type: "session_meta", payload: { cwd, timestamp: at() } }];
+  cmds.forEach(([cmd, failed], i) => {
+    lines.push({ timestamp: at(), type: "response_item", payload: { type: "function_call", name: "shell", call_id: `c${i}`, arguments: JSON.stringify({ command: ["bash", "-lc", cmd] }) } });
+    lines.push({ timestamp: at(), type: "response_item", payload: { type: "function_call_output", call_id: `c${i}`, output: JSON.stringify({ output: "", metadata: { exit_code: failed ? 1 : 0 } }) } });
+  });
+  return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+}
+
+test("learn finds the instruction lines that cause the mistake and corrects them in place", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": claudeRun(fx.root, T, [["npm install", true], ["pnpm install", false], ["pytest -q", true], ["python -m pytest -q", false]]),
+      ".claude/projects/-p/b.jsonl": claudeRun(fx.root, T + 3_600_000, [["pytest", true], ["python -m pytest", false]]),
+      ".codex/sessions/2026/11/01/rollout-2026-11-01T12-00-00-x.jsonl": codexRun(fx.root, T + 7_200_000, [["npm test", true], ["pnpm test", false]]),
+    });
+    const agents = [
+      "# Rules", "",
+      "- Install with `npm install`, then run `npm test`.",
+      "- Do not use npm publish; releases go through CI.",
+      "- Write pytest fixtures in conftest.py.",
+      "- We publish to the npm registry.",
+      "```sh", "pytest -q", "```",
+      "- Before you commit, run pytest.",
+      "- In CI it runs as `uv run pytest -x`.",
+    ];
+    const claudeMd = ["# Claude", "", "Build with `npm run build`."];
+    const files = [{ relPath: "AGENTS.md", lines: agents }, { relPath: "CLAUDE.md", lines: claudeMd }];
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0), files, target: "AGENTS.md" });
+    const npm = r.lessons.find((l) => l.rule?.includes("`pnpm`"));
+    const py = r.lessons.find((l) => l.rule?.includes("python -m pytest"));
+    assert.ok(npm && py, JSON.stringify(r.lessons.map((l) => l.rule)));
+    assert.deepEqual(npm.clients, ["claude-code", "codex"]);
+    assert.deepEqual(npm.conflicts.map((c) => [c.file, c.line, c.replacement]), [
+      ["AGENTS.md", 3, "- Install with `pnpm install`, then run `pnpm test`."],
+      ["CLAUDE.md", 3, "Build with `pnpm run build`."],
+    ], "negated advice and prose about the registry are left alone");
+    assert.deepEqual(py.conflicts.map((c) => [c.line, c.replacement]), [[8, "python -m pytest -q"], [10, "- Before you commit, run python -m pytest."]], "a bare word is a command only in code or after run");
+    assert.match(npm.title, /^Your instructions tell agents to do this \(AGENTS\.md:3, CLAUDE\.md:3\)/);
+
+    const change = lessonsChange(files[0]!, r.lessons);
+    assert.equal(change.fixed, 3);
+    assert.deepEqual(change.added, [], "a corrected line replaces the rule it would have added");
+    assert.deepEqual(change.edits.map((e) => [e.startLine, e.expectedText]), [[3, agents[2]], [8, "pytest -q"], [10, agents[9]]]);
+    const other = lessonsChange(files[1]!, r.lessons.map((l) => ({ ...l, rule: null })));
+    assert.deepEqual(other.edits, [{ startLine: 3, endLine: 3, expectedText: "Build with `npm run build`.", replacementLines: ["Build with `pnpm run build`."] }]);
+
+    const masked = lessonsChange({ relPath: "AGENTS.md", lines: agents, redacted: [3] }, r.lessons);
+    assert.ok(!masked.edits.some((e) => e.startLine === 3), "a masked line is never rewritten");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("learn says why a written rule did not help: the app that made the mistake does not read that file", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      ".codex/sessions/2026/11/01/rollout-2026-11-01T10-00-00-a.jsonl": codexRun(fx.root, T, [["npm test", true], ["pnpm test", false]]),
+      ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-b.jsonl": codexRun(fx.root, T + 86_400_000, [["npm test", true], ["pnpm test", false]]),
+    });
+    const inClaude = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0), target: "CLAUDE.md", files: [{ relPath: "CLAUDE.md", lines: ["- Always use pnpm here."] }] });
+    const l = inClaude.lessons.find((x) => x.kind === "command");
+    assert.ok(l?.alreadyInFile);
+    assert.deepEqual(l.coveredIn, ["CLAUDE.md"]);
+    assert.match(l.why ?? "", /Codex made this mistake and does not read it\. Codex reads AGENTS\.md/);
+    const inAgents = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0), target: "AGENTS.md", files: [{ relPath: "AGENTS.md", lines: ["- Always use pnpm here."] }] });
+    assert.match(inAgents.lessons.find((x) => x.kind === "command")?.why ?? "", /had this rule in AGENTS\.md and repeated the mistake anyway\. Make it more specific/);
+    assert.ok(readsFile("claude-code", "AGENTS.md", [{ relPath: "CLAUDE.md", lines: ["@AGENTS.md"] }]));
+    assert.ok(!readsFile("claude-code", "AGENTS.md", [{ relPath: "CLAUDE.md", lines: ["see AGENTS.md"] }]));
+    assert.ok(readsFile("codex", "services/api/AGENTS.md", []) && !readsFile("codex", "CLAUDE.md", []));
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("learn works through symlinked folders and with Windows command names", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const link = path.join(home, "code-link");
+    await symlink(fx.root, link);
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": claudeRun(link, T, [["npm test", true], ["pnpm test", false]]),
+      ".claude/projects/-p/b.jsonl": claudeRun(fx.root, T + 3_600_000, [["C:/nodejs/NPM.CMD test", true], ["pnpm.cmd test", false], ["$env:CI=1; npm run build", true], ["timeout 60 pnpm run build", false]]),
+    });
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(r.sessionsRead, 2, "a session started through a symlink belongs to the project");
+    const cmd = r.lessons.filter((l) => l.kind === "command");
+    assert.equal(cmd.length, 1, JSON.stringify(cmd.map((l) => l.rule)));
+    assert.equal(cmd[0]!.times, 3);
+    assert.match(cmd[0]!.rule ?? "", /^Use `pnpm`, not `npm`/);
+    assert.equal(programName("C:\\Program Files\\nodejs\\npm.cmd"), "npm");
+    assert.equal(programName("./node_modules/.bin/vitest"), "vitest");
+    assert.equal(canonicalPath(path.join(link, "gone", "x.ts")), path.join(fx.root, "gone", "x.ts"));
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("agentsol learn --propose corrects every file that is wrong; with no file it picks the one the app reads", async () => {
+  const fx = await fixture({ "AGENTS.md": "# Rules\n\n- Run `npm test` before you commit.\n", "CLAUDE.md": "@AGENTS.md\n\nBuild with `npm run build`.\n" });
+  const bare = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.now() - 2 * 86_400_000;
+    await writeTree(home, {
+      ".claude/projects/-p/a.jsonl": claudeRun(fx.root, T, [["npm test", true], ["pnpm test", false], ["npm run build", true], ["pnpm run build", false]]),
+      ".claude/projects/-q/b.jsonl": claudeRun(bare.root, T, [["npm test", true], ["pnpm test", false]]),
+      ".claude/projects/-q/c.jsonl": claudeRun(bare.root, T + 60_000, [["npm test", true], ["pnpm test", false]]),
+    });
+    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1" };
+    const cli = (cwd: string, ...a: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), ...a], { env, encoding: "utf8", cwd });
+    const human = cli(fx.root, "learn");
+    assert.equal(human.status, 0, human.stderr);
+    assert.match(human.stdout, /1 wrong instruction|2 wrong instructions/);
+    assert.match(human.stdout, /now {3}− - Run `npm test` before you commit\.[\s\S]*fix {3}\+ - Run `pnpm test` before you commit\./);
+    assert.ok(!/does not import AGENTS\.md/.test(human.stdout), "CLAUDE.md imports AGENTS.md, so no warning");
+    const r = cli(fx.root, "learn", "--propose", "--json");
+    const v = JSON.parse(r.stdout) as { proposals: { relPath: string; proposalId: string }[]; otherChanges: unknown[] };
+    assert.deepEqual(v.proposals.map((p) => p.relPath), ["AGENTS.md", "CLAUDE.md"]);
+    const again = JSON.parse(cli(fx.root, "learn", "--propose", "--json").stdout) as typeof v;
+    assert.deepEqual(again.proposals.map((p) => p.proposalId), v.proposals.map((p) => p.proposalId), "running it again does not pile up copies");
+    assert.match(cli(fx.root, "learn", "--propose").stdout, /\(already waiting\)/);
+    assert.match(cli(fx.root, "review", v.proposals[1]!.proposalId).stdout, /-Build with `npm run build`\.\n\+Build with `pnpm run build`\./);
+    assert.equal(await readFile(path.join(fx.root, "AGENTS.md"), "utf8"), "# Rules\n\n- Run `npm test` before you commit.\n", "nothing written until a person applies it");
+
+    const none = cli(bare.root, "learn", "--json");
+    const n = JSON.parse(none.stdout) as { newFile: string | null; newFileText: string | null };
+    assert.equal(n.newFile, "CLAUDE.md", "only Claude Code ran here, so the rules go where it reads them");
+    assert.match(n.newFileText ?? "", /- Use `pnpm`, not `npm`/);
+  } finally {
+    await fx.cleanup();
+    await bare.cleanup();
     await rm(home, { recursive: true, force: true });
   }
 });

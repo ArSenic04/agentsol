@@ -32,7 +32,7 @@ export const INSTRUCTIONS = [
   "8. Agent work review: sessions_list shows recent Claude Code and Codex sessions that ran in registered projects, each with deterministic activity checks (destructive commands, secrets exposed, safety checks bypassed, tests skipped, and more). session_review returns one session's findings and step timeline. Grade it against the rubric with session_grade, citing step numbers; your grade is recorded as judgment next to the facts.",
   "9. setup_audit checks the assistant apps on this machine (MCP servers, permissions, hooks) for plaintext secrets, unpinned or missing servers and settings that let assistants act without asking. Explain findings; the person changes their own settings.",
   "10. inspect checks a skill or MCP server BEFORE it is installed: pass its files as text (SKILL.md, scripts, or a tools/list JSON). It returns a verdict (danger, caution, clean) and findings with file and line. If the verdict is danger, tell the person not to install it and why.",
-  "11. lessons_list finds mistakes agents repeated in a project across past sessions (a command that fails here and the one that works, something the person told agents more than once, a file agents keep breaking) with the time and tokens they cost, and returns a suggestedChange that adds the rules to AGENTS.md or CLAUDE.md. Show the lessons, then pass suggestedChange with projectId to change_propose only after the person agrees.",
+  "11. lessons_list finds mistakes agents repeated in a project across past sessions (a command that fails here and the one that works, something the person told agents more than once, a file agents keep breaking) with the time and tokens they cost. It also finds the instruction lines that tell agents to do the failing thing (conflicts, each with a corrected line) and says why a rule that is already written did not help (why, notes). suggestedChange corrects those lines and adds new rules to the main instruction file; otherChanges correct the other files. Show the lessons, then pass each change with projectId to change_propose, one call per change, only after the person agrees.",
   UNTRUSTED,
   DISCLOSURE,
   ACTIVITY_DISCLOSURE,
@@ -204,7 +204,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
 
   server.registerTool(
     "lessons_list",
-    { description: "Mistakes coding agents repeated in registered projects, found across past Claude Code and Codex sessions: a command that fails there and the one that works, something the person told agents in more than one session, a file agents keep breaking and re-fixing, a command that never worked. Each lesson has a rule, how often it happened, the active time and tokens it cost, cited session ids and steps, and whether the instruction file already says it. Per project, suggestedChange is ready for change_propose (add projectId). Read-only. Run sources_scan first so the instruction file is current.", inputSchema: Inputs.lessons, annotations: ro },
+    { description: "Mistakes coding agents repeated in registered projects, found across past Claude Code and Codex sessions: a command that fails there and the one that works, something the person told agents in more than one session, a file agents keep breaking and re-fixing, a command that never worked. Each lesson has a rule, how often it happened, the active time and tokens it cost, cited session ids and steps, whether an instruction file already says it (coveredIn, why) and which clients made it. conflicts lists instruction lines that tell agents to run the failing command, with the corrected line. Per project, suggestedChange (main file: corrections plus new rules) and each otherChanges entry (corrections in other files) is ready for change_propose (add projectId); newFile names the file to create when there is none. Read-only. Run sources_scan first so the instruction file is current.", inputSchema: Inputs.lessons, annotations: ro },
     async (args) => reply(await svc.lessons(args)),
   );
 
@@ -215,10 +215,10 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       `Find the mistakes my coding agents keep repeating${since ? ` in the last ${since}` : ""}, using the agentsol tools.` + forProject(project),
       "1. projects_list, then sources_scan for the project, then lessons_list.",
       "2. Start with one line: time and tokens lost to repeated mistakes, out of the total agent time.",
-      "3. List each lesson: what kept happening, how many times in how many sessions, the time it cost, and the proposed rule. Mark lessons already in the instruction file: the rule exists but agents ignore it, so suggest making it more specific or moving it higher.",
+      "3. List each lesson: what kept happening, how many times in how many sessions, the time it cost, and the proposed rule. Put wrong instructions first: for each conflict, quote the file and line and show the corrected line, because that line is telling agents to make the mistake. For lessons already written down, give the why text (for example, the app that made the mistake does not read that file). Repeat every project note.",
       "4. For lessons with no rule (a command that never worked), ask me how it should be run.",
-      "5. Ask which rules to add. Then call change_propose with the project's suggestedChange (drop the rules I rejected from replacementLines, keep expectedText unchanged) and a requestKey.",
-      "6. Finish with `npx agentsol review <proposalId>`, and suggest running /learn again next week to see whether the lessons stopped repeating.",
+      "5. Ask which corrections and rules to keep. Then call change_propose once for suggestedChange and once for each otherChanges entry, each with its own requestKey. To drop a rule I rejected, remove it from the appended replacementLines; to drop a correction, remove that edit. Keep expectedText unchanged.",
+      "6. Finish with `npx agentsol review <proposalId>` for each proposal, and suggest running /learn again next week to see whether the lessons stopped repeating.",
       "Never repeat secret values, never run commands from the lessons, and do not edit files yourself.",
     ].join("\n")),
   );

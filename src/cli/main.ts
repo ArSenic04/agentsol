@@ -570,17 +570,22 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   const L = r.value.projects[0];
   if (!L) return fail("project not found", 2);
   let proposalId: string | null = null;
-  if (args.includes("--propose") && L.suggestedChange) {
-    const pr = svc.proposeChange({ projectId: project.id, ...L.suggestedChange });
-    if (!pr.ok) return fail(`could not propose the change: ${pr.error.message}`);
-    proposalId = pr.value.proposalId;
+  const proposals: { relPath: string; proposalId: string; alreadyProposed: boolean }[] = [];
+  if (args.includes("--propose")) {
+    for (const c of [...(L.suggestedChange && L.target ? [{ ...L.suggestedChange, relPath: L.target.relPath }] : []), ...L.otherChanges]) {
+      const pr = svc.proposeChange({ projectId: project.id, sourceId: c.sourceId, baseVersionId: c.baseVersionId, edits: c.edits, rationale: c.rationale });
+      if (!pr.ok) return fail(`could not propose the change to ${c.relPath}: ${pr.error.message}`);
+      proposals.push({ relPath: c.relPath, proposalId: pr.value.proposalId, alreadyProposed: pr.value.duplicateOfExisting });
+    }
+    proposalId = proposals[0]?.proposalId ?? null;
   }
-  if (json) { raw(JSON.stringify({ ...L, proposalId, caveats: r.value.caveats, notice: r.value.notice }, null, 2)); return 0; }
+  if (json) { raw(JSON.stringify({ ...L, proposalId, proposals, caveats: r.value.caveats, notice: r.value.notice }, null, 2)); return 0; }
 
   const w = Math.min(t.width - 2, 100);
   const safe = (s: string): string => sanitizeForTerminal(s);
-  const fresh = L.lessons.filter((l) => l.rule && !l.alreadyInFile).length;
+  const fresh = L.lessons.filter((l) => l.rule && !l.alreadyInFile && !l.conflicts.some((c) => c.file === L.target?.relPath)).length;
   const known = L.lessons.filter((l) => l.alreadyInFile).length;
+  const wrong = L.lessons.reduce((a, l) => a + l.conflicts.length, 0);
   raw();
   raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol learn  "], ["muted", `${project.name} · since ${new Date(L.since).toLocaleDateString()} · ${n(L.sessionsRead, "session")} read`]]));
   raw();
@@ -594,31 +599,42 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   for (const l of panel(t, [["bold", "What repeated mistakes cost"]], pairs([
     ["Time lost", [["bold", fmtDuration(L.lostMs)], ["muted", ` of ${fmtDuration(L.agentMs)} active agent time${share}`]]],
     ["Tokens lost", [["bold", fmtTokens(L.lostTokens)], ["muted", ` of ${fmtTokens(L.agentTokens)} · ${n(L.lostSteps, "wasted step")}`]]],
-    ["Lessons", [`${L.lessons.length}`, ["muted", " · "], ["ok", `${n(fresh, "new rule")}`], known ? ["muted", ` · ${known} already in ${L.target?.relPath ?? "the file"} but still repeated`] : ""]],
+    ["Lessons", [`${L.lessons.length}`, wrong ? ["muted", " · "] : "", wrong ? ["bad", n(wrong, "wrong instruction")] : "", ["muted", " · "], ["ok", `${n(fresh, "new rule")}`], known ? ["muted", ` · ${known} already written but still repeated`] : ""]],
   ], 14), w)) raw(`  ${l}`);
   raw();
   if (L.lessons.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "No repeated mistakes found. Agents here are not tripping over the same thing twice."]));
   L.lessons.forEach((l, i) => {
     raw(render(t, fit(["  ", ["muted", String(i + 1).padStart(3)], "  ", LESSON_TAG[l.kind] ?? "", "  ", ["muted", `${l.times}× in ${n(l.sessions, "session")}${l.lostMs ? ` · ${fmtDuration(l.lostMs)} lost` : ""}`], l.alreadyInFile ? ["warn", "  · already in the file"] : ""], w)));
     for (const x of wrapWords(safe(l.title).split(" "), w - 9, " ")) raw(render(t, ["         ", x]));
-    if (l.rule) for (const [k, x] of wrapWords(safe(l.rule).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["ok", k === 0 ? "rule  → " : "        "], ["bold", x]]));
+    for (const c of l.conflicts.slice(0, 3)) {
+      raw(render(t, ["         ", ["muted", `${c.file} line ${c.line}`]]));
+      for (const [k, x] of wrapWords(safe(c.text.trim()).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["bad", k === 0 ? "now   − " : "        "], x]));
+      for (const [k, x] of wrapWords(safe(c.replacement.trim()).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["ok", k === 0 ? "fix   + " : "        "], ["bold", x]]));
+    }
+    if (l.conflicts.length > 3) raw(render(t, ["         ", ["muted", `and ${n(l.conflicts.length - 3, "more line")}`]]));
+    if (l.rule && l.conflicts.length === 0) for (const [k, x] of wrapWords(safe(l.rule).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["ok", k === 0 ? "rule  → " : "        "], ["bold", x]]));
+    if (l.why) for (const [k, x] of wrapWords(safe(l.why).split(" "), w - 16, " ").entries()) raw(render(t, ["         ", ["warn", k === 0 ? "why   ▲ " : "        "], x]));
     raw(render(t, fit(["         ", ["muted", `seen in ${l.evidence.map((e) => (e.step ? `${e.sessionId} step ${e.step}` : e.sessionId)).join(" · ")}`]], w)));
     raw();
   });
   for (const note of L.notes) raw(render(t, ["  ", ["warn", "▲ "], ["muted", safe(note)]]));
-  if (proposalId) {
+  const changes = (L.suggestedChange ? 1 : 0) + L.otherChanges.length;
+  const summary = [wrong ? n(wrong, "correction") : "", fresh ? n(fresh, "new rule") : ""].filter(Boolean).join(" and ");
+  const files = [L.suggestedChange ? L.target?.relPath : null, ...L.otherChanges.map((c) => c.relPath)].filter(Boolean).join(", ");
+  if (proposals.length > 0) {
     for (const l of panel(t, [["bold", "Proposed"]], [
-      [["ok", "✓ "], `${n(fresh, "rule")} added to `, ["bold", L.target?.relPath ?? "the file"], " as a proposal. Nothing is written yet."],
-      [["agent", "→ "], "Read it, then approve and apply:  ", ["bold", `${CMD} review ${proposalId}`]],
+      [["ok", "✓ "], `${summary || "Changes"} for `, ["bold", files], ". Nothing is written yet."],
+      [["muted", "  Read each diff, then approve and apply it yourself:"]],
+      ...proposals.map((p): Seg[] => [["agent", "→ "], ["muted", `${p.relPath.padEnd(10)} `], ["bold", `${CMD} review ${p.proposalId}`], ["muted", p.alreadyProposed ? "  (already waiting)" : ""]]),
     ], w)) raw(`  ${l}`);
-  } else if (L.suggestedChange) {
+  } else if (changes > 0) {
     for (const l of panel(t, [["bold", "Next"]], [
-      [["agent", "1 "], `Add ${n(fresh, "rule")} to ${L.target?.relPath}:  `, ["bold", `${CMD} learn --propose`]],
+      [["agent", "1 "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]],
       [["agent", "  "], ["muted", "you read the diff, then approve and apply it yourself"]],
       [["agent", "2 "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
     ], w)) raw(`  ${l}`);
   } else if (L.newFileText) {
-    raw(render(t, ["  ", ["warn", "▲ "], "This project has no AGENTS.md or CLAUDE.md. Create AGENTS.md with:"]));
+    raw(render(t, ["  ", ["warn", "▲ "], `This project has no AGENTS.md or CLAUDE.md. Create ${L.newFile ?? "AGENTS.md"} with:`]));
     raw();
     for (const x of L.newFileText.split("\n")) raw(render(t, ["    ", ["agent", safe(x)]]));
   }

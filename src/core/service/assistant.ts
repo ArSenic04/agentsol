@@ -33,7 +33,7 @@ import type { WorkspaceStore } from "../store.ts";
 import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type ServiceResult } from "./errors.ts";
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
-import { learnLessons, LESSON_CAVEATS, LESSONS_HEADING, lessonsEdit, type LessonsReport } from "../learn.ts";
+import { learnLessons, LESSON_CAVEATS, LESSONS_HEADING, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
 import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
@@ -105,9 +105,12 @@ export type ProjectLessons = LessonsReport & {
   projectId: string;
   name: string;
   target: { sourceId: string; versionId: string; relPath: string } | null;
-  /** Ready for change_propose (add projectId): adds every new rule under one heading. Null when nothing to add or no file. */
+  /** Ready for change_propose (add projectId): corrects lines that tell agents to do what fails, and adds every new rule under one heading. Null when nothing to change or no file. */
   suggestedChange: { sourceId: string; baseVersionId: string; rationale: string; edits: LessonEdit[] } | null;
-  /** When the project has no instruction file: the section to put in a new AGENTS.md. */
+  /** Corrections for other instruction files (for example CLAUDE.md) that also tell agents to do what fails. One change_propose call each. */
+  otherChanges: { relPath: string; sourceId: string; baseVersionId: string; rationale: string; edits: LessonEdit[] }[];
+  /** When the project has no instruction file: which file to create (CLAUDE.md when only Claude Code ran here) and its text. */
+  newFile: string | null;
   newFileText: string | null;
 };
 export type GradeResult = { gradeId: string; sessionId: string; overall: number; replayed: boolean; note: string };
@@ -412,25 +415,37 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         const projects: ProjectLessons[] = [];
         for (const r of targets) {
           const present = store.listSources(r.projectId).filter((x) => x.status === "present" && x.currentVersionId);
-          const pick = ["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"].map((rel) => present.find((x) => x.relPath === rel)).find(Boolean) ?? null;
-          const v = pick?.currentVersionId ? store.getVersion(pick.currentVersionId) : null;
-          const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, instructionText: v ? v.lines.join("\n") : "" });
-          const rules = [...new Set(report.lessons.filter((l) => l.rule && !l.alreadyInFile).map((l) => l.rule as string))].slice(0, 12);
-          const edit = v && rules.length > 0 ? lessonsEdit(v.lines, rules) : null;
-          if (edit && v?.redactedLineNumbers.includes(edit.startLine)) report.notes.push(`Line ${edit.startLine} of ${pick?.relPath} is masked, so no ready-made change is offered; add the rules by hand.`);
-          const usable = edit && v && pick && !v.redactedLineNumbers.includes(edit.startLine);
-          if (pick?.relPath === "AGENTS.md" && present.some((x) => x.relPath === "CLAUDE.md") && rules.length > 0) {
-            const claude = present.find((x) => x.relPath === "CLAUDE.md");
-            const cv = claude?.currentVersionId ? store.getVersion(claude.currentVersionId) : null;
-            if (cv && !cv.lines.some((l) => /^\s*@AGENTS\.md\b/.test(l))) report.notes.push("CLAUDE.md does not import AGENTS.md, so Claude Code will not see these rules. Add a line with @AGENTS.md to CLAUDE.md.");
+          const INSTRUCTION = /(^|\/)(AGENTS(\.override)?\.md|CLAUDE(\.local)?\.md)$/;
+          const files = present.filter((x) => INSTRUCTION.test(x.relPath)).flatMap((x) => {
+            const v = store.getVersion(x.currentVersionId!);
+            return v ? [{ src: x, v, file: { relPath: x.relPath, lines: v.lines, redacted: v.redactedLineNumbers } satisfies InstructionFile }] : [];
+          });
+          const pick = ["AGENTS.md", "CLAUDE.md", ".claude/CLAUDE.md"].map((rel) => files.find((x) => x.src.relPath === rel)).find(Boolean) ?? null;
+          const report = await learnLessons(machine, { root: r.root, since, project: lookupIn(list), requireProject: false, files: files.map((x) => x.file), ...(pick ? { target: pick.src.relPath } : {}) });
+          const rationale = (what: string): string => `Agentsol lessons: ${what} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`;
+          const change = pick ? lessonsChange(pick.file, report.lessons) : null;
+          const what = (c: { fixed: number; added: string[] }): string => [c.fixed ? `${c.fixed} corrected line${c.fixed === 1 ? "" : "s"}` : "", c.added.length ? `${c.added.length} rule${c.added.length === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ");
+          if (pick && change && change.edits.length === 0 && report.lessons.some((l) => l.rule && !l.coveredIn.includes(pick.src.relPath) && l.conflicts.length === 0)) report.notes.push(`The end of ${pick.src.relPath} is masked, so no ready-made change is offered; add the rules by hand.`);
+          const otherChanges = files.filter((x) => x !== pick).flatMap((x) => {
+            const c = lessonsChange(x.file, report.lessons.map((l) => ({ ...l, rule: null })));
+            return c.edits.length ? [{ relPath: x.src.relPath, sourceId: x.src.id, baseVersionId: x.v.id, edits: c.edits, rationale: rationale(what(c)) }] : [];
+          });
+          const clients = new Set(report.lessons.flatMap((l) => l.clients));
+          const has = (rel: string): boolean => files.some((x) => x.src.relPath === rel);
+          if (pick?.src.relPath === "AGENTS.md" && clients.has("claude-code") && !readsFile("claude-code", "AGENTS.md", files.map((x) => x.file))) {
+            report.notes.push(has("CLAUDE.md")
+              ? "CLAUDE.md does not import AGENTS.md, so Claude Code will not see these rules. Add a line with @AGENTS.md to CLAUDE.md."
+              : "Claude Code made some of these mistakes, and it reads CLAUDE.md, not AGENTS.md. Create CLAUDE.md with one line: @AGENTS.md");
           }
+          if (pick && pick.src.relPath !== "AGENTS.md" && clients.has("codex")) report.notes.push(`Codex made some of these mistakes, and it reads AGENTS.md, not ${pick.src.relPath}. Move the rules to AGENTS.md and add a line with @AGENTS.md to ${pick.src.relPath}.`);
+          const rules = [...new Set(report.lessons.filter((l) => l.rule).map((l) => l.rule as string))].slice(0, 12);
+          const newName = clients.size > 0 && !clients.has("codex") ? "CLAUDE.md" : "AGENTS.md";
           projects.push({
             ...report, projectId: r.projectId, name: r.name,
-            target: pick && v ? { sourceId: pick.id, versionId: v.id, relPath: pick.relPath } : null,
-            suggestedChange: usable ? {
-              sourceId: pick.id, baseVersionId: v.id, edits: [edit],
-              rationale: `Agentsol lessons: ${rules.length} rule${rules.length === 1 ? "" : "s"} from mistakes agents repeated in ${report.sessionsRead} session${report.sessionsRead === 1 ? "" : "s"} since ${since.toISOString().slice(0, 10)}.`,
-            } : null,
+            target: pick ? { sourceId: pick.src.id, versionId: pick.v.id, relPath: pick.src.relPath } : null,
+            suggestedChange: pick && change && change.edits.length > 0 ? { sourceId: pick.src.id, baseVersionId: pick.v.id, edits: change.edits, rationale: rationale(what(change)) } : null,
+            otherChanges,
+            newFile: !pick && rules.length > 0 ? newName : null,
             newFileText: !pick && rules.length > 0 ? ["# Agent instructions", "", LESSONS_HEADING, "", ...rules.map((x) => `- ${x}`), ""].join("\n") : null,
           });
         }

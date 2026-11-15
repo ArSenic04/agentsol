@@ -8,7 +8,7 @@
  * Commands and paths are returned masked, shortened and capped in length.
  */
 import { createHash } from "node:crypto";
-import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
@@ -395,10 +395,44 @@ export function strip(words: readonly string[]): string[] {
   let i = 0;
   while (i < words.length) {
     const w = words[i] ?? "";
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || WRAPPERS.has(w) || (i > 0 && WRAPPERS.has(words[i - 1] ?? "") && w.startsWith("-"))) i += 1;
+    if (/^(\$env:)?[A-Za-z_][A-Za-z0-9_]*=/.test(w) || WRAPPERS.has(w) || (i > 0 && WRAPPERS.has(words[i - 1] ?? "") && w.startsWith("-"))) i += 1;
+    else if (w === "timeout") { i += 1; while (i < words.length && (words[i] ?? "").startsWith("-")) i += 1; if (/^\d+(\.\d+)?[smhd]?$/.test(words[i] ?? "")) i += 1; }
     else break;
   }
   return words.slice(i);
+}
+
+/** The program name as typed on any platform: `C:\\nodejs\\npm.cmd` and `NPM.EXE` are both `npm`. */
+export function programName(word: string): string {
+  const base = word.split(/[\\/]/).pop() ?? word;
+  const m = /^(.+)\.(exe|cmd|bat|ps1|com)$/i.exec(base);
+  return m ? (m[1] ?? base).toLowerCase() : base;
+}
+
+const realCache = new Map<string, string>();
+/**
+ * The folder as the file system knows it: symlinks resolved (macOS /tmp is /private/tmp), and
+ * on Windows compared without case. Paths that no longer exist resolve through their nearest
+ * existing parent, so a deleted subfolder still matches its project.
+ */
+export function canonicalPath(p: string): string {
+  const abs = path.resolve(p);
+  const hit = realCache.get(abs);
+  if (hit !== undefined) return hit;
+  let dir = abs;
+  const rest: string[] = [];
+  let out = abs;
+  for (;;) {
+    try { out = path.join(realpathSync.native(dir), ...rest.slice().reverse()); break; } catch { /* missing: try the parent */ }
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    rest.push(path.basename(dir));
+    dir = up;
+  }
+  if (process.platform === "win32") out = out.toLowerCase();
+  if (realCache.size > 5000) realCache.clear();
+  realCache.set(abs, out);
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -808,8 +842,10 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
     if (c.size > MAX_FILE_BYTES) { large += 1; continue; }
     const cwd = headCwd(c.file);
     const resolved = cwd ? path.resolve(cwd) : null;
-    if (opts.cwdWithin && !(resolved && within(resolved, path.resolve(opts.cwdWithin)))) {
-      if (!opts.requireProject && resolved && within(path.resolve(opts.cwdWithin), resolved)) parents.set(resolved, (parents.get(resolved) ?? 0) + 1);
+    const real = resolved ? canonicalPath(resolved) : null;
+    const scope = opts.cwdWithin ? canonicalPath(opts.cwdWithin) : null;
+    if (scope && !(real && within(real, scope))) {
+      if (!opts.requireProject && real && within(scope, real)) parents.set(resolved!, (parents.get(resolved!) ?? 0) + 1);
       continue;
     }
     if (opts.requireProject && !lookup(resolved)) { skipped += 1; continue; }

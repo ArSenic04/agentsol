@@ -144,14 +144,16 @@ Agents forget between sessions, so they repeat the same mistakes in the same pro
 - **fragile**: a file agents edit, break and re-edit before a check passes, with the check that finally passed.
 - **failing**: a command that failed in several sessions and never worked anywhere; it asks you how to run it.
 
+It also checks your instruction files against what happened. If AGENTS.md says "run `npm test`" and `npm` fails here, that line is why agents keep doing it: `learn` shows the file and line, the corrected line, and fixes it in place instead of adding a contradicting rule. It checks every AGENTS.md, AGENTS.override.md, CLAUDE.md and CLAUDE.local.md, skips lines that already warn against the command, and only treats a bare word like `pytest` as a command in code or after "run". When a rule is written down but agents still break it, it says why: Codex reads AGENTS.md and not CLAUDE.md, and Claude Code reads AGENTS.md only through an `@AGENTS.md` line in CLAUDE.md. With no instruction file yet, it names the one your apps read. It works with symlinked project folders and with Windows commands (`npm.cmd`, `$env:CI=1`).
+
 ```bash
 npx -y agentsol@alpha learn                 # last 30 days
 npx -y agentsol@alpha learn --since 90d
-npx -y agentsol@alpha learn --propose       # store the rules as a proposal for AGENTS.md or CLAUDE.md
+npx -y agentsol@alpha learn --propose       # one proposal per instruction file: corrections and new rules
 npx agentsol review <proposalId>
 ```
 
-Each lesson cites its session ids and step numbers, says whether the instruction file already covers it, and shows the active time and tokens it cost (pauses over 5 minutes count as 5 minutes). `--propose` never writes a file: you review, approve and apply the diff yourself. Over MCP the same report is `lessons_list`, and `/learn` walks your assistant through it. Lessons are patterns, not proof; read each rule before keeping it.
+Each lesson cites its session ids and step numbers, says whether the instruction file already covers it, and shows the active time and tokens it cost (pauses over 5 minutes count as 5 minutes). `--propose` never writes a file: you review, approve and apply each diff yourself, and running it again returns the proposals already waiting instead of new copies. Over MCP the same report is `lessons_list`, and `/learn` walks your assistant through it. Lessons are patterns, not proof; read each rule before keeping it.
 
 ## MCP tools
 `projects_list`, `workspace_status`, `sources_freshness`, `sources_scan`, `sources_list`, `source_read`, `scope_resolve`, `checks_run`, `findings_list`, `findings_submit`, `change_propose`, `changes_list`, `change_status`, `sessions_list`, `session_review`, `session_grade`, `setup_audit`, `inspect`, `lessons_list`. There is no approve, apply, write or delete tool.
