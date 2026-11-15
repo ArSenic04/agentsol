@@ -614,6 +614,17 @@ test("project_briefing tells an agent starting work what to follow, which lines 
     const before = await call({ path: path.join(fx.root, "src") });
     assert.equal(before.isError, false, before.text);
     assert.ok((JSON.parse(before.text) as { notes: string[] }).notes.some((n) => /never scanned/.test(n)));
+    const elsewhere = await call({});
+    assert.equal(elsewhere.isError, true, "a server started in another specific folder does not brief the only project");
+    assert.match(elsewhere.text, /not in a registered project\. Pass path/);
+    const atHome = new Client({ name: "briefing-home", version: "0.0.0" });
+    try {
+      await atHome.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: home, stderr: "pipe", env }));
+      const r = await atHome.callTool({ name: "project_briefing", arguments: {} });
+      assert.ok(r.isError !== true, `a server started in the home folder (Claude Desktop, Cursor) uses the only project: ${JSON.stringify(r)}`);
+    } finally {
+      await atHome.close();
+    }
 
     const projectId = (JSON.parse((await client.callTool({ name: "projects_list", arguments: {} }) as { content: { text: string }[] }).content[0]!.text) as { projects: { projectId: string }[] }).projects[0]!.projectId;
     await client.callTool({ name: "sources_scan", arguments: { projectId } });

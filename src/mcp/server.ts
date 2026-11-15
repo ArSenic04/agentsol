@@ -213,13 +213,13 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
 
   server.registerTool(
     "project_briefing",
-    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId; without either, the folder the server started in is used. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
+    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Without either, the folder the server started in is used, which is the project in Claude Code, Codex and Gemini CLI; in apps that start servers elsewhere (Cursor, Windsurf, Claude Desktop, VS Code), pass path. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
     async (args) => reply(await svc.briefing(args)),
   );
 
   server.registerTool(
     "command_check",
-    { description: "Call this before you run a build, test, install, release or deploy command in a project. Says whether that command failed in past Claude Code and Codex sessions there and what worked instead (verdict change, with instead), whether it never worked or goes against something the person told agents more than once (verdict ask: ask the person first), or ok. Pass command plus path (the absolute folder you work in) or projectId. Read-only: it runs nothing and changes no files.", inputSchema: Inputs.commandCheck, annotations: ro },
+    { description: "Call this before you run a build, test, install, release or deploy command in a project. Says whether that command failed in past Claude Code and Codex sessions there and what worked instead (verdict change, with instead), whether it never worked or goes against something the person told agents more than once (verdict ask: ask the person first), or ok. Pass command plus path (the absolute folder you work in) or projectId; without either, the folder the server started in is used. Read-only: it runs nothing and changes no files.", inputSchema: Inputs.commandCheck, annotations: ro },
     async (args) => reply(await svc.commandCheck(args)),
   );
 

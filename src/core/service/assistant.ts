@@ -225,8 +225,13 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
     const here = opts.workingDir ? lookupIn(list)(opts.workingDir) : null;
     const mine = here ? list.find((x) => x.projectId === here.projectId) : undefined;
     if (mine) return ok(mine);
-    if (list.length === 1 && list[0]) return ok(list[0]);
-    return fail("invalid_input", list.length === 0 ? `No project is registered. ${setUp}` : "Pass path (the folder you work in) or projectId");
+    if (list.length === 0) return fail("invalid_input", `No project is registered. ${setUp}`);
+    // A server started in some other specific folder means the agent works there, not in the only registered project.
+    const dir = opts.workingDir ? realOrSelf(opts.workingDir) : null;
+    const broad = !dir || dir === path.parse(dir).root || dir === realOrSelf(os.homedir()) || list.some((x) => x.root.startsWith(dir + path.sep));
+    if (list.length === 1 && list[0] && broad) return ok(list[0]);
+    if (!broad) return fail("not_found", `The agentsol server started in ${dir}, which is not in a registered project. Pass path (the folder you work in). ${setUp}`);
+    return fail("invalid_input", "Pass path (the folder you work in) or projectId");
   };
   // Agents may check every command, so lessons are reused for a short while instead of re-reading every transcript.
   const recent = new Map<string, { at: number; value: ProjectLessons }>();
