@@ -93,7 +93,7 @@ function workspaceChecks(dir: string): DoctorCheck[] {
   }
   if (st.isSymbolicLink()) return [{ id: "workspace", status: "fail", message: "Workspace path is a symlink; Agentsol refuses it. Use a real folder." }];
   if (!st.isDirectory()) return [{ id: "workspace", status: "fail", message: "Workspace path exists but is not a folder" }];
-  if ((st.mode & 0o077) !== 0) return [{ id: "workspace", status: "fail", message: `Workspace folder is accessible by other users (mode ${(st.mode & 0o777).toString(8)}). Run: chmod 700 <workspace>` }];
+  if ((st.mode & 0o077) !== 0) return [{ id: "workspace", status: "fail", message: `Workspace folder is accessible by other users (mode ${(st.mode & 0o777).toString(8)}). Run: chmod 700 '${abs.replace(/'/g, "'\\''")}'` }];
   const out: DoctorCheck[] = [{ id: "workspace", status: "ok", message: "Workspace folder exists, is private (no group/other access) and is not a symlink" }];
   const db = path.join(abs, DB_FILE);
   if (!existsSync(db)) {

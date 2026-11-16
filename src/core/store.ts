@@ -236,7 +236,7 @@ export class WorkspaceStore {
     const st = lstatSync(absDir);
     if (st.isSymbolicLink() || !st.isDirectory()) throw new Error("Workspace path must be a real directory, not a symlink or file");
     if ((st.mode & 0o077) !== 0) {
-      throw new Error(`Workspace directory is accessible by other users (mode ${(st.mode & 0o777).toString(8)}); run: chmod 700 <workspace>`);
+      throw new Error(`Workspace directory is accessible by other users (mode ${(st.mode & 0o777).toString(8)}); run: chmod 700 '${absDir.replace(/'/g, "'\\''")}'`);
     }
     const dbPath = path.join(absDir, DB_FILE);
     const db = new DatabaseSync(dbPath);
