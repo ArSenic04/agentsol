@@ -8,7 +8,7 @@
  * Commands and paths are returned masked, shortened and capped in length.
  */
 import { createHash } from "node:crypto";
-import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { z } from "zod";
@@ -890,8 +890,18 @@ async function load(c: Candidate, ctx: SessionContext, project: ProjectLookup): 
   return { summary, parsed, findings, actx };
 }
 
+/** Whether a transcript names `dirs` anywhere, as written or JSON-escaped (Windows backslashes are doubled). */
+function mentions(file: string, dirs: readonly string[]): boolean {
+  const needles = [...new Set(dirs.flatMap((d) => [d + path.sep, `${d}"`, `${d}'`, `${d} `].flatMap((x) => [x, x.replace(/\\/g, "\\\\")])))];
+  try { const buf = readFileSync(file); return needles.some((n) => buf.includes(n)); } catch { return false; }
+}
+
 export type LoadedSession = { summary: SessionSummary; parsed: Parsed; actx: Ctx };
-export type ListOptions = { since?: Date; limit?: number; onLoaded?: (s: LoadedSession) => void; project?: ProjectLookup; requireProject?: boolean; cwdWithin?: string | null };
+export type ListOptions = {
+  since?: Date; limit?: number; onLoaded?: (s: LoadedSession) => void; project?: ProjectLookup; requireProject?: boolean; cwdWithin?: string | null;
+  /** Receives sessions started outside `cwdWithin` that may have worked in it: in a parent folder, or naming it in the transcript. */
+  onParent?: (s: LoadedSession) => void;
+};
 export type SessionList = { sessions: SessionSummary[]; skipped: number; notes: string[] };
 
 /** Most recent transcripts first. `requireProject` drops sessions whose folder is not a registered project. */
@@ -903,6 +913,7 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
   const notes: string[] = [];
   let skipped = 0;
   let large = 0;
+  let parentsRead = 0;
   const parents = new Map<string, number>();
   for (const c of candidates(ctx)) {
     if (c.mtimeMs < since || sessions.length >= limit) break;
@@ -912,7 +923,17 @@ export async function listSessions(ctx: SessionContext, opts: ListOptions = {}):
     const real = resolved ? canonicalPath(resolved) : null;
     const scope = opts.cwdWithin ? canonicalPath(opts.cwdWithin) : null;
     if (scope && !(real && within(real, scope))) {
-      if (!opts.requireProject && real && within(scope, real)) parents.set(resolved!, (parents.get(resolved!) ?? 0) + 1);
+      if (!opts.requireProject && real && within(scope, real)) {
+        if (!opts.onParent) parents.set(resolved!, (parents.get(resolved!) ?? 0) + 1);
+        else if (parentsRead < 100) {
+          parentsRead += 1;
+          try { opts.onParent(await load(c, ctx, lookup)); } catch { notes.push(`One transcript could not be read (${c.id}).`); }
+        }
+      } else if (opts.onParent && !opts.requireProject && parentsRead < 100 && mentions(c.file, [scope, path.resolve(opts.cwdWithin!)])) {
+        // Started in another folder (a sibling repo, a scratch folder) but names this one: it may have worked here.
+        parentsRead += 1;
+        try { opts.onParent(await load(c, ctx, lookup)); } catch { notes.push(`One transcript could not be read (${c.id}).`); }
+      }
       continue;
     }
     if (opts.requireProject && !lookup(resolved)) { skipped += 1; continue; }

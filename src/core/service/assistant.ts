@@ -83,7 +83,7 @@ export const Inputs = {
   }),
   lessons: z.object({
     projectId: z.string().optional().describe("One project; default: every registered project"),
-    since: z.string().optional().describe("How far back: 7d, 30d, 12w or an ISO date. Default 30d"),
+    since: z.string().optional().describe("How far back: 30d, 26w, 365d or an ISO date. Default 180d"),
   }),
   commandCheck: z.object({
     command: z.string().min(1).max(4000).describe("The shell command you are about to run"),
@@ -93,7 +93,7 @@ export const Inputs = {
   briefing: z.object({
     path: z.string().optional().describe("Absolute path of the folder you are working in; the registered project that contains it is used"),
     projectId: z.string().optional().describe("A registered project id, instead of path"),
-    since: z.string().optional().describe("How far back: 7d, 30d, 12w or an ISO date. Default 30d"),
+    since: z.string().optional().describe("How far back: 30d, 26w, 365d or an ISO date. Default 180d"),
   }),
   session: z.object({
     sessionId: z.string().describe("Session id from sessions_list, e.g. claude-1a2b3c4d5e6f"),
@@ -239,7 +239,7 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
     const now = Date.now();
     const hit = recent.get(r.projectId);
     if (hit && now - hit.at < 120_000) return hit.value;
-    const value = await lessonsFor(r, list, new Date(now - 30 * 86_400_000));
+    const value = await lessonsFor(r, list, new Date(now - 180 * 86_400_000));
     recent.set(r.projectId, { at: now, value });
     return value;
   };
@@ -513,8 +513,8 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
       guardedAsync("lessons_list", sink, async () => {
         const a = parse(Inputs.lessons, input ?? {});
         if (!a.ok) return a;
-        const since = parseSince(a.value.since ?? "30d");
-        if (!since) return fail("invalid_input", "since must look like 7d, 30d, 12w or an ISO date");
+        const since = parseSince(a.value.since ?? "180d");
+        if (!since) return fail("invalid_input", "since must look like 30d, 26w, 365d or an ISO date");
         const list = roots();
         let targets = list;
         if (a.value.projectId !== undefined) {
@@ -549,8 +549,8 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
       guardedAsync("project_briefing", sink, async () => {
         const a = parse(Inputs.briefing, input ?? {});
         if (!a.ok) return a;
-        const since = parseSince(a.value.since ?? "30d");
-        if (!since) return fail("invalid_input", "since must look like 7d, 30d, 12w or an ISO date");
+        const since = parseSince(a.value.since ?? "180d");
+        if (!since) return fail("invalid_input", "since must look like 30d, 26w, 365d or an ISO date");
         const list = roots();
         const r = workingProject(list, a.value);
         if (!r.ok) return r;

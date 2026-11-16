@@ -81,6 +81,8 @@ const at = (s: SessionStep): number => (s.at ? Date.parse(s.at) : NaN);
 function activeMs(steps: readonly SessionStep[], from: number, to: number): number {
   let ms = 0;
   for (let i = from + 1; i <= to && i < steps.length; i += 1) {
+    // A gap over steps kept out (work in another folder) is not time spent here.
+    if (steps[i]!.n !== steps[i - 1]!.n + 1) continue;
     const a = at(steps[i - 1]!);
     const b = at(steps[i]!);
     if (!Number.isNaN(a) && !Number.isNaN(b) && b >= a) ms += Math.min(b - a, MAX_GAP_MS);
@@ -103,6 +105,8 @@ export function mainCommand(command: string): string[] | null {
 }
 
 const join = (w: readonly string[]): string => w.join(" ");
+/** Words back into a command a shell runs the same way: `python -c 'import x; print(1)'`, not `python -c import x; print(1)`. */
+const shJoin = (w: readonly string[]): string => w.map((x) => (/^[\w./:=@%+,~^-]+$/.test(x) ? x : !x.includes("'") ? `'${x}'` : /["$`\\!]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : `"${x}"`)).join(" ");
 
 function matchOf(g: Group): LessonMatch | null {
   // Masked, like the titles: a command can hold a secret.
@@ -119,7 +123,7 @@ export function commandAdvice(command: string, lessons: readonly Pick<Lesson, "i
   const all = realCommands(command);
   if (!all.length) return [];
   const heads = new Set(all.map((w) => w[0]));
-  const lines = all.map(join);
+  const lines = all.map(shJoin);
   // Swap only where the program is the command being run, not an argument such as `echo npm`.
   const isHead = (before: string): boolean => {
     // Separators inside quoted text don't start a command; a quote after `-c` or `/c` does.
@@ -207,6 +211,19 @@ export function ruleFromCorrection(text: string): string {
 
 type Collected = { session: LoadedSession; root: string };
 
+const inside = (p: string, root: string): boolean => { const r = canonicalPath(p); return r === root || r.startsWith(root + path.sep); };
+/** Whether a step from a session started elsewhere worked in `root`: ran there (or `cd`'d there first) or touched a file there. */
+function stepIn(t: SessionStep, root: string, home: string): boolean {
+  if (t.files.some((f) => inside(f, root)) || t.deleted.some((f) => inside(f, root))) return true;
+  if (t.kind !== "command") return false;
+  if (inside(t.cwd, root)) return true;
+  const cd = /^\s*(?:cd|pushd|Set-Location)\s+(?:-[A-Za-z]+\s+)?(["']?)([^"'&;|\n]+?)\1\s*(?:&&|;|\n|$)/.exec(t.command ?? "");
+  const dir = cd?.[2]?.trim();
+  if (!dir) return false;
+  const target = dir === "~" ? home : dir.startsWith("~/") ? path.join(home, dir.slice(2)) : path.resolve(t.cwd, dir);
+  return inside(target, root);
+}
+
 function analyze(all: readonly Collected[], home: string): Group[] {
   const groups = new Map<string, Group>();
   const group = (key: string, g: Omit<Group, "hits">): Group => {
@@ -216,16 +233,26 @@ function analyze(all: readonly Collected[], home: string): Group[] {
   };
   const corrections: { sessionId: string; client: SessionClient; step: number | null; at: string | null; text: string; words: Set<string> }[] = [];
   const failing = new Map<string, { shown: string; hits: Hit[] }>();
-  const fragile = new Map<string, { verify: Map<string, number>; hits: Hit[] }>();
+  const fragile = new Map<string, { verify: Map<string, number>; hits: Hit[]; most: number }>();
   const worked = new Set<string>();
-  for (const { session } of all) for (const t of session.parsed.steps) if (t.kind === "command" && t.failed === false) worked.add(join(mainCommand(t.command ?? "") ?? []));
+  const lastWorked = new Map<string, number>();
+  for (const { session } of all) for (const t of session.parsed.steps) {
+    if (t.kind !== "command" || t.failed !== false) continue;
+    const k = join(mainCommand(t.command ?? "") ?? []);
+    worked.add(k);
+    const at = t.at ? Date.parse(t.at) : NaN;
+    if (at > (lastWorked.get(k) ?? -Infinity)) lastWorked.set(k, at);
+  }
+  const failedAs = new Map<Group, Set<string>>();
 
   for (const { session, root } of all) {
     const steps = session.parsed.steps;
     const id = session.summary.id;
     const conv = session.summary.parentId ?? id;
     const client = session.summary.client;
-    const show = (w: readonly string[]): string => showCommand(join(w), session.actx);
+    const show = (w: readonly string[]): string => showCommand(shJoin(w), session.actx);
+    // A long example buries the rule; the rule alone is enough.
+    const eg = (w: readonly string[]): string => { const x = show(w); return x.length <= 60 ? ` (for example \`${x}\`)` : ""; };
     const fixed = new Set<number>();
     const resolved = new Set<number>();
 
@@ -249,16 +276,18 @@ function analyze(all: readonly Collected[], home: string): Group[] {
           const lostSteps = j - i;
           const hit: Hit = { sessionId: id, conv, client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
           const [a0, b0] = [a[0] ?? "", b[0] ?? ""];
+          let g: Group;
           if (kind === "program" && a.length > 1) {
-            const g = group(`program:${a0}>${b0}`, { kind: "command", title: `Agents use \`${a0}\` here, which fails; \`${b0}\` works (for example \`${show(b)}\`).`, rule: `Use \`${b0}\`, not \`${a0}\` (for example \`${show(b)}\`).`, probe: [b0], swap: { program: [a0, b0], subs: new Set() } });
-            g.hits.push(hit);
+            g = group(`program:${a0}>${b0}`, { kind: "command", title: `Agents use \`${a0}\` here, which fails; \`${b0}\` works${eg(b)}.`, rule: `Use \`${b0}\`, not \`${a0}\`${eg(b)}.`, probe: [b0], swap: { program: [a0, b0], subs: new Set() } });
             if (g.swap && "program" in g.swap && a[1]) g.swap.subs.add(a[1]);
           } else if (kind === "runner" && b.length > a.length) {
             const runner = show(b.slice(0, b.length - a.length));
-            group(`runner:${a0}>${runner}`, { kind: "command", title: `Agents run \`${a0}\` directly, which fails here; \`${runner} ${a0}\` works (for example \`${show(b)}\`).`, rule: `Run \`${a0}\` as \`${runner} ${a0}\` (for example \`${show(b)}\`).`, probe: [`${runner} ${a0}`], swap: { command: [a0, `${runner} ${a0}`], runner: true } }).hits.push(hit);
+            g = group(`runner:${a0}>${runner}`, { kind: "command", title: `Agents run \`${a0}\` directly, which fails here; \`${runner} ${a0}\` works${eg(b)}.`, rule: `Run \`${a0}\` as \`${runner} ${a0}\`${eg(b)}.`, probe: [`${runner} ${a0}`], swap: { command: [a0, `${runner} ${a0}`], runner: true } });
           } else {
-            group(`cmd:${join(a)}>${join(b)}`, { kind: "command", title: `Agents run \`${show(a)}\`, which fails here; \`${show(b)}\` works.`, rule: `Run \`${show(b)}\`, not \`${show(a)}\`.`, probe: [show(b)], swap: { command: [show(a), show(b)] } }).hits.push(hit);
+            g = group(`cmd:${join(a)}>${join(b)}`, { kind: "command", title: `Agents run \`${show(a)}\`, which fails here; \`${show(b)}\` works.`, rule: `Run \`${show(b)}\`, not \`${show(a)}\`.`, probe: [show(b)], swap: { command: [show(a), show(b)] } });
           }
+          g.hits.push(hit);
+          failedAs.set(g, (failedAs.get(g) ?? new Set()).add(join(a)));
         } else if (fixed.has(j)) resolved.add(i);
         break;
       }
@@ -298,10 +327,16 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       if (l.n < 2 || !(real === root || real.startsWith(root + path.sep))) continue;
       const rel = path.relative(root, real).split(path.sep).join("/");
       if (!rel || rel.startsWith("..")) continue;
-      const pass = steps.slice(l.last + 1).find((t) => t.kind === "command" && t.failed === false && VERIFY.test(t.command ?? ""));
+      const passes = steps.slice(l.last + 1).filter((t) => t.kind === "command" && t.failed === false && VERIFY.test(t.command ?? ""));
+      const pass = passes[0];
       const end = pass ? steps.indexOf(pass) : l.last;
-      const f = fragile.get(rel) ?? { verify: new Map<string, number>(), hits: [] };
-      const v = pass ? mainCommand(pass.command ?? "") : null;
+      const f = fragile.get(rel) ?? { verify: new Map<string, number>(), hits: [], most: 0 };
+      f.most = Math.max(f.most, l.n);
+      // The check to suggest: one that tests this file (or everything), not a formatter or a check of some other file.
+      const stem = path.basename(rel).replace(/\.[^.]+$/, "");
+      const fits = (w: readonly string[]): boolean => !w.some((x) => /^(format|fmt|--fix|--write|-w)$/.test(x) || /^(prettier|black|gofmt|rustfmt|isort)$/.test(x))
+        && (!pathLike(w) || w.slice(1).some((x) => { const a = x.replace(/^\.\//, "").replace(/\/$/, ""); return a === rel || rel.startsWith(`${a}/`) || path.basename(a).includes(stem); }));
+      const v = passes.map((t) => mainCommand(t.command ?? "")).find((w): w is string[] => w !== null && fits(w)) ?? null;
       if (v) { const shown = show(v); f.verify.set(shown, (f.verify.get(shown) ?? 0) + 1); }
       const lostSteps = steps.slice(l.first, end + 1).filter((t) => t.kind === "command" && t.failed === true).length + l.n;
       f.hits.push({ sessionId: id, conv, client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
@@ -320,6 +355,8 @@ function analyze(all: readonly Collected[], home: string): Group[] {
     group(`failing:${k}`, { kind: "failing", title: `\`${f.shown}\` failed ${f.hits.length} times in ${new Set(f.hits.map((h) => h.conv)).size} sessions and was never fixed. Write down how to run it here.`, rule: null, probe: [], never: f.shown }).hits.push(...f.hits);
   }
   for (const [rel, f] of fragile) {
+    // Two re-fixes in one session can be ordinary work; call a file fragile across sessions or after many tries.
+    if (new Set(f.hits.map((h) => h.conv)).size < 2 && f.most < 3) continue;
     const v = [...f.verify.entries()].sort((x, y) => y[1] - x[1])[0]?.[0];
     group(`fragile:${rel}`, {
       kind: "fragile",
@@ -350,7 +387,12 @@ function analyze(all: readonly Collected[], home: string): Group[] {
     group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.sessionId, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
   });
 
-  return [...groups.values()];
+  // A command that failed and later ran fine as-is means the project changed; the lesson is out of date.
+  const outdated = (g: Group): boolean => {
+    const last = Math.max(...g.hits.map((h) => (h.at ? Date.parse(h.at) : NaN)).filter((x) => !Number.isNaN(x)));
+    return last > -Infinity && [...(failedAs.get(g) ?? [])].some((k) => (lastWorked.get(k) ?? -Infinity) > last);
+  };
+  return [...groups.values()].filter((g) => !outdated(g));
 }
 
 /** True when the instruction file already covers the lesson. */
@@ -503,15 +545,39 @@ export type LearnOptions = {
 /** Reads past sessions that ran inside `root` and returns the lessons, most costly first. */
 export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Promise<LessonsReport> {
   const collected: Collected[] = [];
+  const root = canonicalPath(opts.root);
+  const fromElsewhere = new Set<string>();
+  const since = opts.since.getTime();
+  const fresh = (at: string | null): boolean => at === null || !(Date.parse(at) < since);
+  /** The part of a session in the window (a resumed session keeps older steps) and, for one started elsewhere, in this folder, with its share of the tokens. */
+  const trim = (session: LoadedSession, here: (s: SessionStep) => boolean, keepSaid: boolean): LoadedSession | null => {
+    const all = session.parsed.steps;
+    const steps = all.filter((t) => fresh(t.at) && here(t));
+    const said = keepSaid ? session.parsed.said.filter((x) => fresh(x.at)) : [];
+    if (steps.length === all.length && said.length === session.parsed.said.length) return session;
+    if (steps.length === 0 && said.length === 0) return null;
+    const tokens = session.summary.metrics.tokens;
+    const share = all.length > 0 ? steps.length / all.length : 1;
+    const summary = { ...session.summary, metrics: { ...session.summary.metrics, tokens: tokens ? { ...tokens, total: Math.round(tokens.total * share) } : tokens } };
+    return { ...session, summary, parsed: { ...session.parsed, steps, said } };
+  };
   const list = await listSessions(ctx, {
     since: opts.since, limit: opts.limit ?? 300, cwdWithin: opts.root, requireProject: opts.requireProject ?? false,
     ...(opts.project ? { project: opts.project } : {}),
-    onLoaded: (session) => collected.push({ session, root: canonicalPath(opts.root) }),
+    onLoaded: (session) => { const t = trim(session, () => true, true); if (t) collected.push({ session: t, root }); },
+    onParent: (session) => {
+      // What the person said in a session that also worked elsewhere can't be tied to this folder.
+      const t = trim(session, (s) => stepIn(s, root, ctx.home), false);
+      if (!t) return;
+      collected.push({ session: t, root });
+      fromElsewhere.add(session.summary.parentId ?? session.summary.id);
+    },
   });
+  if (fromElsewhere.size > 0) list.notes.push(`${fromElsewhere.size} session${fromElsewhere.size === 1 ? "" : "s"} started in another folder also worked here. Only their steps in this folder were used, not what you said in them.`);
   const files: readonly InstructionFile[] = opts.files ?? (opts.instructionText ? [{ relPath: opts.target ?? "AGENTS.md", lines: opts.instructionText.split(/\r?\n/) }] : []);
   const target = opts.target ?? files[0]?.relPath ?? null;
   const lessons: Lesson[] = analyze(collected, ctx.home)
-    .filter((g) => g.kind !== "command" || g.hits.length >= 2 || g.title.includes("for example"))
+    .filter((g) => g.kind !== "command" || g.hits.length >= 2 || (g.swap !== undefined && ("program" in g.swap || g.swap.runner === true)))
     .map((g): Lesson => {
       const sessions = new Set(g.hits.map((h) => h.conv));
       const sum = (k: "lostSteps" | "lostMs" | "lostTokens"): number => g.hits.reduce((a, h) => a + h[k], 0);

@@ -48,7 +48,7 @@ Start here:
   prompt [path]                         print one masked prompt to paste into any chat AI
   inspect <folder|file> [--json]        before you install a skill or MCP server: scan its files or its tool
                                         list (tools/list JSON) for hidden instructions, credential theft and more
-  learn [path] [--since 30d] [--propose] [--json]
+  learn [path] [--since 180d] [--propose] [--json]
                                         mistakes your agents repeat here (wrong commands, things you keep telling
                                         them, files they keep breaking), the time they cost, and rules that stop them
   sessions [path] [--since 7d] [--limit N] [--json]
@@ -574,8 +574,8 @@ const LESSON_TAG: Record<string, Seg> = { command: ["warn", "command "], correct
 
 /** Mistakes agents repeated in this project, the time they cost, and the rules that would stop them. */
 async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, args: readonly string[], json: boolean): Promise<number> {
-  const sinceArg = flagValue(args, "--since") ?? "30d";
-  if (!parseSince(sinceArg)) return fail("--since must look like 7d, 30d, 12w or a date", 2);
+  const sinceArg = flagValue(args, "--since") ?? "180d";
+  if (!parseSince(sinceArg)) return fail("--since must look like 30d, 26w, 365d or a date", 2);
   const got = await ensureProject(store, ops, positional(args, ["--since"])[0] ?? ".");
   if (typeof got === "string") return fail(got, 2);
   const { project } = got;
@@ -607,7 +607,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol learn  "], ["muted", `${project.name} · since ${new Date(L.since).toLocaleDateString()} · ${n(L.sessionsRead, "session")} read`]]));
   raw();
   if (L.sessionsRead === 0) {
-    raw(render(t, ["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 90d`]]));
+    raw(render(t, ["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 365d`]]));
     for (const note of L.notes) raw(render(t, ["    ", ["muted", safe(note)]]));
     raw();
     return 0;
@@ -716,12 +716,12 @@ async function startCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   apps.forEach((a, i) => row(i === 0 ? live.length > 0 : null, i === 0 ? "Your AI" : "", a.name, ["muted", " · "], STATE[a.state]));
   if (agent && apps.some((a) => a.state === "not_run")) row(null, "", ["muted", `${agent.agent} runs this terminal, so nothing was connected. Run ${CMD} start yourself to connect.`]);
 
-  const lessons = await withSpinner(t, "Reading past agent sessions in this project…", () => svc.lessons({ projectId, since: "30d" }));
+  const lessons = await withSpinner(t, "Reading past agent sessions in this project…", () => svc.lessons({ projectId, since: "180d" }));
   const L = lessons.ok ? lessons.value.projects[0] : undefined;
   const recent = await listSessions(machine(), { since: new Date(Date.now() - 7 * 86_400_000), limit: 100, cwdWithin: project.rootReal, project: projectLookup(store) });
   const risky = recent.sessions.filter((s) => s.verdict === "risky").length;
   const rules = L ? L.lessons.filter((l) => l.rule && !l.alreadyInFile).length : 0;
-  if (!L || L.sessionsRead === 0) row(null, "Agent work", ["muted", "no Claude Code or Codex sessions here in the last 30 days yet"]);
+  if (!L || L.sessionsRead === 0) row(null, "Agent work", ["muted", "no Claude Code or Codex sessions here in the last 180 days yet"]);
   else row(rules === 0 && risky === 0, "Agent work", n(L.sessionsRead, "session"), ["muted", " · "], L.lostMs ? ["warn", `${fmtDuration(L.lostMs)} lost to repeat mistakes`] : ["ok", "no repeated mistakes"], ["muted", " · "], risky ? ["bad", `${risky} risky this week`] : ["ok", "none risky"]);
   const setupIssues = setup.summary.errors + setup.summary.warnings;
   row(setup.summary.errors === 0, "AI settings", setupIssues ? ["warn", `${n(setup.summary.errors, "error")}, ${n(setup.summary.warnings, "warning")}`] : ["ok", "nothing risky"], setup.clients.length ? ["muted", ` in ${n(setup.clients.length, "app")}`] : "");

@@ -709,3 +709,79 @@ test("commandAdvice matches a command against lessons before it runs", () => {
   assert.deepEqual(ask("git push origin main"), []);
   assert.deepEqual(ask("echo hi"), []);
 });
+
+test("learn uses the in-folder steps of sessions started elsewhere, only steps in the window, and drops lessons that stopped being true", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const base = path.dirname(fx.root);
+    const other = path.join(base, "other");
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    const H = 3_600_000;
+    const renumber = (s: string, p: string): string => s.replace(/"([tm])(\d+)"/g, `"$1${p}$2"`);
+    await writeTree(home, {
+      // Started in the parent: only the steps that cd'd into the project count.
+      ".claude/projects/-base/parent.jsonl": claudeRun(base, T, [[`cd ${fx.root} && npm install`, true], [`cd ${fx.root} && pnpm install`, false], ["make build", true], ["just build", false]]),
+      // A sibling folder that names the project, and one that does not.
+      ".claude/projects/-other/sib.jsonl": claudeRun(other, T + H, [[`cd ${fx.root} && npm test`, true], [`cd ${fx.root} && pnpm test`, false]]),
+      ".claude/projects/-other/unrelated.jsonl": claudeRun(other, T + 2 * H, [["npm ci", true], ["pnpm ci", false]]),
+      // Resumed: the first half is older than the window.
+      ".claude/projects/-p/resumed.jsonl": renumber(claudeRun(fx.root, T - 30 * 24 * H, [["yarn test", true], ["bun test", false]]), "o") + claudeRun(fx.root, T + 3 * H, [[`python -c "import x; print(1)"`, true], [`poetry run python -c "import x; print(1)"`, false]]),
+      // Failed, was worked around, then ran fine as-is later: no longer a lesson.
+      ".claude/projects/-p/old.jsonl": claudeRun(fx.root, T + 4 * H, [["cargo build --release", true], ["cross build --release", false], [`ruby -e '${"x".repeat(60)}'`, true], [`bundle exec ruby -e '${"x".repeat(60)}'`, false]]),
+      ".claude/projects/-p/new.jsonl": claudeRun(fx.root, T + 5 * H, [["cargo build --release", false]]),
+    });
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(T - 24 * H) });
+    const rules = r.lessons.map((l) => l.rule);
+    const npm = r.lessons.find((l) => l.rule?.startsWith("Use `pnpm`"));
+    assert.ok(npm, JSON.stringify(rules));
+    assert.equal(npm.times, 2, "the parent's cd step and the sibling that names the project, not the unrelated sibling");
+    assert.equal(npm.sessions, 2);
+    assert.ok(!rules.some((x) => x?.includes("`just`")), "a parent step outside the project is not used");
+    assert.ok(!rules.some((x) => x?.includes("`bun`")), "steps older than the window are not used");
+    assert.ok(!rules.some((x) => x?.includes("`cross`")), "a command that later ran fine as-is is no longer a lesson");
+    assert.ok(rules.includes("Run `python` as `poetry run python` (for example `poetry run python -c 'import x; print(1)'`)."), JSON.stringify(rules));
+    assert.ok(rules.includes("Run `ruby` as `bundle exec ruby`."), "a long example is left out");
+    assert.equal(r.sessionsRead, 5);
+    assert.ok(r.notes.some((n) => n.startsWith("2 sessions started in another folder also worked here.")), JSON.stringify(r.notes));
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a file is fragile across sessions or after many tries, and the check suggested for it tests that file", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const f = path.join(fx.root, "src/parser.py");
+    type Step = ["edit"] | ["bash", string, boolean];
+    const run = (startMs: number, steps: readonly Step[]): string => {
+      let t = startMs;
+      const at = (): string => new Date((t += 20_000)).toISOString();
+      const cwd = fx.root;
+      const lines: unknown[] = [{ type: "user", cwd, timestamp: at(), message: { role: "user", content: "go" } }];
+      steps.forEach((s, i) => {
+        const input = s[0] === "edit" ? { file_path: f, old_string: `a${i}`, new_string: `b${i}` } : { command: s[1] };
+        lines.push({ type: "assistant", cwd, timestamp: at(), message: { id: `m${i}`, content: [{ type: "tool_use", id: `t${i}`, name: s[0] === "edit" ? "Edit" : "Bash", input }] } });
+        const failed = s[0] === "bash" && s[2];
+        lines.push({ type: "user", cwd, timestamp: at(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: failed, content: failed ? "Exit code 1" : "ok" }] } });
+      });
+      return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
+    };
+    const loop = (tries: number): Step[] => [...Array.from({ length: tries }, (): Step[] => [["edit"], ["bash", "pytest", true]]).flat(), ["edit"],
+      ["bash", "ruff format src/parser.py", false], ["bash", "pytest tests/test_other.py", false], ["bash", "pytest tests/test_parser.py", false]];
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, { ".claude/projects/-p/a.jsonl": run(T, loop(2)) });
+    const once = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.ok(!once.lessons.some((l) => l.kind === "fragile"), "two re-fixes in one session can be ordinary work");
+
+    await writeTree(home, { ".claude/projects/-p/b.jsonl": run(T + 3_600_000, loop(3)) });
+    const many = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    const frag = many.lessons.find((l) => l.kind === "fragile");
+    assert.equal(frag?.rule, "After changing `src/parser.py`, run `pytest tests/test_parser.py` before moving on.", "not the formatter, not a test of another file");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
