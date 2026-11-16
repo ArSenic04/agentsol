@@ -536,12 +536,13 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         const r = workingProject(list, a.value);
         if (!r.ok) return r;
         const l = await cachedLessons(r.value, list);
-        const advice = commandAdvice(a.value.command, l.lessons);
+        // `instead` is the agent's own command with one word swapped: masking its paths would make it unrunnable.
+        const advice = commandAdvice(a.value.command, l.lessons).map((x) => ({ ...scrub({ ...x, instead: null }), instead: x.instead === null ? null : sanitizeForTerminal(x.instead) }));
         const verdict = advice.some((x) => x.verdict === "ask") ? "ask" : advice.length ? "change" : "ok";
         const text = advice.length === 0
           ? `Nothing in ${l.sessionsRead} past session${l.sessionsRead === 1 ? "" : "s"} here says this command fails. Go ahead.`
           : advice.map((x) => (x.instead ? `${x.reason} Run instead: ${x.instead}` : x.reason)).join("\n");
-        return ok(scrub({ verdict, advice, text, sessionsRead: l.sessionsRead }));
+        return ok({ verdict, advice, text, sessionsRead: l.sessionsRead });
       }),
 
     /** A short briefing for an agent starting work in a project: rules from repeated mistakes, outdated instruction lines, and what to ask about. Read-only. */

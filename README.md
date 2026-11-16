@@ -67,7 +67,7 @@ Agentsol is not listed in Claude Desktop's connector directory; add it through S
 - In your assistant, `/review` grades recent sessions with the rubric and `/setup` explains the setup audit. Both only read and record; neither changes files or settings.
 - `sessions --since 24h|7d|2w|<date> --limit N [path]` narrows the list; `--json` everywhere. `doctor --strict` exits 1 when the setup audit finds an error.
 
-- `check` opens an interactive report: a banner, findings sorted by severity with the cited lines, and the next steps. `--strict` exits 1 when there are errors (for CI); `--json` prints machine-readable output. Colors follow `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb`; pipes get plain text. Text from your files is sanitized, so it cannot inject terminal escape codes.
+- `check` opens an interactive report: a banner, findings sorted by severity with the cited lines, and the next steps. `--strict` exits 1 when there are errors (for CI); `--json` prints machine-readable output. Colors follow `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb`; pipes get plain text, as wide as `COLUMNS` when it is set (80 otherwise). Text from your files is sanitized, so it cannot inject terminal escape codes.
 - `npx -y agentsol@alpha` with no command, in a terminal, shows the home screen: workspace, the folder you are in, the tools, prompts and checks.
 - The workspace defaults to `~/.agentsol` (created private, `0700`). Use `--workspace <dir>` or `AGENTSOL_WORKSPACE` to keep it elsewhere; set the same value for the CLI and the MCP server.
 - The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. Your assistant cannot register folders; it tells you to run `check` when `projects_list` is empty.

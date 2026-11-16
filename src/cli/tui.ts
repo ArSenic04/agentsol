@@ -14,7 +14,7 @@ export function detectTerm(stream: { isTTY?: boolean; columns?: number }, env: N
   const forced = env["FORCE_COLOR"] !== undefined && env["FORCE_COLOR"] !== "0";
   const color = forced || (tty && !env["NO_COLOR"] && env["TERM"] !== "dumb");
   const truecolor = color && (/truecolor|24bit/i.test(env["COLORTERM"] ?? "") || env["TERM_PROGRAM"] === "iTerm.app" || env["TERM_PROGRAM"] === "vscode" || env["TERM_PROGRAM"] === "WezTerm");
-  return { color, truecolor, tty, width: Math.max(40, Math.min(stream.columns || 80, 110)) };
+  return { color, truecolor, tty, width: Math.max(40, Math.min(stream.columns || Number(env["COLUMNS"]) || 80, 110)) };
 }
 
 type Rgb = readonly [number, number, number];

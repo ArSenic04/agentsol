@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { proposeChange } from "../src/core/proposals.ts";
 import { scanProject } from "../src/core/scan.ts";
+import { detectTerm } from "../src/cli/tui.ts";
 import { fixture, sourceByPath, tempDir } from "./helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -238,4 +239,14 @@ test("start registers, scans and connects only apps that are installed, after co
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test("terminal width comes from the terminal, else COLUMNS (piped output), within 40 to 110", () => {
+  assert.equal(detectTerm({ isTTY: true, columns: 70 }, { COLUMNS: "200" }).width, 70);
+  assert.equal(detectTerm({}, { COLUMNS: "60" }).width, 60);
+  assert.equal(detectTerm({}, { COLUMNS: "10" }).width, 40);
+  assert.equal(detectTerm({}, { COLUMNS: "wide" }).width, 80);
+  assert.equal(detectTerm({}, {}).width, 80);
+  assert.equal(detectTerm({}, { COLUMNS: "500" }).width, 110);
+  assert.deepEqual([detectTerm({}, {}).color, detectTerm({ isTTY: true }, { NO_COLOR: "1" }).color, detectTerm({ isTTY: true }, { TERM: "dumb" }).color, detectTerm({}, { FORCE_COLOR: "1" }).color], [false, false, false, true]);
 });

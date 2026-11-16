@@ -634,7 +634,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
     raw(render(t, fit(["         ", ["muted", `seen in ${l.evidence.map((e) => (e.step ? `${e.sessionId} step ${e.step}` : e.sessionId)).join(" · ")}`]], w)));
     raw();
   });
-  for (const note of L.notes) raw(render(t, ["  ", ["warn", "▲ "], ["muted", safe(note)]]));
+  for (const note of L.notes) for (const [k, x] of wrapWords(safe(note).split(" "), w - 4, " ").entries()) raw(render(t, ["  ", ["warn", k === 0 ? "▲ " : "  "], ["muted", x]]));
   const changes = (L.suggestedChange ? 1 : 0) + L.otherChanges.length;
   const summary = [wrong ? n(wrong, "correction") : "", fresh ? n(fresh, "new rule") : ""].filter(Boolean).join(" and ");
   const files = [L.suggestedChange ? L.target?.relPath : null, ...L.otherChanges.map((c) => c.relPath)].filter(Boolean).join(", ");
@@ -647,10 +647,10 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   } else if (changes > 0) {
     for (const l of panel(t, [["bold", "Next"]], [
       ...(`${summary} in ${files}:  ${CMD} learn --propose`.length > w - 8
-        ? [[["agent", "1 "], `${summary || "Changes"} in ${files}:`], [["agent", "  "], ["bold", `${CMD} learn --propose`]]] as Seg[][]
-        : [[["agent", "1 "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]]] as Seg[][]),
+        ? [[["agent", "→ "], `${summary || "Changes"} in ${files}:`], [["agent", "  "], ["bold", `${CMD} learn --propose`]]] as Seg[][]
+        : [[["agent", "→ "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]]] as Seg[][]),
       [["agent", "  "], ["muted", "you read the diff, then approve and apply it yourself"]],
-      [["agent", "2 "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
+      [["agent", "→ "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
     ], w)) raw(`  ${l}`);
   } else if (L.newFileText) {
     raw(render(t, ["  ", ["warn", "▲ "], `This project has no AGENTS.md or CLAUDE.md. Create ${L.newFile ?? "AGENTS.md"} with:`]));
@@ -658,7 +658,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
     for (const x of L.newFileText.split("\n")) raw(render(t, ["    ", ["agent", safe(x)]]));
   }
   raw();
-  raw(render(t, ["  ", ["muted", "Read from transcripts on this machine. Nothing was sent anywhere, and no project file was changed."]]));
+  for (const x of wrapWords("Read from transcripts on this machine. Nothing was sent anywhere, and no project file was changed.".split(" "), w - 2, " ")) raw(render(t, ["  ", ["muted", x]]));
   raw();
   return 0;
 }
