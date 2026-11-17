@@ -1,9 +1,8 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="brand/agentsol-wordmark-dark.svg">
-    <img src="brand/agentsol-wordmark.svg" alt="Agentsol" width="300">
-  </picture>
+  <img src="brand/agentsol-mark-tile.svg" alt="" width="88">
 </p>
+
+<h1 align="center">Agentsol</h1>
 
 <h3 align="center">Your AI agents do the work. Agentsol checks it.</h3>
 
