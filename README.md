@@ -129,6 +129,10 @@ npx -y agentsol@alpha prompt      # no MCP? one masked prompt to paste into any 
 
 The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. In clients that support MCP prompts you get `/audit`, `/fix`, `/explain`, `/review`, `/setup` and `/learn`. Claude Desktop is not in the connector directory; add it through Settings → Developer → Edit Config (`connect claude-desktop` prints the config).
 
+### As a skill
+
+[`skills/agentsol/SKILL.md`](skills/agentsol/SKILL.md) tells your agent when to use Agentsol on its own: a briefing when it starts in a project, a check before build and test commands, lessons when a mistake repeats, and an inspect before installing anything. It uses the MCP tools when connected and falls back to `npx` otherwise. Copy the `skills/agentsol` folder into `.claude/skills/` in your project (or `~/.claude/skills/` for every project), or into your agent's skills folder.
+
 ## How it fits in your agent loop
 
 ```mermaid
