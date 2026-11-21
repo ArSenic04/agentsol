@@ -46,7 +46,9 @@ const isPlaceholder = (v: string): boolean => PLACEHOLDER.test(v) || new Set(v.r
 // `password=$(read_pw)`, `secret: z.string()`, `TOKEN=GITHUB_TOKEN`.
 const TYPE_WORDS = /^(string|number|boolean|bool|int|integer|float|str|bytes|any|unknown|object|null|undefined|none|nil|true|false|optional|required)$/i;
 const CODE_REF = /^[$%@&{([<]|^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)+$|^[A-Za-z_$][\w$.]*\(.*$|^[A-Z][A-Z0-9_]{2,}$/;
-const isCodeReference = (v: string): boolean => { const t = v.replace(/[,;)\]}]+$/, ""); return TYPE_WORDS.test(t) || CODE_REF.test(t); };
+// Field names and prose (`token:distinct_id`, "a token: Settings"). Lone lowercase words stay flagged: they can be passwords.
+const WORD = /^([a-z]+(_[a-z]+)+|[A-Z][a-z]+)$/;
+const isCodeReference = (v: string): boolean => { const t = v.replace(/^`+/, "").replace(/[,;:.)\]}`]+$/, ""); return t.length < 6 || TYPE_WORDS.test(t) || CODE_REF.test(t) || WORD.test(t); };
 
 /** `kinds`: everything blanked on the line. `real`: the subset that is not a placeholder. */
 export type RedactedLine = { readonly line: number; readonly kinds: readonly SecretKind[]; readonly real: readonly SecretKind[] };

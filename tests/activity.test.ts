@@ -215,10 +215,11 @@ test("instruction risks: hidden characters, injection phrasing and unsafe rules,
 test("secret detection ignores placeholders and code references but still masks them", () => {
   assert.deepEqual(secretKinds(`OPENAI_API_KEY=${FAKE}`), ["api_key"]);
   assert.deepEqual(secretKinds("password: hunter22"), ["assignment"]);
+  assert.deepEqual(secretKinds("password: correcthorse"), ["assignment"]);
   const block = (body: string[]): string[] => ["-----BEGIN PGP PRIVATE KEY BLOCK-----", ...body, "-----END PGP PRIVATE KEY BLOCK-----"];
   assert.deepEqual(secretKinds(block(["lQOYBFAKEFAKE"]).join("\n")), [], "a sample key block is masked but not reported");
   assert.deepEqual(secretKinds(block([randomBytes(48).toString("base64"), randomBytes(48).toString("base64")]).join("\n")), ["private_key"]);
-  for (const s of ["AKIAIOSFODNN7EXAMPLE", "sk-FAKEFAKEFAKEFAKEFAKEFAKE", "Token: gho_************************************", "token: string;", "apiKey: process.env.OPENAI_KEY,", "secret: z.string()", "password=$(security find-generic-password -w)", "TOKEN=GITHUB_TOKEN", "api_key=<your-key-here>"]) {
+  for (const s of ["AKIAIOSFODNN7EXAMPLE", "sk-FAKEFAKEFAKEFAKEFAKEFAKE", "Token: gho_************************************", "token: string;", "apiKey: process.env.OPENAI_KEY,", "secret: z.string()", "password=$(security find-generic-password -w)", "TOKEN=GITHUB_TOKEN", "api_key=<your-key-here>", "Pass `secret=True`.", "Needs `id-token: write` permission.", "group by token:distinct_id)", "To request a token: Settings, then Tokens."]) {
     assert.deepEqual(secretKinds(s), [], s);
   }
 });

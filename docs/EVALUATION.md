@@ -29,7 +29,7 @@ Repos: openai/codex, openai-agents-python, openai-agents-js, vercel/next.js, ver
 | D10 | 268 | 231 | Code samples, table rulers and HTML comments (license headers) are not repeated guidance. |
 | D13 / D15 | 42 | — | Warnings that quote an injection, "without asking the user" before harmless read-only commands, items under a "Never:" heading, "without `--no-verify`", prose mentions of `DROP TABLE`, "excluding secrets" and documented API paths. |
 
-Still open: 4 D12 false positives where a value is followed by a backtick (``secret=True` ``).
+| D12 | 4 | 0 | Values wrapped in backticks (``secret=True` ``, ``id-token: write` ``), field names (`token:distinct_id`) and prose ("To request a token: Settings…") are not secrets. |
 
 ## `inspect`: skills and MCP servers
 
