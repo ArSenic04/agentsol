@@ -87,9 +87,11 @@ type Parsed = {
   client: SessionClient; cwd: string | null; model: string | null; startedAt: string | null; endedAt: string | null;
   steps: Step[]; userTurns: number; userSecrets: SecretKind[]; tokens: SessionMetrics["tokens"]; malformed: number;
   said: Said[];
+  /** Step numbers where the agent's context was compacted; the agent forgets earlier turns there. */
+  resets: number[];
 };
 /** A short message from the person that reads like a correction. Kept in memory for lessons only; never stored. */
-export type Said = { at: string | null; afterStep: number; text: string };
+export type Said = { at: string | null; afterStep: number; text: string; resets: number };
 export type ParsedSession = Parsed;
 
 const CORRECTION = /^(no\b|nope\b|wrong\b|stop\b|don'?t\b|do not\b|never\b|not that\b|that'?s (wrong|not)\b|i (said|told you|asked)\b|please (don'?t|do not|stop|use|always|never)\b|you (should|need to|forgot|must)\b|always\b|use\b|(actually|wait|hmm|ugh)[\s,.!-]+(no\b|use\b|run\b|don'?t\b|never\b|always\b))|\b(from now on|going forward|in (the )?future|remember to|make sure (to|you)|instead of|rather than|i told you|i said|you forgot|again[,.!]|every time|not npm|not yarn)\b/i;
@@ -124,6 +126,7 @@ class Builder {
   userTurns = 0;
   readonly userSecrets: SecretKind[] = [];
   readonly said: Said[] = [];
+  readonly resets: number[] = [];
   malformed = 0;
   readonly client: SessionClient;
   constructor(client: SessionClient) { this.client = client; }
@@ -146,12 +149,16 @@ class Builder {
     if (callId) this.byCall.set(callId, s);
     return s;
   }
+  reset(): void {
+    const n = this.steps.length + 1;
+    if (this.steps.length > 0 && this.resets[this.resets.length - 1] !== n) this.resets.push(n);
+  }
   userText(text: string, at: string | null = null): void {
     const t = text.trim();
     // Codex adds AGENTS.md and environment context as user messages; they are files, not the person.
     if (!t || t.startsWith("<") || t.startsWith("[") || t.startsWith("# AGENTS.md instructions for ")) return;
     this.userTurns += 1;
-    if (t.length <= 400 && !t.includes("\n\n") && CORRECTION.test(t)) this.said.push({ at, afterStep: this.steps.length, text: t });
+    if (t.length <= 400 && !t.includes("\n\n") && CORRECTION.test(t)) this.said.push({ at, afterStep: this.steps.length, text: t, resets: this.resets.length });
     for (const k of secretKinds(t.slice(0, MAX_SCAN_CHARS))) if (!this.userSecrets.includes(k)) this.userSecrets.push(k);
   }
 }
@@ -165,6 +172,7 @@ function claudeLine(b: Builder, o: Rec, usage: Map<string, { input: number; outp
   const at = b.seen(o["timestamp"]);
   const cwd = str(o["cwd"]);
   if (cwd) b.cwd ??= cwd;
+  if ((o["type"] === "system" && o["subtype"] === "compact_boundary") || o["isCompactSummary"] === true) b.reset();
   const msg = rec(o["message"]);
   if (!msg) return;
   const type = str(o["type"]);
@@ -339,6 +347,7 @@ function codexLine(b: Builder, o: Rec, tokens: { value: SessionMetrics["tokens"]
   const p = rec(o["payload"]);
   if (type === "session_meta" && p) { b.cwd ??= str(p["cwd"]); b.seen(p["timestamp"]); return; }
   if (type === "turn_context" && p) { b.cwd ??= str(p["cwd"]); b.model = str(p["model"]) ?? b.model; return; }
+  if (type === "compacted") { b.reset(); return; }
   if (type === "response_item" && p) { codexItem(b, at, p); return; }
   if (type === "event_msg" && p) {
     if (p["type"] === "exec_command_end" && typeof p["exit_code"] === "number") {
@@ -374,7 +383,7 @@ export async function parseTranscript(file: string, client: SessionClient): Prom
     const output = [...usage.values()].reduce((a, u) => a + u.output, 0);
     tokens.value = { input, output, total: input + output };
   }
-  return { client, cwd: b.cwd, model: b.model, startedAt: b.startedAt, endedAt: b.endedAt, steps: b.steps, userTurns: b.userTurns, userSecrets: b.userSecrets, tokens: tokens.value, malformed: b.malformed, said: b.said };
+  return { client, cwd: b.cwd, model: b.model, startedAt: b.startedAt, endedAt: b.endedAt, steps: b.steps, userTurns: b.userTurns, userSecrets: b.userSecrets, tokens: tokens.value, malformed: b.malformed, said: b.said, resets: b.resets };
 }
 
 // ---------------------------------------------------------------------------------------

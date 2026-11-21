@@ -152,6 +152,8 @@ async function claudeImportChecks(src: CheckSource, rootReal: string): Promise<S
       continue;
     }
     const resolved = await resolveExistingInsideRoot(rootReal, norm.value);
+    // `@scope/package` and `@someone` in prose look like imports; a missing target without a file extension is almost always one of those.
+    if (!resolved.ok && resolved.error.code === "not_found" && path.posix.extname(norm.value) === "") continue;
     if (!resolved.ok && resolved.error.code === "not_found") {
       out.push(finding({ checkId: "D09", severity: "warn", message: `Import \`@${imp.raw}\` points to \`${norm.value}\`, which does not exist.`, evidence: ev, docUrl: doc }));
     } else if (!resolved.ok) {
@@ -175,12 +177,18 @@ function precedenceChecks(src: CheckSource, all: readonly CheckSource[]): Struct
       docUrl: FORMAT_DOCS["agents-md"],
     }));
   }
-  const claude = all.find((o) => (o.format === "claude-md" || o.format === "claude-local-md") && isSameOrBelow(dir, scopeDirOf(o.relPath, o.format)));
-  if (claude) {
+  const claudeFiles = all.filter((o) => (o.format === "claude-md" || o.format === "claude-local-md") && isSameOrBelow(dir, scopeDirOf(o.relPath, o.format)));
+  const imported = claudeFiles.some((o) => findClaudeImports(o.lines).some((imp) => imp.kind === "relative" && path.posix.normalize(path.posix.join(fileDirOf(o.relPath) || ".", imp.raw)) === src.relPath));
+  const claude = claudeFiles[0];
+  if (claude && !imported) {
+    const own = claudeFiles.find((o) => scopeDirOf(o.relPath, o.format) === dir);
+    const fix = own
+      ? `To have Claude Code read it too, add the line \`@AGENTS.md\` to \`${own.relPath}\`.`
+      : `To have Claude Code read it too, create \`${dir ? `${dir}/` : ""}CLAUDE.md\` containing the line \`@AGENTS.md\`.`;
     out.push(finding({
       checkId: "D08",
       severity: "info",
-      message: `With its default "Project instructions" setting, Claude Code reads CLAUDE.md files instead of AGENTS.md when \`${claude.relPath}\` applies to this directory. Other clients (Codex, Cursor) still read this file.`,
+      message: `With its default "Project instructions" setting, Claude Code reads CLAUDE.md files instead of AGENTS.md when \`${claude.relPath}\` applies to this directory. Other clients (Codex, Cursor) still read this file. ${fix}`,
       evidence: [span(src, 1, 1), span(claude, 1, 1)],
       docUrl: FORMAT_DOCS["claude-md"],
     }));
@@ -220,9 +228,17 @@ function duplicateChecks(sources: readonly CheckSource[]): StructuralFinding[] {
     const redacted = new Set(src.redactedLineNumbers);
     const seenInThisSource = new Set<string>();
     const fmEnd = src.lines[0]?.trim() === "---" ? src.lines.findIndex((l, i) => i > 0 && l.trim() === "---") : -1;
+    let fenced = false;
+    let comment = false;
     src.lines.forEach((raw, i) => {
       const key = normalizeForDuplicate(raw);
-      if (i <= fmEnd || key.startsWith("#") || key.length < MIN_DUPLICATE_LENGTH || key.startsWith("```") || redacted.has(i + 1) || seenInThisSource.has(key)) return;
+      if (/^(```|~~~)/.test(key)) { fenced = !fenced; return; }
+      if (!fenced && key.startsWith("<!--")) comment = true;
+      const inComment = comment;
+      if (comment && key.includes("-->")) comment = false;
+      // Shared code samples, table rulers and HTML comments (license headers, TOC markers) are not repeated guidance.
+      if (fenced || inComment || /^\|?[\s:|-]+\|?$/.test(key)) return;
+      if (i <= fmEnd || key.startsWith("#") || key.length < MIN_DUPLICATE_LENGTH || redacted.has(i + 1) || seenInThisSource.has(key)) return;
       seenInThisSource.add(key);
       const list = occurrences.get(key) ?? [];
       list.push({ src, line: i + 1 });

@@ -83,8 +83,18 @@ export function renderDiff(relPath: string, lines: readonly string[], edits: rea
     let n = ctxStart;
     for (const e of hunk) {
       for (; n < e.startLine; n += 1) { body.push(` ${lines[n - 1] ?? ""}`); oldCount += 1; newCount += 1; }
-      for (; n <= e.endLine; n += 1) { body.push(`-${lines[n - 1] ?? ""}`); oldCount += 1; }
-      for (const r of e.replacementLines) { body.push(`+${r}`); newCount += 1; }
+      // Lines an edit keeps as they were (its anchor) show as context, not as removed and re-added.
+      const old = lines.slice(e.startLine - 1, e.endLine);
+      const rep = e.replacementLines;
+      let p = 0;
+      while (p < old.length && p < rep.length && old[p] === rep[p]) p += 1;
+      let s = 0;
+      while (s < old.length - p && s < rep.length - p && old[old.length - 1 - s] === rep[rep.length - 1 - s]) s += 1;
+      for (const l of old.slice(0, p)) { body.push(` ${l}`); oldCount += 1; newCount += 1; }
+      for (const l of old.slice(p, old.length - s)) { body.push(`-${l}`); oldCount += 1; }
+      for (const r of rep.slice(p, rep.length - s)) { body.push(`+${r}`); newCount += 1; }
+      for (const l of old.slice(old.length - s)) { body.push(` ${l}`); oldCount += 1; newCount += 1; }
+      n = e.endLine + 1;
     }
     for (; n <= ctxEnd; n += 1) { body.push(` ${lines[n - 1] ?? ""}`); oldCount += 1; newCount += 1; }
     out.push(`@@ -${ctxStart},${oldCount} +${ctxStart + delta},${newCount} @@`, ...body);

@@ -93,7 +93,9 @@ function activeMs(steps: readonly SessionStep[], from: number, to: number): numb
 /** The command that matters in a command line: skips cd, echo, pipes into tail or grep, and redirections. */
 function realCommands(command: string): string[][] {
   const out: string[][] = [];
-  for (const seg of commandSegments(command)) {
+  // A heredoc body is input (a script, a file's text), not commands: `import os` is not what failed.
+  const noBodies = command.replace(/(<<-?\s*(["']?)(\w+)\2[^\n]*)\n[\s\S]*?\n[ \t]*\3[ \t]*(?=\n|$)/g, "$1");
+  for (const seg of commandSegments(noBodies)) {
     const w = strip(seg).filter((x, i, all) => !/^\d*[<>]/.test(x) && !/^\d*[<>]+$/.test(all[i - 1] ?? ""));
     const head = programName(w[0] ?? "");
     if (head && !IDLE.has(head)) out.push([head, ...w.slice(1, 8)]);
@@ -182,7 +184,7 @@ function fixKind(a: readonly string[], b: readonly string[]): "program" | "runne
   return null;
 }
 
-/** conv groups a subagent with the session that started it, so one conversation counts once. */
+/** conv groups a subagent with the session that started it; each compaction starts a new one, since the agent forgot what came before. */
 type Hit = { sessionId: string; conv: string; client: SessionClient; step: number | null; at: string | null; lostSteps: number; lostMs: number; lostTokens: number };
 /** For command lessons: the program swap (npm to pnpm, with the subcommands seen) or the exact command pair. */
 type Swap = { program: [bad: string, good: string]; subs: Set<string> } | { command: [bad: string, good: string]; runner?: boolean };
@@ -231,7 +233,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
     if (!x) { x = { ...g, hits: [] }; groups.set(key, x); }
     return x;
   };
-  const corrections: { sessionId: string; client: SessionClient; step: number | null; at: string | null; text: string; words: Set<string> }[] = [];
+  const corrections: { sessionId: string; conv: string; client: SessionClient; step: number | null; at: string | null; text: string; words: Set<string> }[] = [];
   const failing = new Map<string, { shown: string; hits: Hit[] }>();
   const fragile = new Map<string, { verify: Map<string, number>; hits: Hit[]; most: number }>();
   const worked = new Set<string>();
@@ -248,8 +250,11 @@ function analyze(all: readonly Collected[], home: string): Group[] {
   for (const { session, root } of all) {
     const steps = session.parsed.steps;
     const id = session.summary.id;
-    const conv = session.summary.parentId ?? id;
     const client = session.summary.client;
+    // After a compaction the agent has forgotten earlier turns, so a repeat there counts like a new session.
+    const base = session.summary.parentId ?? id;
+    const convOf = (k: number): string => (k > 0 && !session.summary.parentId ? `${base}#${k}` : base);
+    const convAt = (n: number | null | undefined): string => convOf(n == null ? 0 : session.parsed.resets.filter((r) => r <= n).length);
     const show = (w: readonly string[]): string => showCommand(shJoin(w), session.actx);
     // A long example buries the rule; the rule alone is enough.
     const eg = (w: readonly string[]): string => { const x = show(w); return x.length <= 60 ? ` (for example \`${x}\`)` : ""; };
@@ -274,7 +279,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
           fixed.add(j);
           resolved.add(i);
           const lostSteps = j - i;
-          const hit: Hit = { sessionId: id, conv, client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
+          const hit: Hit = { sessionId: id, conv: convAt(s.n), client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
           const [a0, b0] = [a[0] ?? "", b[0] ?? ""];
           let g: Group;
           if (kind === "program" && a.length > 1) {
@@ -294,7 +299,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       if (!resolved.has(i) && !worked.has(join(a))) {
         const k = join(a);
         const f = failing.get(k) ?? { shown: show(a), hits: [] };
-        f.hits.push({ sessionId: id, conv, client, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
+        f.hits.push({ sessionId: id, conv: convAt(s.n), client, step: s.n, at: s.at, lostSteps: 1, lostMs: activeMs(steps, i, i + 1), lostTokens: tokensFor(session, 1) });
         failing.set(k, f);
       }
     }
@@ -339,14 +344,14 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       const v = passes.map((t) => mainCommand(t.command ?? "")).find((w): w is string[] => w !== null && fits(w)) ?? null;
       if (v) { const shown = show(v); f.verify.set(shown, (f.verify.get(shown) ?? 0) + 1); }
       const lostSteps = steps.slice(l.first, end + 1).filter((t) => t.kind === "command" && t.failed === true).length + l.n;
-      f.hits.push({ sessionId: id, conv, client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
+      f.hits.push({ sessionId: id, conv: convAt(steps[l.first]?.n), client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
       fragile.set(rel, f);
     }
 
     for (const said of session.parsed.said) {
       const text = maskLaunch(said.text, home, 240);
       if (containsSecretLike(said.text)) continue;
-      corrections.push({ sessionId: id, client, step: said.afterStep > 0 ? said.afterStep : null, at: said.at, text, words: words(text) });
+      corrections.push({ sessionId: id, conv: convOf(said.resets), client, step: said.afterStep > 0 ? said.afterStep : null, at: said.at, text, words: words(text) });
     }
   }
 
@@ -372,10 +377,10 @@ function analyze(all: readonly Collected[], home: string): Group[] {
     const cluster = [c];
     used.add(i);
     corrections.forEach((d, j) => {
-      if (used.has(j) || d.sessionId === c.sessionId) return;
+      if (used.has(j) || d.conv === c.conv) return;
       if (jaccard(c.words, d.words) >= 0.4) { cluster.push(d); used.add(j); }
     });
-    const sessions = new Set(cluster.map((x) => x.sessionId));
+    const sessions = new Set(cluster.map((x) => x.conv));
     if (sessions.size < 2) return;
     const best = [...cluster].sort((x, y) => x.text.length - y.text.length)[0]!;
     const said = new Set(cluster.flatMap((x) => [...x.words]));
@@ -384,7 +389,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       same.title += ` You also told agents this yourself in ${sessions.size} sessions.`;
       return;
     }
-    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.sessionId, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
+    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.conv, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
   });
 
   // A command that failed and later ran fine as-is means the project changed; the lesson is out of date.
@@ -573,6 +578,8 @@ export async function learnLessons(ctx: SessionContext, opts: LearnOptions): Pro
       fromElsewhere.add(session.summary.parentId ?? session.summary.id);
     },
   });
+  const compactions = collected.reduce((n, c) => n + (c.session.summary.parentId ? 0 : c.session.parsed.resets.length), 0);
+  if (compactions > 0) list.notes.push(`Long conversations were compacted ${compactions} time${compactions === 1 ? "" : "s"}. The agent forgets earlier turns at each compaction, so a mistake repeated after one counts as a repeat in a new session.`);
   if (fromElsewhere.size > 0) list.notes.push(`${fromElsewhere.size} session${fromElsewhere.size === 1 ? "" : "s"} started in another folder also worked here. Only their steps in this folder were used, not what you said in them.`);
   const files: readonly InstructionFile[] = opts.files ?? (opts.instructionText ? [{ relPath: opts.target ?? "AGENTS.md", lines: opts.instructionText.split(/\r?\n/) }] : []);
   const target = opts.target ?? files[0]?.relPath ?? null;

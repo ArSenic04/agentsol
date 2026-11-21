@@ -75,6 +75,32 @@ test("empty files, size guidelines, imports and precedence", async () => {
   assert.deepEqual(d08, ["AGENTS.md", "pkg/AGENTS.md", "pkg/AGENTS.md"]);
 });
 
+test("package names and mentions in CLAUDE.md prose are not reported as broken imports", async () => {
+  const fs = await findingsFor({
+    "packages/server/CLAUDE.md": "# @mastra/server CLAUDE.md\nSorting matches @babel/parser's order. Ask @alice. See @docs/missing.md.\n",
+  });
+  const d09 = fs.filter((f) => f.checkId === "D09").map((f) => f.message);
+  assert.equal(d09.length, 1, d09.join("\n"));
+  assert.ok(d09[0]?.includes("docs/missing.md"));
+});
+
+test("an AGENTS.md imported by an applicable CLAUDE.md is not reported as unread by Claude Code", async () => {
+  const fs = await findingsFor({
+    "CLAUDE.md": "# Root\n",
+    "pkg/AGENTS.md": "# Pkg\n",
+    "pkg/CLAUDE.md": "@AGENTS.md\n",
+    "lib/AGENTS.md": "# Lib\n",
+  });
+  const claudeD08 = fs.filter((f) => f.checkId === "D08" && f.message.includes("Claude Code")).map((f) => f.evidence[0]?.relPath);
+  assert.deepEqual(claudeD08, ["lib/AGENTS.md"]);
+});
+
+test("shared code samples and table rulers are not reported as repeated guidance", async () => {
+  const body = "```ts\nimport { streamText } from 'ai'; // shared sample line\n```\n|------------|--------------|-------------|\n<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->\n<!--\n Licensed under the Apache License, Version 2.0 (the License)\n-->\n";
+  const fs = await findingsFor({ "a/AGENTS.md": `# A\n${body}`, "b/AGENTS.md": `# B\n${body}` });
+  assert.equal(fs.filter((f) => f.checkId === "D10").length, 0);
+});
+
 test("overlapping scopes are layered, not conflicts; identical lines are labelled not-a-conflict", async () => {
   const layered = await findingsFor({
     "AGENTS.md": "# Root\n- Use npm for scripts in this repository.\n",

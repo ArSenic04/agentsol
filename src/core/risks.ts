@@ -2,7 +2,7 @@
 // actions, and code lines that open common vulnerabilities. Shared by the CLI checks, session
 // review and the in-browser checker, so it has to stay free of Node built-ins and dependencies.
 
-export const INJECTION = /\b(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+|your\s+)?(previous|prior|above|earlier|system)\s+(instructions|prompts|rules|directions)|\byou are now (a|an|in)\b|\bnew (system )?instructions\s*:|^\s*<(system|im_start|im_end)>|<\/(system|im_start|im_end)>|<\|im_start\|>|\bdo not (tell|inform|alert|show) the user\b(?!\s+(they|that they|to)\b)|\bwithout (telling|asking|informing|alerting) the user\b|\b(hide|conceal) (this|it|these)\s+from\s+the user\b/i;
+export const INJECTION = /\b(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+|your\s+)?(previous|prior|above|earlier|system)\s+(instructions|prompts|rules|directions)|\byou are now (a|an|in)\b|\bnew (system )?instructions\s*:|^\s*<(system|im_start|im_end)>|<\/(system|im_start|im_end)>|<\|im_start\|>|\bdo not (tell|inform|alert|show) the user\b(?!\s+(they|that they|to|whether|if)\b)|\bwithout (telling|informing|alerting) the user\b|\b(hide|conceal) (this|it|these)\s+from\s+the user\b/i;
 
 // Zero-width, bidirectional-control and Unicode tag characters: invisible to a reader, read by the model.
 // The zero-width joiner is left out because emoji sequences use it.
@@ -11,17 +11,24 @@ const HIDDEN = /[\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069
 const NEGATED = /\b(never|don'?t|do not|avoid|must not|mustn'?t|should not|shouldn'?t|forbid(den)?|prohibit(ed)?|not allowed|refuse|instead of|rather than)\b/i;
 
 const RISKY_RULES: readonly { re: RegExp; what: string }[] = [
-  { re: /\b(curl|wget|iwr)\b[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\b[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b/i, what: "pipe a downloaded script straight into a shell" },
-  { re: /--no-verify\b|\bHUSKY=0\b/, what: "skip git hooks (--no-verify)" },
+  { re: /\b(curl|wget|iwr)\s[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\s[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b(?!\s+(-m\s|[\w./-]+\.(py|js|mjs|pl|rb)\b))/i, what: "pipe a downloaded script straight into a shell" },
+  { re: /(?<!without\s+`?)--no-verify\b|\bHUSKY=0\b/, what: "skip git hooks (--no-verify)" },
   { re: /--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--yolo\b|\bbypassPermissions\b|\bdanger-full-access\b/, what: "turn off permission prompts or the sandbox" },
   { re: /\bgit\s+push\s+(\S+\s+)*(-f|--force)(?![\w-])/, what: "force-push" },
-  { re: /\b(skip|disable|delete|remove|comment out|mark as skipped)\s+(the\s+|any\s+|all\s+)?(failing\s+|broken\s+|flaky\s+)?tests?\b(?!\s+(data|fixtures?|files? (from|in)))/i, what: "skip or delete failing tests" },
-  { re: /\bcurl\b[^\n]*\s(-k|--insecure)\b|\bverify\s*=\s*False\b|rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED|\b(disable|turn off)\s+(ssl|tls|certificate)\s+(verification|checks?)/i, what: "turn off TLS certificate checks" },
+  { re: /\b(skip|disable|delete|remove|comment out|mark as skipped)\s+(the\s+|any\s+|all\s+)?(failing\s+|broken\s+|flaky\s+)?tests?\b(?!\.|\s+(data|fixtures?|files?|artifacts?|entities|records|resources|accounts|users)\b|\s+(that|which) only\b)/i, what: "skip or delete failing tests" },
+  { re: /\bcurl\b[^\n]*\s(-[a-jl-zA-Z]*k|--insecure)\b/, what: "turn off TLS certificate checks" },
+  { re: /\bverify\s*=\s*False\b|rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED|\b(disable|turn off)\s+(ssl|tls|certificate)\s+(verification|checks?)/i, what: "turn off TLS certificate checks" },
   { re: /\bchmod\s+(-R\s+)?(0?777|a\+rwx)\b/, what: "make files writable by everyone (chmod 777)" },
   { re: /\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$|\*)/, what: "recursively delete the disk root or home folder" },
-  { re: /\b(commit|push|upload|paste|post|send|log|print|echo)\b(?![-`])(?!\s*\(?\s*(["'])[^"'$]*\2)[^.\n]{0,40}\b(\.env\b|secrets?\b|api[ _-]?keys?\b|credentials\b|access tokens?\b|passwords?\b)/i, what: "commit, send or print secrets" },
-  { re: /-auto-approve\b|\bkubectl\s+delete\b[^\n]*--all\b|\bDROP\s+(TABLE|DATABASE)\b/i, what: "run destructive infrastructure or database commands" },
+  { re: /(?<![-:])\b(commit|push|upload|paste|post|send|log|print|echo)\b(?![-`])(?!\s+(?:in|into|on)\b)(?!\s+\/)(?!\s*\(?\s*(["'])[^"'$]*\2)[^.\n]{0,40}(?<!\b(excluding|without|no)\s+)(?:\.env\b|\b(?:secrets?\b(?!\s+gists?\b)|api[ _-]?keys?\b|credentials\b|access tokens?\b|passwords?\b))/i, what: "commit, send or print secrets" },
+  { re: /-auto-approve\b|\bkubectl\s+delete\b[^\n]*--all\b|\bDROP\s+(TABLE|DATABASE)\s+(?!IF\s+EXISTS)[\w.`\"]+\s*;/i, what: "run destructive infrastructure or database commands" },
 ];
+
+// Quoted phrases are examples being warned about, not instructions.
+const stripQuotes = (l: string): string => l.replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]{8,}'|`[^`\n]*`/g, '""');
+const LIST_ITEM = /^\s*([-*+]|\d+[.)])\s/;
+// Typing a secret into an app's own settings screen is how secrets are meant to be entered.
+const INTO_SETTINGS = /\b(into|in) (the|your) ([\w-]+ )?(ui|dashboard|settings|form|field|vault|secrets? manager|keychain|password manager)\b/i;
 
 export type InstructionRisk = { checkId: "D13" | "D14" | "D15"; severity: "error" | "warn"; line: number; message: string };
 
@@ -29,6 +36,7 @@ export type InstructionRisk = { checkId: "D13" | "D14" | "D15"; severity: "error
 export function instructionRisks(lines: readonly string[]): InstructionRisk[] {
   const out: InstructionRisk[] = [];
   let fenced = false;
+  let dontList = false;
   lines.forEach((text, i) => {
     const line = i + 1;
     const hidden = text.match(HIDDEN) ?? [];
@@ -37,11 +45,12 @@ export function instructionRisks(lines: readonly string[]): InstructionRisk[] {
       out.push({ checkId: "D14", severity: "error", line, message: `Line has ${hidden.length} invisible character${hidden.length === 1 ? "" : "s"} (${codes}). People reviewing the file cannot see them, but assistants read them; this is how hidden instructions are smuggled into rules files. Remove them.` });
     }
     if (/^\s*(```|~~~)/.test(text)) fenced = !fenced;
-    if (INJECTION.test(text)) {
+    if (INJECTION.test(stripQuotes(text))) {
       out.push({ checkId: "D15", severity: "error", line, message: "Line reads like a prompt injection (telling the assistant to ignore its instructions or hide things from you). Check who added it." });
     }
-    const negated = NEGATED.test(text);
-    const asks = negated ? [] : RISKY_RULES.filter((r) => r.re.test(text)).map((r) => r.what);
+    const negated = NEGATED.test(text) || (dontList && LIST_ITEM.test(text));
+    if (text.trim() !== "" && !LIST_ITEM.test(text)) dontList = NEGATED.test(text) && !/\b(forget|fail|miss|hesitate)\b/i.test(text) && /(:\**|^\s*#.*)\s*$/.test(text);
+    const asks = negated ? [] : [...new Set(RISKY_RULES.filter((r) => r.re.test(text) && !(r.what.includes("print secrets") && INTO_SETTINGS.test(text))).map((r) => r.what))];
     if (asks.length > 0) out.push({ checkId: "D13", severity: "warn", line, message: `${fenced ? "An example command here" : "This line"} tells assistants to ${asks.join(" and to ")}. If that is not intended, reword it as a rule against it.` });
   });
   return out;
@@ -50,8 +59,8 @@ export function instructionRisks(lines: readonly string[]): InstructionRisk[] {
 const CODE_RISKS: readonly { re: RegExp; what: string }[] = [
   { re: /rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED\s*=\s*["']?0|\bverify\s*=\s*False\b|InsecureSkipVerify\s*:\s*true|CURLOPT_SSL_VERIFY(PEER|HOST)\s*,\s*(0|false)|\bssl\._create_unverified_context\s*\(|check_hostname\s*=\s*False/, what: "turns off TLS certificate checks" },
   { re: /\bsubprocess\.\w+\([^)]*shell\s*=\s*True|\bos\.(system|popen)\s*\(\s*f?["'][^"']*(\{|%s|["']\s*\+)|\bexec(Sync)?\s*\(\s*`[^`]*\$\{|\bexec(Sync)?\s*\(\s*["'][^"']*["']\s*\+/, what: "runs a shell command built from variables (command injection)" },
-  { re: /(^|[^\w.])eval\s*\(\s*[A-Za-z_$]|\bnew\s+Function\s*\(\s*[A-Za-z_$]/, what: "runs code from a string (eval)" },
-  { re: /\bpickle\.loads?\s*\(|\byaml\.load\s*\((?![^)]*Loader\s*=\s*(yaml\.)?SafeLoader)|\bmarshal\.loads\s*\(|\bunserialize\s*\(\s*\$|new\s+ObjectInputStream\s*\(/, what: "deserializes untrusted data (pickle, yaml.load and similar)" },
+  { re: /(^|[^\w.])eval\(\s*[A-Za-z_$]|\bnew\s+Function\s*\(\s*[A-Za-z_$]/, what: "runs code from a string (eval)" },
+  { re: /\bpickle\.loads?\s*\((?!\s*\))|\byaml\.load\s*\((?!\s*\)|[^)]*Loader\s*=\s*(yaml\.)?SafeLoader)|\bmarshal\.loads\s*\(|\bunserialize\s*\(\s*\$|new\s+ObjectInputStream\s*\(/, what: "deserializes untrusted data (pickle, yaml.load and similar)" },
   { re: /\b(execute|query|raw|exec)\s*\(\s*(f["'][^"']*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"']*\{|["'][^"']*\b(SELECT|INSERT|UPDATE|DELETE)\b[^"']*["']\s*(\+|%\s*[(\w]|\.format\()|`[^`]*\b(SELECT|INSERT|UPDATE|DELETE)\b[^`]*\$\{)/i, what: "builds a SQL query by pasting in values (SQL injection)" },
   { re: /\.inner[H]TML\s*=\s*[^"'`\s;]|\.inner[H]TML\s*=\s*`[^`]*\$\{|dangerouslySetInnerHTML\s*=\s*\{|\bdocument\.write\s*\(|\bmark_safe\s*\(|\bv-html\s*=|\|\s*safe\s*\}\}/, what: "puts unescaped HTML into a page (cross-site scripting)" },
   { re: /Access-Control-Allow-Origin["']?\s*[:,]\s*["']\*["']|allow_origins\s*=\s*\[\s*["']\*["']|\borigin\s*:\s*["']\*["'][^\n]*credentials\s*:\s*true|credentials\s*:\s*true[^\n]*\borigin\s*:\s*["']\*["']/, what: "lets any website call this server (CORS *)" },
@@ -76,12 +85,12 @@ type Rule = { re: RegExp; what: string; severity: "high" | "medium" | "low"; scr
 
 const SCRIPT_RISKS: readonly Rule[] = [
   { re: CREDENTIAL_PATHS, what: "reads credential files (SSH keys, cloud, npm or git tokens, browser passwords)", severity: "high" },
-  { re: /\bcurl\b[^\n]*\s(-d|--data(-\w+)?|-F|--form|-T|--upload-file)\b|\bwget\b[^\n]*--post-(data|file)|\brequests\.(post|put)\s*\(|\bfetch\s*\([^)]*method\s*:\s*["'](POST|PUT)|\b(nc|ncat|netcat)\s+[\w.-]+\s+\d+|\/dev\/tcp\/|\burlopen\s*\([^)]*data\s*=|\bhttp\.request\s*\([^)]*method\s*:\s*["']POST|\bsocket\.(socket|create_connection)\s*\((?![^\n]*\b(AF_UNIX|localhost|127\.0\.0\.1)\b)|\bnet\.connect\s*\(/, what: "sends data to a remote server", severity: "medium" },
+  { re: /\bcurl\b[^\n]*\s(-d|--data(-\w+)?|-F|--form|-T|--upload-file)\b|\bwget\b[^\n]*--post-(data|file)|\brequests\.(post|put)\s*\(|\bfetch\s*\([^)]*method\s*:\s*["'](POST|PUT)|\b(nc|ncat|netcat)\s+[\w.-]+\s+\d+|\/dev\/tcp\/|\burlopen\s*\([^)]*data\s*=|\bhttp\.request\s*\([^)]*method\s*:\s*["']POST|\bsocket\.(socket|create_connection)\s*\((?!\s*\)|[^\n]*\b(AF_UNIX|localhost|127\.0\.0\.1)\b)|\bnet\.connect\s*\(/, what: "sends data to a remote server", severity: "medium" },
   { re: /\bresolve(4|6|Txt|Any)?\s*\(\s*`[^`]*\$\{|\bgethostbyname\s*\(\s*f["']/, what: "hides data inside DNS lookups, a common way to sneak secrets out", severity: "high" },
   { re: /\bbase64\s+(-d|-D|--decode)\b[^\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\beval\s*\(\s*(atob|Buffer\.from|base64|b64decode|codecs\.decode)|\bexec\s*\(\s*(base64\.)?b64decode|\bString\.fromCharCode\s*\([^)]{40,}/, what: "decodes hidden code and runs it", severity: "high" },
-  { re: /\b(curl|wget|iwr)\b[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\b[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b(?!\s+-[a-z]*[ecp]\b)/i, what: "downloads a script and runs it unseen", severity: "high" },
-  { re: /(>>|\btee\s+-a\b)\s*["']?(~|\$HOME)\/\.(bashrc|zshrc|zprofile|bash_profile|profile)\b|\bcrontab\s+(-\s|[^-l\s])|Library\/LaunchAgents\/|(>|\bcp\b[^\n]*|\bmv\b[^\n]*|\bln\b[^\n]*)\s*["']?\S*\.git\/hooks\//, what: "installs itself to run again later (shell startup, cron, launch agent or git hook)", severity: "high" },
-  { re: /(>>?|\btee\b|writeFile\w*\s*\(|\bopen\s*\([^)]*["']w)[^\n]*(\.claude\/settings(\.local)?\.json|\.claude\.json\b|\.cursor\/mcp\.json|\.codex\/config\.toml|claude_desktop_config\.json)/, what: "rewrites AI assistant settings or permissions", severity: "high" },
+  { re: /\b(curl|wget|iwr)\s[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\s[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b(?!\s+(-[a-z]*[ecpm]\b|[\w./-]+\.(py|js|mjs|pl|rb)\b))/i, what: "downloads a script and runs it unseen", severity: "high" },
+  { re: /(>>|\btee\s+-a\b)\s*["']?(~|\$HOME)\/\.(bashrc|zshrc|zprofile|bash_profile|profile)\b|(?<!\/)\bcrontab\s+(-(\s|$)|[^-l\s&|;])|Library\/LaunchAgents\/|(>|\bcp\b[^\n]*|\bmv\b[^\n]*|\bln\b[^\n]*)\s*["']?\S*\.git\/hooks\//, what: "installs itself to run again later (shell startup, cron, launch agent or git hook)", severity: "high" },
+  { re: /((?<!<[\w.-]*)>>?|\btee\b|writeFile\w*\s*\(|\bopen\s*\([^)]*["']w)[^\n]*(\.claude\/settings(\.local)?\.json|\.claude\.json\b|\.cursor\/mcp\.json|\.codex\/config\.toml|claude_desktop_config\.json)/, what: "rewrites AI assistant settings or permissions", severity: "high" },
   { re: /--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|\bbypassPermissions\b/, what: "turns off the assistant's permission prompts", severity: "high" },
   { re: /\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$|\*|\/\*)|\bmkfs\b|\bdd\b[^\n]*of=\/dev\/(disk|sd|nvme)/, what: "deletes the disk or home folder", severity: "high" },
   { re: /^\s*(printenv|env)\s*(\||>)|\bJSON\.stringify\s*\(\s*process\.env\s*\)|\bjson\.dumps\s*\(\s*(dict\s*\()?\s*os\.environ/, what: "collects every environment variable (where API keys usually live)", severity: "medium" },
@@ -89,7 +98,7 @@ const SCRIPT_RISKS: readonly Rule[] = [
 ];
 
 // Lines that describe, test for or block a risky pattern (security hooks, docs, detection rules) rather than doing it.
-const DESCRIBING = /(==|!=|=~)\s*["*]|\bgrep\s+-[a-zA-Z]*[qEeiw]|\bcase\s|re\.(search|match|compile|findall)\(|\.(test|match|includes)\(|RegExp\(|\\[sbdw][+*]?|\bpatterns?\b|\b(check(s|ing)? for|verify|detect(s|ed|ing)?|block(s|ed|ing)?|flag(s|ged)?|matches|dangerous|forbidden|e\.g\.|such as|for example|not recommended|analy[sz]e)\b|❌|"prompt"\s*:/i;
+const DESCRIBING = /(==|!=|=~)\s*["*]|\bin\s*[(\[]\s*["']|^\s*[A-Z][A-Z0-9_]+\s*=\s*[(\[{]\s*["']|\bgrep\s+-[a-zA-Z]*[qEeiw]|\bcase\s|re\.(search|match|compile|findall)\(|\.(test|match|includes)\(|RegExp\(|\\[sbdw][+*]?|\bpatterns?\b|\b(check(s|ing)? for|verify|detect(s|ed|ing)?|block(s|ed|ing)?|flag(s|ged)?|matches|dangerous|forbidden|e\.g\.|such as|for example|not recommended|analy[sz]e)\b|❌|"prompt"\s*:/i;
 
 const TOOL_RISKS: readonly { re: RegExp; what: string; severity: "high" | "medium" }[] = [
   { re: /<\/?(important|system|instructions?|secret|hidden)\b[^>]*>/i, what: "hides instructions for the assistant inside an XML-style tag", severity: "high" },
@@ -108,6 +117,9 @@ const SCRIPT_FILE = /\.(sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|ps1|bat|cmd)$|(^|\/)(
 const TEXT_FILE = /\.(md|mdx|txt|ya?ml|json|toml)$/i;
 
 /** The line without quoted examples, so a skill that quotes an injection phrase to warn about it is not flagged. */
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+// A string literal made only of invisible characters is a named constant (BOM, RLO), not hidden text.
+const hiddenOutsideLiterals = (l: string): boolean => (l.replace(/(["'])[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff\s,]+\1/gu, "").match(HIDDEN) ?? []).length > 0;
 const unquote = (l: string): string => l.replace(/"[^"\n]*"|“[^”\n]*”|'[^'\n]{8,}'|`[^`\n]*`/g, '""').replace(/\byou are now (a|an|in)\b/gi, "");
 
 type ToolDef = { name?: unknown; description?: unknown; inputSchema?: unknown; title?: unknown };
@@ -163,19 +175,20 @@ export function inspectFiles(files: readonly InspectFile[], opts: { secretIn?: (
     const script = SCRIPT_FILE.test(f.path);
     if (opts.secretIn) lines.forEach((l, i) => { const label = opts.secretIn?.(l); if (label) add("medium", f.path, i + 1, `contains what looks like ${label} in plain text; if it is real, the publisher leaked it and anything using it runs on their account`); });
     if (script || TEXT_FILE.test(f.path)) {
-      for (const r of instructionRisks(lines)) if (!(script && r.message.includes("print secrets")) && !(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
+      for (const r of instructionRisks(lines)) if (!(script && r.message.includes("print secrets")) && !(r.checkId === "D13" && !script && TABLE_ROW.test(lines[r.line - 1] ?? "")) && !(r.checkId === "D14" && script && !hiddenOutsideLiterals(lines[r.line - 1] ?? "")) && !(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
     }
     let fence = false;
     lines.forEach((l, i) => {
       if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return; }
       if (/^\s*(#(?!!)|\/\/|\*|<!--)/.test(l) && (script || fence)) return;
-      if (DESCRIBING.test(l) || NEGATED.test(l)) return;
+      if (DESCRIBING.test(l) || NEGATED.test(l) || (!script && TABLE_ROW.test(l))) return;
       if (script || fence || /^\s*\$ /.test(l) || /`[^`]*\b(curl|wget|base64|rm|crontab|tee|dd)\b[^`]*`/.test(l)) {
         for (const r of SCRIPT_RISKS) if ((script || !r.scriptsOnly) && r.re.test(l)) add(r.severity, f.path, i + 1, r.what);
       }
     });
     const sendLine = findings.find((x) => x.path === f.path && x.what === "sends data to a remote server")?.line;
     if (sendLine && /\b(open|readFile\w*|cat)\s*\(?\s*["'][^"'\n]*\.env["']|JSON\.stringify\s*\(\s*process\.env\s*\)|\bos\.environ\s*\)/.test(f.text)) add("high", f.path, sendLine, "sends your secrets (.env file or environment variables) to a remote server");
+    if (sendLine && findings.some((x) => x.path === f.path && x.what.startsWith("reads credential files"))) add("high", f.path, sendLine, "sends what it read from your credential files (SSH keys, cloud or git tokens) to a remote server");
     if (script) for (const what of codeRisks(lines)) add("medium", f.path, lines.findIndex((l) => CODE_RISKS.some((r) => r.what === what && r.re.test(l))) + 1, what);
   }
   const rank = { high: 0, medium: 1, low: 2 } as const;

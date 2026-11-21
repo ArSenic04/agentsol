@@ -99,6 +99,10 @@ test("learn turns repeated mistakes into cited rules, and ignores plain retries"
 test("lesson helpers", () => {
   assert.deepEqual(mainCommand("cd web && npm run build 2>&1 | tail -5"), ["npm", "run", "build"]);
   assert.equal(mainCommand("echo hi"), null);
+  assert.deepEqual(mainCommand("cat > /tmp/x.py <<'EOF'\nimport os\nprint(os.sep)\nEOF\npython3 /tmp/x.py"), ["python3", "/tmp/x.py"]);
+  assert.deepEqual(mainCommand("cat <<EOF | node --input-type=module\nimport { readFileSync } from 'node:fs'\nEOF"), ["node", "--input-type=module"]);
+  assert.deepEqual(mainCommand("python3 - <<'PY'\nimport os\nPY"), ["python3", "-"]);
+  assert.equal(mainCommand("cat > notes.md << EOF\nnpm test\nEOF"), null);
   for (const c of ["bash -c 'npm test'", `bash -lc "cd app && npm test"`, "pwsh -Command 'npm test'", "cmd /c npm test", "nice -n 10 npm test", "watch -n 1 npm test", "watch -n1 npm test", "timeout -s KILL 60 npm test", "sudo -u ci env CI=1 npm test"]) {
     assert.deepEqual(mainCommand(c), ["npm", "test"], c);
   }
@@ -181,6 +185,37 @@ test("learn combines Claude Code and Codex sessions into the same lessons", asyn
     const said = r.lessons.find((l) => l.kind === "correction");
     assert.equal(said?.sessions, 2, "a correction typed in Claude Code and in Codex counts as repeated");
     assert.ok(!JSON.stringify(r).includes("environment_context"));
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("learn treats each compaction of one long conversation as a fresh start", async () => {
+  const fx = await fixture({ "AGENTS.md": "# Rules\n" });
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    const said = ["don't edit the generated files in gen/"];
+    const half = (ms: number): string => session(fx.root, ms, { said, fragile: false });
+    const boundary = JSON.stringify({ type: "system", subtype: "compact_boundary", cwd: fx.root, timestamp: new Date(T + 1_800_000).toISOString() });
+    const summary = JSON.stringify({ type: "user", isCompactSummary: true, cwd: fx.root, timestamp: new Date(T + 1_800_001).toISOString(), message: { role: "user", content: "Summary: use pnpm, never npm." } });
+    const compacted = JSON.stringify({ timestamp: new Date(T + 1_800_000).toISOString(), type: "compacted", payload: { message: "summary" } });
+    const run = async (files: Record<string, string>) => {
+      await rm(path.join(home, ".claude"), { recursive: true, force: true });
+      await rm(path.join(home, ".codex"), { recursive: true, force: true });
+      await writeTree(home, files);
+      return learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    };
+    const plain = await run({ ".claude/projects/-p/one.jsonl": half(T) + half(T + 3_600_000) });
+    assert.equal(plain.lessons.find((l) => l.kind === "correction"), undefined, "without a compaction it is one session");
+    const claude = await run({ ".claude/projects/-p/one.jsonl": half(T) + `${boundary}\n${summary}\n` + half(T + 3_600_000) });
+    assert.equal(claude.sessionsRead, 1);
+    assert.equal(claude.lessons.find((l) => l.kind === "correction")?.sessions, 2, JSON.stringify(claude.lessons));
+    assert.equal(claude.lessons.find((l) => l.kind === "command")?.sessions, 2);
+    assert.ok(claude.notes.some((n) => /compacted 1 time\b/.test(n)));
+    const codex = await run({ ".codex/sessions/2026/11/01/rollout-2026-11-01T10-00-00-fake.jsonl": codexSession(fx.root, T) + `${compacted}\n` + codexSession(fx.root, T + 3_600_000).split("\n").slice(2).join("\n") });
+    assert.equal(codex.lessons.find((l) => l.kind === "correction")?.sessions, 2, JSON.stringify(codex.lessons));
   } finally {
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });

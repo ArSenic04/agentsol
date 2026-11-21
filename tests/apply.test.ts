@@ -238,4 +238,6 @@ test("review diff uses valid unified hunk headers, including context and line sh
     { startLine: 7, endLine: 7, expectedText: "g", replacementLines: ["g1"] },
   ]);
   assert.equal(diff, ["--- a/X.md", "+++ b/X.md", "@@ -1,4 +1,5 @@", " a", "-b", "+b1", "+b2", " c", " d", "@@ -5,4 +6,4 @@", " e", " f", "-g", "+g1", " h"].join("\n"));
+  const append = renderDiff("X.md", ["a", "b"], [{ startLine: 2, endLine: 2, expectedText: "b", replacementLines: ["b", "", "## New"] }]);
+  assert.equal(append, ["--- a/X.md", "+++ b/X.md", "@@ -1,2 +1,4 @@", " a", " b", "+", "+## New"].join("\n"), "an anchor line kept as is shows as context");
 });

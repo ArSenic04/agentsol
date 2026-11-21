@@ -320,6 +320,7 @@ npm run test:web                                    # build, then browser tests 
 <summary><b>Known limitations</b></summary>
 
 - If a different folder appears at a registered path (deleted and recreated, or swapped), scans and apply refuse with `root_replaced` until you confirm it yourself with `project add <the same path>`.
+- Accuracy on real projects (32 public repos, 1,567 public skills and MCP servers, what was right, what was fixed and what is still open) is in `docs/EVALUATION.md`.
 - Load figures from `npm run load:test` (synthetic monorepos up to about 5,000 files) describe one Mac and are not a guarantee; see `docs/ALPHA_VERIFICATION.md`.
 - The website has not been tested with a screen reader and has had no formal accessibility audit.
 - Backups in `<workspace>/backups` keep original bytes, secrets included. The workspace must be private (`chmod 700`).
