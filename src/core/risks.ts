@@ -2,7 +2,7 @@
 // actions, and code lines that open common vulnerabilities. Shared by the CLI checks, session
 // review and the in-browser checker, so it has to stay free of Node built-ins and dependencies.
 
-export const INJECTION = /\b(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+|your\s+)?(previous|prior|above|earlier|system)\s+(instructions|prompts|rules|directions)|\byou are now (a|an|in)\b|\bnew (system )?instructions\s*:|^\s*<(system|im_start|im_end)>|<\/(system|im_start|im_end)>|<\|im_start\|>|\bdo not (tell|inform|alert|show) the user\b|\bwithout (telling|asking|informing|alerting) the user\b|\b(hide|conceal) (this|it|these)\s+from\s+the user\b/i;
+export const INJECTION = /\b(ignore|disregard|forget)\s+(all\s+|any\s+)?(the\s+|your\s+)?(previous|prior|above|earlier|system)\s+(instructions|prompts|rules|directions)|\byou are now (a|an|in)\b|\bnew (system )?instructions\s*:|^\s*<(system|im_start|im_end)>|<\/(system|im_start|im_end)>|<\|im_start\|>|\bdo not (tell|inform|alert|show) the user\b(?!\s+(they|that they|to)\b)|\bwithout (telling|asking|informing|alerting) the user\b|\b(hide|conceal) (this|it|these)\s+from\s+the user\b/i;
 
 // Zero-width, bidirectional-control and Unicode tag characters: invisible to a reader, read by the model.
 // The zero-width joiner is left out because emoji sequences use it.
@@ -19,7 +19,7 @@ const RISKY_RULES: readonly { re: RegExp; what: string }[] = [
   { re: /\bcurl\b[^\n]*\s(-k|--insecure)\b|\bverify\s*=\s*False\b|rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED|\b(disable|turn off)\s+(ssl|tls|certificate)\s+(verification|checks?)/i, what: "turn off TLS certificate checks" },
   { re: /\bchmod\s+(-R\s+)?(0?777|a\+rwx)\b/, what: "make files writable by everyone (chmod 777)" },
   { re: /\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$|\*)/, what: "recursively delete the disk root or home folder" },
-  { re: /\b(commit|push|upload|paste|post|send|log|print|echo)\b[^.\n]{0,40}\b(\.env\b|secrets?\b|api[ _-]?keys?\b|credentials\b|access tokens?\b|passwords?\b)/i, what: "commit, send or print secrets" },
+  { re: /\b(commit|push|upload|paste|post|send|log|print|echo)\b(?![-`])(?!\s*\(?\s*(["'])[^"'$]*\2)[^.\n]{0,40}\b(\.env\b|secrets?\b|api[ _-]?keys?\b|credentials\b|access tokens?\b|passwords?\b)/i, what: "commit, send or print secrets" },
   { re: /-auto-approve\b|\bkubectl\s+delete\b[^\n]*--all\b|\bDROP\s+(TABLE|DATABASE)\b/i, what: "run destructive infrastructure or database commands" },
 ];
 
@@ -76,7 +76,7 @@ type Rule = { re: RegExp; what: string; severity: "high" | "medium" | "low"; scr
 
 const SCRIPT_RISKS: readonly Rule[] = [
   { re: CREDENTIAL_PATHS, what: "reads credential files (SSH keys, cloud, npm or git tokens, browser passwords)", severity: "high" },
-  { re: /\bcurl\b[^\n]*\s(-d|--data(-\w+)?|-F|--form|-T|--upload-file)\b|\bwget\b[^\n]*--post-(data|file)|\brequests\.(post|put)\s*\(|\bfetch\s*\([^)]*method\s*:\s*["'](POST|PUT)|\b(nc|ncat|netcat)\s+[\w.-]+\s+\d+|\/dev\/tcp\/|\burlopen\s*\([^)]*data\s*=|\bhttp\.request\s*\([^)]*method\s*:\s*["']POST|\bsocket\.(socket|create_connection)\s*\(|\bnet\.connect\s*\(/, what: "sends data to a remote server", severity: "medium" },
+  { re: /\bcurl\b[^\n]*\s(-d|--data(-\w+)?|-F|--form|-T|--upload-file)\b|\bwget\b[^\n]*--post-(data|file)|\brequests\.(post|put)\s*\(|\bfetch\s*\([^)]*method\s*:\s*["'](POST|PUT)|\b(nc|ncat|netcat)\s+[\w.-]+\s+\d+|\/dev\/tcp\/|\burlopen\s*\([^)]*data\s*=|\bhttp\.request\s*\([^)]*method\s*:\s*["']POST|\bsocket\.(socket|create_connection)\s*\((?![^\n]*\b(AF_UNIX|localhost|127\.0\.0\.1)\b)|\bnet\.connect\s*\(/, what: "sends data to a remote server", severity: "medium" },
   { re: /\bresolve(4|6|Txt|Any)?\s*\(\s*`[^`]*\$\{|\bgethostbyname\s*\(\s*f["']/, what: "hides data inside DNS lookups, a common way to sneak secrets out", severity: "high" },
   { re: /\bbase64\s+(-d|-D|--decode)\b[^\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\beval\s*\(\s*(atob|Buffer\.from|base64|b64decode|codecs\.decode)|\bexec\s*\(\s*(base64\.)?b64decode|\bString\.fromCharCode\s*\([^)]{40,}/, what: "decodes hidden code and runs it", severity: "high" },
   { re: /\b(curl|wget|iwr)\b[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\b[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b(?!\s+-[a-z]*[ecp]\b)/i, what: "downloads a script and runs it unseen", severity: "high" },
@@ -163,7 +163,7 @@ export function inspectFiles(files: readonly InspectFile[], opts: { secretIn?: (
     const script = SCRIPT_FILE.test(f.path);
     if (opts.secretIn) lines.forEach((l, i) => { const label = opts.secretIn?.(l); if (label) add("medium", f.path, i + 1, `contains what looks like ${label} in plain text; if it is real, the publisher leaked it and anything using it runs on their account`); });
     if (script || TEXT_FILE.test(f.path)) {
-      for (const r of instructionRisks(lines)) if (!(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
+      for (const r of instructionRisks(lines)) if (!(script && r.message.includes("print secrets")) && !(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
     }
     let fence = false;
     lines.forEach((l, i) => {

@@ -219,9 +219,10 @@ function duplicateChecks(sources: readonly CheckSource[]): StructuralFinding[] {
   for (const src of sources) {
     const redacted = new Set(src.redactedLineNumbers);
     const seenInThisSource = new Set<string>();
+    const fmEnd = src.lines[0]?.trim() === "---" ? src.lines.findIndex((l, i) => i > 0 && l.trim() === "---") : -1;
     src.lines.forEach((raw, i) => {
       const key = normalizeForDuplicate(raw);
-      if (key.length < MIN_DUPLICATE_LENGTH || key.startsWith("```") || redacted.has(i + 1) || seenInThisSource.has(key)) return;
+      if (i <= fmEnd || key.startsWith("#") || key.length < MIN_DUPLICATE_LENGTH || key.startsWith("```") || redacted.has(i + 1) || seenInThisSource.has(key)) return;
       seenInThisSource.add(key);
       const list = occurrences.get(key) ?? [];
       list.push({ src, line: i + 1 });

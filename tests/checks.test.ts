@@ -90,6 +90,12 @@ test("overlapping scopes are layered, not conflicts; identical lines are labelle
   assert.equal(dup[0]?.checkId, "D10");
   assert.match(dup[0]?.message ?? "", /not a conflict/);
   assert.equal(dup[0]?.evidence.length, 2);
+
+  const shared = await findingsFor({
+    "a/SKILL.md": "---\nname: a\ndescription: First skill\nlicense: Complete terms in LICENSE.txt\n---\n### THE CRITICAL UNDERSTANDING\nDo a.\n",
+    "b/SKILL.md": "---\nname: b\ndescription: Second skill\nlicense: Complete terms in LICENSE.txt\n---\n### THE CRITICAL UNDERSTANDING\nDo b.\n",
+  });
+  assert.equal(shared.filter((f) => f.checkId === "D10").length, 0, "shared frontmatter and headings are not repeated guidance");
 });
 
 test("scope resolution follows each client's documented layering", async () => {
