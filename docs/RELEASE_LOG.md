@@ -46,3 +46,10 @@
 - Publish attempt 5:16 PM EST from a non-interactive shell: npm stopped with EOTP (one-time password / browser auth required). Not retried. Registry after: agentsol 404 (nothing published). Next step: run the publish command in Terminal yourself.
 - Released 5:19 PM EST (2026-11-09T22:19:30Z) after the user's interactive publish; npm first showed only the 0.0.0-stage placeholder (staged-publishing flow) until about 5:20 PM. Live check 5:21 PM: dist-tags alpha=0.1.0-alpha.1 AND latest=0.1.0-alpha.1 (npm set latest; not changed by us). MIT, node >=24, bins agentsol/agentsol-mcp, maintainer shivam0411, 42 files, no scripts. Registry tarball sha256 and sha512 match the release file exactly.
 - Registry install (empty npm cache, scripts disabled) 21/21 on Node 24.0.0, 24.22.2, 26.8.2; plain `npm install agentsol` resolves 0.1.0-alpha.1.
+
+## Agentsol 0.2.0-alpha.3: prepared, NOT published (Nov 21, 2026, 3:23 PM EST)
+- Ships the field-evaluation fixes in `docs/EVALUATION.md`: fewer false alarms in `check` (D08, D09, D10, D12, D13, D15) and `inspect`, new `inspect` findings (credential theft, `.env` commits, "Never forget to:" lists), compaction-aware `learn`, heredocs skipped in `learn`, review diffs that keep unchanged lines as context.
+- 0.2.0-alpha.2 was prepared but never published; its tarball is kept unchanged. Publish alpha.3 instead.
+- Release file: `artifacts/release/agentsol-0.2.0-alpha.3.tgz`, 48 files, 140,651 bytes, sha256 5b114ba7f879f93e78fbd21b3ac6818e50503a2fc1e4dba1ba644a6de4003cfb, integrity sha512-OpWGp5vXe2XQ8PGV+O6HgUpLrv03P8L2ZY5JzB2uJKlDMT2T2X6SO4xU7x2iZax7x5iTHY4f8j5asaLAifEiFQ==.
+- `release:check` READY: pack audit; sha512 equals npm pack; clean install + CLI + MCP 21/21 on Node 26.8.2 and 25.9.0; `npm publish --dry-run` tag alpha, public; tarball unchanged.
+- Next steps (a person, in Terminal): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.3.tgz --tag alpha --access public --registry https://registry.npmjs.org/`, then `npm dist-tag add agentsol@0.2.0-alpha.3 latest`.
