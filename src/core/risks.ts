@@ -82,6 +82,11 @@ export function codeRisks(lines: readonly string[]): string[] {
 const CREDENTIAL_PATHS = /["'`]\.(ssh|aws|gnupg|kube|docker)["'`]|(~|\$HOME|\$\{HOME\}|homedir\(\)[^\n]*)\/?\.ssh\b|\bid_(rsa|ed25519|ecdsa)\b|\.aws\/credentials|(~|\$HOME)\/\.(npmrc|netrc|pypirc|git-credentials)\b|\.docker\/config\.json|\.kube\/config|Library\/Keychains|\.config\/gcloud|\bwallet\.dat\b|(Chrome|Chromium|Brave|Edge|Firefox)[^\n]*(Login Data|Cookies|Local State|logins\.json)/;
 
 type Rule = { re: RegExp; what: string; severity: "high" | "medium" | "low"; scriptsOnly?: boolean };
+const PERMISSIONS_OFF = "turns off the assistant's permission prompts";
+// Reference docs (not SKILL.md) whose title or intro says they teach detection: their attack examples are illustrations.
+const DEFENSIVE_DOC = /\b(threat model|detection|detect(ing)?|mitigations?|defensive|red flags?|attack (patterns?|vectors?)|security (audit|review)\w*)\b/i;
+const isDefensiveDoc = (p: string, lines: readonly string[]): boolean =>
+  /\.mdx?$/i.test(p) && !/(^|\/)SKILL\.md$/i.test(p) && p.includes("/") && lines.slice(0, 6).some((l) => DEFENSIVE_DOC.test(l));
 
 const SCRIPT_RISKS: readonly Rule[] = [
   // `chmod 600 ~/.netrc` only tightens permissions; it does not read the file.
@@ -92,7 +97,7 @@ const SCRIPT_RISKS: readonly Rule[] = [
   { re: /\b(curl|wget|iwr)\s[^|;\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\b(curl|wget)\s[^|;\n]*\|\s*(sudo\s+)?(python3?|node|perl|ruby)\b(?!\s+(-[a-z]*[ecpm]\b|[\w./-]+\.(py|js|mjs|pl|rb)\b))/i, what: "downloads a script and runs it unseen", severity: "high" },
   { re: /(>>|\btee\s+-a\b)\s*["']?(~|\$HOME)\/\.(bashrc|zshrc|zprofile|bash_profile|profile)\b|(?<!\/)\bcrontab\s+(-(\s|$)|[^-l\s&|;])|Library\/LaunchAgents\/|(>|\bcp\b[^\n]*|\bmv\b[^\n]*|\bln\b[^\n]*)\s*["']?\S*\.git\/hooks\//, what: "installs itself to run again later (shell startup, cron, launch agent or git hook)", severity: "high" },
   { re: /((?<!<[\w.-]*)>>?|\btee\b|writeFile\w*\s*\(|\bopen\s*\([^)]*["']w)[^\n]*(\.claude\/settings(\.local)?\.json|\.claude\.json\b|\.cursor\/mcp\.json|\.codex\/config\.toml|claude_desktop_config\.json)/, what: "rewrites AI assistant settings or permissions", severity: "high" },
-  { re: /--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|\bbypassPermissions\b/, what: "turns off the assistant's permission prompts", severity: "high" },
+  { re: /--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|\b(defaultMode|permission_?mode|permissionMode)["']?\s*[:=]\s*["']?bypassPermissions\b|--permission-mode[=\s]+["']?bypassPermissions\b/i, what: PERMISSIONS_OFF, severity: "high" },
   { re: /\brm\s+-[a-zA-Z]*[rR][a-zA-Z]*\s+(\/|~|\$HOME)(\s|$|\*|\/\*)|\bmkfs\b|\bdd\b[^\n]*of=\/dev\/(disk|sd|nvme)/, what: "deletes the disk or home folder", severity: "high" },
   { re: /^\s*(printenv|env)\s*(\||>)|\bJSON\.stringify\s*\(\s*process\.env\s*\)|\bjson\.dumps\s*\(\s*(dict\s*\()?\s*os\.environ/, what: "collects every environment variable (where API keys usually live)", severity: "medium" },
   { re: /^\s*sudo\b/, what: "asks for administrator rights (sudo)", severity: "low", scriptsOnly: true },
@@ -175,21 +180,32 @@ export function inspectFiles(files: readonly InspectFile[], opts: { secretIn?: (
     const lines = f.text.split(/\r?\n/);
     const script = SCRIPT_FILE.test(f.path);
     if (opts.secretIn) lines.forEach((l, i) => { const label = opts.secretIn?.(l); if (label) add("medium", f.path, i + 1, `contains what looks like ${label} in plain text; if it is real, the publisher leaked it and anything using it runs on their account`); });
+    // A settings linter compares against bypassPermissions; its other mentions are sample data.
+    const checksBypass = lines.some((l) => /bypassPermissions/.test(l) && DESCRIBING.test(l));
+    const defensive = isDefensiveDoc(f.path, lines);
     if (script || TEXT_FILE.test(f.path)) {
-      for (const r of instructionRisks(lines)) if (!(script && r.message.includes("print secrets")) && !(r.checkId === "D13" && !script && TABLE_ROW.test(lines[r.line - 1] ?? "")) && !(r.checkId === "D14" && script && !hiddenOutsideLiterals(lines[r.line - 1] ?? "")) && !(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
+      for (const r of instructionRisks(lines)) if (!(r.checkId === "D13" && (defensive || (checksBypass && r.message.includes("permission prompts")))) && !(script && r.message.includes("print secrets")) && !(r.checkId === "D13" && !script && TABLE_ROW.test(lines[r.line - 1] ?? "")) && !(r.checkId === "D14" && script && !hiddenOutsideLiterals(lines[r.line - 1] ?? "")) && !(r.checkId !== "D14" && (DESCRIBING.test(lines[r.line - 1] ?? "") || (r.checkId === "D15" && !INJECTION.test(unquote(lines[r.line - 1] ?? "")))))) add(r.severity === "error" ? "high" : "medium", f.path, r.line, r.checkId === "D14" ? "contains invisible characters that only the assistant sees" : r.checkId === "D15" ? "reads like a prompt injection" : r.message.replace(/^(This line|An example command here) tells assistants to /, "tells the assistant to ").replace(/\. If that is not intended.*$/, ""));
     }
     let fence = false;
     lines.forEach((l, i) => {
       if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return; }
       if (/^\s*(#(?!!)|\/\/|\*|<!--)/.test(l) && (script || fence)) return;
       if (DESCRIBING.test(l) || NEGATED.test(l) || (!script && TABLE_ROW.test(l))) return;
-      if (script || fence || /^\s*\$ /.test(l) || /`[^`]*\b(curl|wget|base64|rm|crontab|tee|dd)\b[^`]*`/.test(l)) {
-        for (const r of SCRIPT_RISKS) if ((script || !r.scriptsOnly) && r.re.test(l)) add(r.severity, f.path, i + 1, r.what);
+      const inline = !script && !fence && !/^\s*\$ /.test(l);
+      if (!inline || /`[^`]*\b(curl|wget|base64|rm|crontab|tee|dd)\b[^`]*`/.test(l)) {
+        // In prose only the inline code runs; the words around it are explanation.
+        const parts = inline ? (l.match(/`[^`]+`/g) ?? []).map((s) => s.slice(1, -1)) : [l];
+        for (const r of SCRIPT_RISKS) {
+          if ((!script && r.scriptsOnly) || !parts.some((p) => r.re.test(p))) continue;
+          if (r.what === PERMISSIONS_OFF && checksBypass && !/--dangerously/.test(l)) continue;
+          if (defensive) add("low", f.path, i + 1, `${r.what} (an example in a security reference)`);
+          else add(r.severity, f.path, i + 1, r.what);
+        }
       }
     });
     const sendLine = findings.find((x) => x.path === f.path && x.what === "sends data to a remote server")?.line;
     if (sendLine && /\b(open|readFile\w*|cat)\s*\(?\s*["'][^"'\n]*\.env["']|JSON\.stringify\s*\(\s*process\.env\s*\)|\bos\.environ\s*\)/.test(f.text)) add("high", f.path, sendLine, "sends your secrets (.env file or environment variables) to a remote server");
-    if (sendLine && findings.some((x) => x.path === f.path && x.what.startsWith("reads credential files"))) add("high", f.path, sendLine, "sends what it read from your credential files (SSH keys, cloud or git tokens) to a remote server");
+    if (sendLine && findings.some((x) => x.path === f.path && x.severity === "high" && x.what.startsWith("reads credential files"))) add("high", f.path, sendLine, "sends what it read from your credential files (SSH keys, cloud or git tokens) to a remote server");
     if (script) for (const what of codeRisks(lines)) add("medium", f.path, lines.findIndex((l) => CODE_RISKS.some((r) => r.what === what && r.re.test(l))) + 1, what);
   }
   const rank = { high: 0, medium: 1, low: 2 } as const;

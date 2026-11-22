@@ -7,7 +7,7 @@ Agentsol was run against real public projects to find out whether its findings a
 | Command | Corpus | Result |
 |---|---|---|
 | `check` | 32 public repos, 981 instruction files (AGENTS.md, CLAUDE.md, SKILL.md) | Every error and warning reviewed by hand. Remaining D01, D02, D04 and D07 findings are all real; 72 of 72 remaining D08 findings are real. |
-| `inspect` | 1,567 public skills and MCP servers from 8 collections | Danger verdicts 36 → 27 after fixes. 18 of the 27 are an offensive-security collection that really does contain persistence, exfiltration and reverse-shell payloads. |
+| `inspect` | 1,567 public skills and MCP servers from 8 collections | Danger verdicts 36 → 22 after fixes. 18 of the 22 are an offensive-security collection that really does contain persistence, exfiltration and reverse-shell payloads. |
 | `learn` | The real Claude Code history of building Agentsol (1 conversation, 5h 25m, 123M tokens, 20 compactions) | 0 lessons, which hand review confirmed is correct: every failure there happened once. Synthetic histories (below) show what it reports when mistakes repeat. |
 
 ## `check`: real problems found in public repos
@@ -37,7 +37,7 @@ Collections: anthropics/skills, anthropics/claude-code plugins, obra/superpowers
 | | danger | caution | clean |
 |---|---|---|---|
 | Before | 36 | 90 | 1,441 |
-| After | 27 | 84 | 1,456 |
+| After | 22 | 80 | 1,465 |
 
 Real findings in the remaining dangers: offensive-security skills with live payloads, a skill that pipes vendor installers into `sh`, and one that appends to `~/.bashrc`.
 
@@ -48,7 +48,12 @@ Fixed false negatives:
 - "Never forget to:" followed by a list hid the list from checks; it no longer does.
 - A script that reads `~/.ssh` and then uploads is now one high-severity finding on the upload line ("sends what it read from your credential files"), not a medium "sends data".
 
-Still open: documentation of attacks inside security-auditing skills, and a linter sample config that names `bypassPermissions`.
+Also fixed:
+- Security references that teach detection (a threat model, an attack-patterns reference, a checks list) no longer read as danger. When a reference doc other than SKILL.md says in its title or opening lines that it covers detection, threat models or mitigations, its attack examples are listed as low-severity examples. The same payload in a SKILL.md, a script or an ordinary reference is still high.
+- `bypassPermissions` is flagged only when it is set (`"defaultMode": "bypassPermissions"`, `--permission-mode bypassPermissions`) and not in a settings linter that checks for it. `--dangerously-skip-permissions` is always flagged.
+- In prose, only the inline code is checked, so a note that says to run `chmod 600 ~/.netrc` is not "reads credential files".
+
+The 4 remaining dangers outside the offensive collection are real: vendor installers piped into `sh`, a guide that appends to `~/.bashrc`, a CI job that writes `~/.docker/config.json`, and a troubleshooting step that unlocks the macOS keychain.
 
 ## `learn`
 
