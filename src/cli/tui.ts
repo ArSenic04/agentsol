@@ -53,7 +53,45 @@ export function fit(segs: readonly Seg[], max: number): Seg[] {
   return out;
 }
 
-const mix = (a: Rgb, b: Rgb, f: number): Rgb => [0, 1, 2].map((i) => Math.round((a[i] ?? 0) + ((b[i] ?? 0) - (a[i] ?? 0)) * f)) as unknown as Rgb;
+/** Wraps segments at spaces into rows no wider than max; continuation rows start with `indent` spaces. Long words are split, never dropped. */
+export function wrapSegs(segs: readonly Seg[], max: number, indent = 0): Seg[][] {
+  const rows: Seg[][] = [];
+  let row: Seg[] = [];
+  let used = 0;
+  const pad = " ".repeat(Math.min(indent, Math.floor(max / 2)));
+  const push = (style: Style | null, text: string): void => { if (text) row.push(style ? [style, text] : text); used += [...text].length; };
+  const trimEnd = (): void => {
+    const last = row[row.length - 1];
+    if (last === undefined) return;
+    const text = typeof last === "string" ? last : last[1];
+    const cut = text.replace(/ +$/, "");
+    row[row.length - 1] = typeof last === "string" ? cut : [last[0], cut];
+  };
+  const breakRow = (): void => { trimEnd(); rows.push(row); row = [pad]; used = pad.length; };
+  for (const s of segs) {
+    const style = typeof s === "string" ? null : s[0];
+    const text = sanitizeForTerminal(typeof s === "string" ? s : s[1]);
+    const whole = style === "bold" && [...text].length <= max - pad.length;
+    for (let piece of whole ? [text] : text.split(/(?<= )/)) {
+      if (used + [...piece.replace(/ +$/, "")].length > max && used > pad.length && row.some((x) => (typeof x === "string" ? x : x[1]).trim())) {
+        breakRow();
+        piece = piece.replace(/^ +/, "");
+      }
+      while (used + [...piece.replace(/ +$/, "")].length > max) {
+        const room = Math.max(1, max - used);
+        push(style, [...piece].slice(0, room).join(""));
+        piece = [...piece].slice(room).join("");
+        breakRow();
+      }
+      push(style, piece);
+    }
+  }
+  trimEnd();
+  rows.push(row);
+  return rows;
+}
+
+const mix =(a: Rgb, b: Rgb, f: number): Rgb => [0, 1, 2].map((i) => Math.round((a[i] ?? 0) + ((b[i] ?? 0) - (a[i] ?? 0)) * f)) as unknown as Rgb;
 const STOPS: readonly Rgb[] = [[255, 209, 102], [255, 154, 82], [255, 107, 61]];
 function gradientAt(f: number): Rgb {
   const x = Math.min(0.9999, Math.max(0, f)) * (STOPS.length - 1);
@@ -89,14 +127,19 @@ export function banner(t: Term): string[] {
   });
 }
 
-/** Rounded panel. Rows wider than the panel are cut with an ellipsis. */
+/** Rounded panel. Rows wider than the panel wrap under their text, so commands are never cut. */
 export function panel(t: Term, title: readonly Seg[], rows: readonly (readonly Seg[])[], width = t.width - 2): string[] {
   const inner = Math.max(20, width - 4);
   const b = (s: string): string => render(t, [["agent", s]]);
   const head = render(t, fit(title, inner - 2));
   const top = `${b("╭─ ")}${head}${b(` ${"─".repeat(Math.max(0, inner - visibleWidth(head) - 1))}╮`)}`;
-  const body = rows.map((r) => {
-    const text = render(t, fit(r, inner));
+  const lead = (r: readonly Seg[]): number => {
+    const first = r[0] === undefined ? "" : typeof r[0] === "string" ? r[0] : r[0][1];
+    if (/\S {2,}$/.test(first)) return [...first].length;
+    return /^(\S{1,2} +)? */.exec(r.map((x) => (typeof x === "string" ? x : x[1])).join(""))?.[0].length ?? 0;
+  };
+  const body = rows.flatMap((r) => wrapSegs(r, inner, lead(r))).map((r) => {
+    const text = render(t, r);
     return `${b("│")} ${text}${" ".repeat(Math.max(0, inner - visibleWidth(text)))} ${b("│")}`;
   });
   return [top, ...body, b(`╰${"─".repeat(inner + 2)}╯`)];

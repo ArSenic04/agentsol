@@ -33,7 +33,7 @@ import { WorkspaceStore, type Project } from "../core/store.ts";
 import { resolveWorkspace } from "../core/workspaceArg.ts";
 import { PRODUCT_VERSION } from "../core/version.ts";
 import { PROMPT_NAMES, TOOL_NAMES } from "../mcp/server.ts";
-import { banner, detectTerm, fit, heading, pairs, panel, render, withSpinner, wrapWords, type Seg, type Term } from "./tui.ts";
+import { banner, detectTerm, fit, heading, pairs, panel, render, withSpinner, wrapSegs, wrapWords, type Seg, type Term } from "./tui.ts";
 
 const USAGE = `agentsol [--workspace <dir>] <command> [--json]
 agentsol --version
@@ -74,6 +74,17 @@ Commands (human-run, local only):
   reconcile <proposalId>                resolve a proposal stuck in "applying" after a crash
   audit [entityId]                      show the audit log
 `;
+
+const COMMANDS = ["start", "check", "audit", "connect", "prompt", "inspect", "learn", "sessions", "session", "doctor", "project", "projects", "status", "freshness", "scan", "sources", "findings", "proposals", "review", "approve", "reject", "apply", "reconcile"];
+const editDistance = (a: string, b: string): number => {
+  let prev = [...Array(b.length + 1).keys()];
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length]!;
+};
 
 const out = (s: string): void => {
   process.stdout.write(`${sanitizeForTerminal(s)}\n`);
@@ -169,7 +180,10 @@ const raw = (s = ""): void => {
 };
 const HERE = fileURLToPath(import.meta.url);
 /** How the person invoked us, so every hint is copy-pasteable. */
-const CMD = /[\\/]_npx[\\/]/.test(HERE) ? "npx -y agentsol@alpha" : /[\\/]node_modules[\\/]/.test(HERE) ? "npx agentsol" : "agentsol";
+const CMD = /[\\/](_npx|dlx|bunx-[^\\/]*)[\\/]/.test(HERE) || process.env["npm_command"] === "exec" ? "npx -y agentsol@alpha"
+  // A global install (`npm i -g`) puts `agentsol` on PATH; a project dependency does not.
+  : /[\\/]lib[\\/]node_modules[\\/]agentsol[\\/]|[\\/]npm[\\/]node_modules[\\/]agentsol[\\/]/.test(HERE) ? "agentsol"
+  : /[\\/]node_modules[\\/]/.test(HERE) ? "npx agentsol" : "agentsol";
 const MCP_ARGS = ["-y", "-p", "agentsol@alpha", "agentsol-mcp"];
 const tilde = (p: string): string => (p === homedir() ? "~" : p.startsWith(`${homedir()}${path.sep}`) ? `~${p.slice(homedir().length)}` : p);
 const n = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -313,7 +327,7 @@ async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops:
   raw();
 
   const counts = (sev: string): number => list.filter((f) => f.severity === sev).length;
-  raw(`  ${heading(t, "Findings", [["bad", `${counts("error")} errors`], ["muted", " · "], ["warn", n(counts("warn"), "warning")], ["muted", " · "], ["info", n(counts("info"), "note")]])}`);
+  raw(`  ${heading(t, "Findings", [["bad", n(counts("error"), "error")], ["muted", " · "], ["warn", n(counts("warn"), "warning")], ["muted", " · "], ["info", n(counts("info"), "note")]])}`);
   if (list.length === 0) raw(render(t, ["    ", ["ok", "✓ "], "No structural problems. Your AI can still look for contradictions and vague rules (see below)."]));
   const SHOW = 20;
   for (const f of list.slice(0, SHOW)) {
@@ -415,7 +429,7 @@ function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string
   raw(`  ${heading(t, "Web chats (ChatGPT, Gemini, Claude.ai, Grok…)", [["muted", "they cannot start local servers"]])}`);
   raw(render(t, ["    ", ["agent", `${CMD} prompt | ${copyCmd()}`], ["muted", "  then paste into the chat"]]));
   raw();
-  raw(render(t, ["  ", ["sun", "→ "], "Then ask: ", ["sun", "“Use agentsol to audit this project.”"], ["muted", " Clients with MCP prompts also offer "], ["bold", "/audit"], ["muted", "."]]));
+  raw(render(t, ["  ", ["sun", "→ "], "Then ask: ", ["sun", "“Use agentsol to audit this project.”"], ["muted", " Claude Code also lists it as "], ["bold", "/mcp__agentsol__audit"], ["muted", "."]]));
   raw(render(t, ["  ", ["muted", `Agentsol never edits your assistant's config files. ${CMD} start can run the commands above for you, after asking. Desktop apps that cannot find npx need its full path (which npx).`]]));
   raw();
   return 0;
@@ -474,7 +488,7 @@ function sessionRow(t: Term, s: SessionSummary, w: number): string {
   const m = s.metrics;
   const where = s.project ? s.project.name : s.cwd ?? "?";
   const counts = s.counts.errors + s.counts.warnings > 0 ? ` · ${s.counts.errors}✗ ${s.counts.warnings}▲` : "";
-  return render(t, fit(["    ", VERDICT[s.verdict], "  ", ["bold", s.id.padEnd(21)], ["muted", `${(s.client === "codex" ? "Codex" : s.parentId ? "Sub" : "Claude").padEnd(7)}${ago(s.endedAt).padEnd(8)}`], where.length > 22 ? `…${where.slice(-21)}` : where.padEnd(22), ["muted", `  ${m.steps} steps · ${m.filesEdited} edited${m.tokens ? ` · ${fmtTokens(m.tokens.total)} tok` : ""}${counts}`]], w));
+  return render(t, fit(["    ", VERDICT[s.verdict], "  ", ["bold", s.id.padEnd(21)], ["muted", `${(s.client === "codex" ? "Codex" : s.parentId ? "Sub" : "Claude").padEnd(7)}${ago(s.endedAt).padEnd(8)}`], where.length > 22 ? `…${where.slice(-21)}` : where.padEnd(22), ["muted", `  ${n(m.steps, "step")} · ${m.filesEdited} edited${m.tokens ? ` · ${fmtTokens(m.tokens.total)} tok` : ""}${counts}`]], w));
 }
 
 async function sessionsCmd(t: Term, store: WorkspaceStore, args: readonly string[], json: boolean): Promise<number> {
@@ -531,7 +545,7 @@ async function sessionCmd(t: Term, store: WorkspaceStore, args: readonly string[
     ["Folder", [v.cwd ?? "unknown"]],
     ["When", [v.startedAt ? localTime(v.startedAt) : "unknown", ["muted", ` · ran ${fmtDuration(m.durationMs)}`]]],
     ["Model", [v.model ?? "unknown"]],
-    ["Activity", [`${m.steps} steps · ${m.commands} commands`, m.failedCommands ? ["warn", ` (${m.failedCommands} failed)`] : "", ` · ${m.filesEdited} files edited · ${m.filesRead} read`]],
+    ["Activity", [`${n(m.steps, "step")} · ${n(m.commands, "command")}`, m.failedCommands ? ["warn", ` (${m.failedCommands} failed)`] : "", ` · ${n(m.filesEdited, "file")} edited · ${m.filesRead} read`]],
     ["Also", [`${n(m.userTurns, "message")} from you · ${(m.webFetches === 1 ? "1 web fetch" : `${m.webFetches} web fetches`)} · ${n(m.mcpCalls, "MCP call")}`]],
     ["Tokens", m.tokens ? [`${fmtTokens(m.tokens.total)}`, ["muted", ` (${fmtTokens(m.tokens.input)} in · ${fmtTokens(m.tokens.output)} out)`]] : [["muted", "not recorded"]]],
   ], 12), w)) raw(`  ${l}`);
@@ -607,7 +621,8 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   raw(render(t, ["  ", ["sun", "◉ "], ["bold", "agentsol learn  "], ["muted", `${project.name} · since ${new Date(L.since).toLocaleDateString()} · ${n(L.sessionsRead, "session")} read`]]));
   raw();
   if (L.sessionsRead === 0) {
-    raw(render(t, ["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 365d`]]));
+    for (const r of wrapSegs(["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 365d`]], w, 4)) raw(render(t, r));
+    for (const r of wrapSegs(["    ", ["muted", "Lessons appear after a few agent sessions in this folder. To see what they look like now, open the demo: "], ["bold", "https://arsenic04.github.io/agentsol-site/#/demo"]], w, 4)) raw(render(t, r));
     for (const note of L.notes) raw(render(t, ["    ", ["muted", safe(note)]]));
     raw();
     return 0;
@@ -650,7 +665,8 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
         ? [[["agent", "→ "], `${summary || "Changes"} in ${files}:`], [["agent", "  "], ["bold", `${CMD} learn --propose`]]] as Seg[][]
         : [[["agent", "→ "], `${summary || "Changes"} in ${files}:  `, ["bold", `${CMD} learn --propose`]]] as Seg[][]),
       [["agent", "  "], ["muted", "you read the diff, then approve and apply it yourself"]],
-      [["agent", "→ "], "Or ask your AI:  ", ["sun", "/learn"], ["muted", "  · run it weekly to see the time it saves"]],
+      [["agent", "→ "], "Or ask your AI:  ", ["sun", "“Use agentsol learn.”"], ["muted", "  · in Claude Code: "], ["bold", "/mcp__agentsol__learn"]],
+      [["agent", "  "], ["muted", "run it weekly to see the time it saves"]],
     ], w)) raw(`  ${l}`);
   } else if (L.newFileText) {
     raw(render(t, ["  ", ["warn", "▲ "], `This project has no AGENTS.md or CLAUDE.md. Create ${L.newFile ?? "AGENTS.md"} with:`]));
@@ -687,7 +703,7 @@ async function startCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   const files = sources.value.sources.filter((s) => s.status === "present").length;
   const sev = (k: string): number => findings.value.findings.filter((f) => f.severity === k).length;
   const issues = sev("error") + sev("warn");
-  const row = (ok: boolean | null, label: string, ...body: Seg[]): void => raw(render(t, fit(["  ", ok === null ? ["muted", "○ "] : ok ? ["ok", "✓ "] : ["warn", "▲ "], ["bold", label.padEnd(13)], ...body], w)));
+  const row = (ok: boolean | null, label: string, ...body: Seg[]): void => { for (const r of wrapSegs(["  ", ok === null ? ["muted", "○ "] : ok ? ["ok", "✓ "] : ["warn", "▲ "], ["bold", label.padEnd(13)], ...body], w, 17)) raw(render(t, r)); };
   row(issues === 0, "Project", `${registeredNow ? "registered " : ""}${project.name}`, ["muted", ` · ${n(files, "instruction file")} · `], issues ? ["warn", `${n(sev("error"), "error")}, ${n(sev("warn"), "warning")}`] : ["ok", "no problems"]);
 
   const setup = auditSetup({ ...machine(), projectRoots: [project.rootReal] });
@@ -737,7 +753,7 @@ async function startCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   for (const a of apps.filter((x) => x.detail && x.state !== "declined").slice(0, 2)) add(`Connect ${a.name}:  `, ["bold", a.detail!]);
   if (live.length) {
     add(apps.some((a) => a.state === "added") ? "Restart your AI app, then ask:  " : "In your AI, ask:  ", ["sun", "“Use agentsol to audit this project.”"]);
-    next.push([["agent", "  "], ["muted", "or use "], ["bold", "/audit"], ["muted", " · "], ["bold", "/learn"], ["muted", " · "], ["bold", "/review"]]);
+    next.push([["agent", "  "], ["muted", "in Claude Code: "], ["bold", "/mcp__agentsol__audit"], ["muted", " · "], ["bold", "/mcp__agentsol__learn"]]);
   } else add("No MCP app? Paste into any chat:  ", ["bold", `${CMD} prompt | ${copyCmd()}`]);
   for (const l of panel(t, [["bold", "Next"]], next, w)) raw(`  ${l}`);
   raw();
@@ -774,7 +790,7 @@ const INSPECT_VERDICT: Record<InspectReport["verdict"], Seg[]> = {
 
 function inspectCmd(t: Term, target: string | undefined, json: boolean): number {
   if (!target) return fail(`usage: ${CMD} inspect <skill folder | file | tools.json>`, 2);
-  if (!existsSync(target)) return fail(`${CMD}: no such file or folder: ${sanitizeForTerminal(target)}`, 2);
+  if (!existsSync(target)) return fail(`no such file or folder: ${sanitizeForTerminal(target)}`, 2);
   const r = inspectFiles(readForInspect(target), { secretIn });
   if (json) { process.stdout.write(`${JSON.stringify(r, null, 2)}\n`); return r.verdict === "danger" ? 1 : 0; }
   const w = Math.min(t.width - 2, 96);
@@ -813,6 +829,10 @@ async function run(argv: string[]): Promise<number> {
   if (!command || command === "help" || command === "--help") {
     out(USAGE);
     return command ? 0 : 2;
+  }
+  if (!COMMANDS.includes(command)) {
+    const near = COMMANDS.map((c) => [c, editDistance(command, c)] as const).filter(([, d]) => d <= 2).sort((a, b) => a[1] - b[1])[0]?.[0];
+    return fail(`unknown command "${command}".${near ? ` Did you mean "${near}"?` : ""} Run \`${CMD} help\` to see every command.`, 2);
   }
   if (command === "connect") return connect(term, ws, args[0]);
   if (command === "inspect") return inspectCmd(term, args[0], json);
@@ -935,7 +955,7 @@ async function run(argv: string[]): Promise<number> {
         if (typed.trim() !== challenge) return fail("cancelled; nothing was approved", 1);
         const r = ops.approve({ proposalId: arg, reviewedProposalSha256: shown.value.proposal.body.proposalSha256 });
         if (!r.ok) return fail(`not approved: ${r.error.message}`);
-        out(`approved (${r.value}); valid for 10 minutes, once. Run: agentsol apply ${arg}`);
+        out(`approved (${r.value}); valid for 10 minutes, once. Run: ${CMD} apply ${arg}`);
         return 0;
       }
       case "reject": {

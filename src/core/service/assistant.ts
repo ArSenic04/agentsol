@@ -504,7 +504,7 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
           within = list.find((r) => r.projectId === p.value)?.root ?? null;
         }
         const r = await listSessions(machine, { since, limit: a.value.limit ?? 20, project: lookupIn(list), requireProject: true, cwdWithin: within });
-        if (r.skipped > 0) r.notes.push(`${r.skipped} recent session${r.skipped === 1 ? "" : "s"} ran outside registered projects and ${r.skipped === 1 ? "is" : "are"} not shown. The person can see them with: npx agentsol sessions`);
+        if (r.skipped > 0) r.notes.push(`${r.skipped} recent session${r.skipped === 1 ? "" : "s"} ran outside registered projects and ${r.skipped === 1 ? "is" : "are"} not shown. The person can see them with: npx -y agentsol@alpha sessions`);
         return ok(scrub({ ...r, caveats: SESSION_CAVEATS, notice: ACTIVITY_DISCLOSURE }));
       }),
 
