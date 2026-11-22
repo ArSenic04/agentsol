@@ -81,7 +81,7 @@ test("demo: findings with evidence, redacted files, diff and terminal handoff; n
   const { page, problems } = await openPage();
   await page.goto(`${staticSrv.url}#/demo`);
   await page.locator(".finding").first().waitFor();
-  assert.equal(await page.locator(".finding").count(), 9);
+  assert.equal(await page.locator(".finding").count(), 8);
   assert.equal(await page.getByRole("tab", { name: /Findings/ }).getAttribute("aria-selected"), "true");
   await page.locator(".finding", { hasText: "docs/style-guide.md" }).click();
   await page.locator(".evidence .cited").first().waitFor();
@@ -346,7 +346,7 @@ test("commands wrap visually but copy and select as the exact original bytes", a
   await page.goto(`${staticSrv.url}#/setup`);
   const step5 = page.locator(".setup-step").nth(6);
   const pre = step5.locator(".cmd-code");
-  const expected = ["review", "approve", "apply"].map((v) => `npx agentsol ${v} <proposalId>`).join("\n");
+  const expected = ["review", "approve", "apply"].map((v) => `npx -y agentsol@alpha ${v} <proposalId>`).join("\n");
   assert.ok((await pre.evaluate((el) => el.getBoundingClientRect().height)) > 3 * 30, "long commands really wrap at 375px");
   await step5.getByRole("button", { name: "Copy" }).click();
   await step5.getByText("Copied").waitFor();

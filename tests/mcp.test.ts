@@ -50,7 +50,7 @@ for (const mode of ["legacy", "auto"] as const) {
       const audit = await client.getPrompt({ name: "audit", arguments: { project: "demo" } });
       const auditText = JSON.stringify(audit.messages);
       assert.match(auditText, /findings_submit/);
-      assert.match(auditText, /npx agentsol review/);
+      assert.match(auditText, /npx -y agentsol@alpha review/);
       assert.ok(!/approve|apply/.test(auditText.replace(/approval/g, "")), "prompts never ask the assistant to approve or apply");
       for (const name of ["review", "setup", "learn"]) {
         const prompt = await client.getPrompt({ name, arguments: {} });

@@ -191,7 +191,7 @@ It also checks your instruction files against what happened. If AGENTS.md says "
 npx -y agentsol@alpha learn                 # last 180 days
 npx -y agentsol@alpha learn --since 365d
 npx -y agentsol@alpha learn --propose       # one proposal per instruction file: corrections and new rules
-npx agentsol review <proposalId>
+npx -y agentsol@alpha review <proposalId>
 ```
 
 Each lesson cites its session ids and step numbers, says whether the instruction file already covers it, and shows the active time and tokens it cost (pauses over 5 minutes count as 5 minutes). `--propose` never writes a file: you review, approve and apply each diff yourself, and running it again returns the proposals already waiting instead of new copies. Over MCP the same report is `lessons_list`, and `/learn` walks your assistant through it. Lessons are patterns, not proof; read each rule before keeping it.
@@ -202,7 +202,7 @@ When an agent starts work, `project_briefing` (pass the folder it works in; Clau
 <details>
 <summary><b>Instruction checks, sessions and setup audit</b></summary>
 
-- **Instructions.** Audits AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md and SKILL.md, including rules that tell assistants to do something unsafe (curl | sh, --no-verify, force-push, skipping failing tests, printing secrets), prompt-injection phrasing and invisible characters (D13–D15). The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
+- **Instructions.** Audits AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md and SKILL.md, including rules that tell assistants to do something unsafe (curl | sh, --no-verify, force-push, skipping failing tests, printing secrets), prompt-injection phrasing and invisible characters (D13–D15), and commands for a package manager the project does not use, such as `npm test` where the lockfile is pnpm's, with the command to use instead (D16). The assistant reads and proposes changes through MCP. Only you can approve and apply a change, from a local CLI.
 - **Sessions.** `agentsol sessions` reads the Claude Code and Codex transcripts on your machine and flags destructive commands, secrets exposed to the model, skipped hooks, weakened tests, edits never verified, retry loops, prompt injection in tool output, and insecure code the agent added such as SQL injection, disabled TLS checks or eval (A01–A14). Grades from your assistant are stored as assistant judgment next to the deterministic findings, never instead of them.
 - **Setup.** `agentsol doctor` checks your AI apps' settings (C01–C10).
 - `sessions --since 24h|7d|2w|<date> --limit N [path]` narrows the list; `--json` everywhere. `doctor --strict` exits 1 when the setup audit finds an error.

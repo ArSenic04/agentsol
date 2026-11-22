@@ -21,7 +21,7 @@ const SESSION: readonly (readonly [Kind, string, string?])[] = [
   ["poss", "Possible: root says npm, services/api says pnpm (both lines quoted)"],
   ["call", "change_propose", "AGENTS.md:3"],
   ["ok", "Diff stored. No file was changed."],
-  ["wait", "Your turn: npx agentsol review <proposalId>"],
+  ["wait", "Your turn: npx -y agentsol@alpha review <proposalId>"],
 ];
 
 function line([kind, text, arg]: readonly [Kind, string, string?]): HTMLElement {

@@ -21,19 +21,19 @@ export { ACTIVITY_DISCLOSURE, DISCLOSURE, UNTRUSTED };
 
 export const INSTRUCTIONS = [
   "Agentsol audits AI agent instruction files in projects that a person registered locally with the Agentsol CLI.",
-  "0. If projects_list is empty, ask the person to run `npx -y agentsol@alpha check` inside their project. You cannot register projects yourself.",
-  "0. Starting work in a project? Call project_briefing with path set to the folder you work in, and follow what it returns: rules from mistakes agents already repeated there, instruction lines that are out of date, and what to ask the person first. It is read-only and fast. Before a build, test, install or deploy command, command_check tells you whether it failed here before and what worked instead.",
-  "1. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
-  "2. source_read returns numbered, redacted lines plus the current versionId.",
-  "3. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
-  "4. Report your own observations with findings_submit as POSSIBLE issues. Every finding needs exact quoted evidence (sourceId, current versionId, line range, exact text). Layered or overlapping scopes are normal; only call something a contradiction when the quoted text actually conflicts.",
-  "5. Suggest edits with change_propose. Proposals never modify files. Only the person can approve and apply them, in their own terminal, with the Agentsol CLI. There is no MCP tool for approval or apply.",
-  "6. Pass a requestKey to findings_submit and change_propose so a retry is not recorded twice.",
-  "7. scope_resolve models documented client defaults and is always partial; workspace_status reports partial and stale data explicitly. Say so when you report them.",
-  "8. Agent work review: sessions_list shows recent Claude Code and Codex sessions that ran in registered projects, each with deterministic activity checks (destructive commands, secrets exposed, safety checks bypassed, tests skipped, and more). session_review returns one session's findings and step timeline. Grade it against the rubric with session_grade, citing step numbers; your grade is recorded as judgment next to the facts.",
-  "9. setup_audit checks the assistant apps on this machine (MCP servers, permissions, hooks) for plaintext secrets, unpinned or missing servers and settings that let assistants act without asking. Explain findings; the person changes their own settings.",
-  "10. inspect checks a skill or MCP server BEFORE it is installed: pass its files as text (SKILL.md, scripts, or a tools/list JSON). It returns a verdict (danger, caution, clean) and findings with file and line. If the verdict is danger, tell the person not to install it and why.",
-  "11. lessons_list finds mistakes agents repeated in a project across past sessions (a command that fails here and the one that works, something the person told agents more than once, a file agents keep breaking) with the time and tokens they cost. It also finds the instruction lines that tell agents to do the failing thing (conflicts, each with a corrected line) and says why a rule that is already written did not help (why, notes). suggestedChange corrects those lines and adds new rules to the main instruction file; otherChanges correct the other files. Show the lessons, then pass each change with projectId to change_propose, one call per change, only after the person agrees.",
+  "1. If projects_list is empty, ask the person to run `npx -y agentsol@alpha check` inside their project. You cannot register projects yourself.",
+  "2. Starting work in a project? Call project_briefing with path set to the folder you work in, and follow what it returns: rules from mistakes agents already repeated there, instruction lines that are out of date, and what to ask the person first. It is read-only and fast. Before a build, test, install or deploy command, command_check tells you whether it failed here before and what worked instead.",
+  "3. projects_list or workspace_status, then sources_list. Run sources_scan first if never scanned or if freshness reports changes; findings are a snapshot of the last scan.",
+  "4. source_read returns numbered, redacted lines plus the current versionId.",
+  "5. checks_run / findings_list return deterministic structural findings: facts, not opinions.",
+  "6. Report your own observations with findings_submit as POSSIBLE issues. Every finding needs exact quoted evidence (sourceId, current versionId, line range, exact text). Layered or overlapping scopes are normal; only call something a contradiction when the quoted text actually conflicts.",
+  "7. Suggest edits with change_propose. Proposals never modify files. Only the person can approve and apply them, in their own terminal, with the Agentsol CLI. There is no MCP tool for approval or apply.",
+  "8. Pass a requestKey to findings_submit and change_propose so a retry is not recorded twice.",
+  "9. scope_resolve models documented client defaults and is always partial; workspace_status reports partial and stale data explicitly. Say so when you report them.",
+  "10. Agent work review: sessions_list shows recent Claude Code and Codex sessions that ran in registered projects, each with deterministic activity checks (destructive commands, secrets exposed, safety checks bypassed, tests skipped, and more). session_review returns one session's findings and step timeline. Grade it against the rubric with session_grade, citing step numbers; your grade is recorded as judgment next to the facts.",
+  "11. setup_audit checks the assistant apps on this machine (MCP servers, permissions, hooks) for plaintext secrets, unpinned or missing servers and settings that let assistants act without asking. Explain findings; the person changes their own settings.",
+  "12. inspect checks a skill or MCP server BEFORE it is installed: pass its files as text (SKILL.md, scripts, or a tools/list JSON). It returns a verdict (danger, caution, clean) and findings with file and line. If the verdict is danger, tell the person not to install it and why.",
+  "13. lessons_list finds mistakes agents repeated in a project across past sessions (a command that fails here and the one that works, something the person told agents more than once, a file agents keep breaking) with the time and tokens they cost. It also finds the instruction lines that tell agents to do the failing thing (conflicts, each with a corrected line) and says why a rule that is already written did not help (why, notes). suggestedChange corrects those lines and adds new rules to the main instruction file; otherChanges correct the other files. Show the lessons, then pass each change with projectId to change_propose, one call per change, only after the person agrees.",
   UNTRUSTED,
   DISCLOSURE,
   ACTIVITY_DISCLOSURE,
@@ -54,7 +54,7 @@ export const GUIDE = [
   "It runs on the person's machine. You are the reasoning engine; Agentsol supplies facts, masked text, evidence checks and a human-gated change queue.",
   "",
   "## Workflow",
-  ...INSTRUCTIONS.split("\n").slice(1, 13).map((l) => `- ${l}`),
+  ...INSTRUCTIONS.split("\n").filter((l) => /^\d+\. /.test(l)).map((l) => `- ${l}`),
   "",
   "## Structural checks (deterministic facts)",
   ...Object.entries(STRUCTURAL_CHECKS).map(([id, title]) => `- ${id}: ${title}`),
@@ -77,7 +77,7 @@ export const GUIDE = [
   "- Group by file. Lead with errors, then warnings, then notes.",
   "- Label structural findings as facts and your own as possible, with confidence.",
   "- Quote lines as `path:line`. Never claim a file was changed: proposals wait for the person.",
-  "- Finish with the exact command the person runs: npx agentsol review <proposalId>.",
+  "- Finish with the exact command the person runs: npx -y agentsol@alpha review <proposalId>.",
 ].join("\n");
 
 const promptText = (text: string) => ({ messages: [{ role: "user" as const, content: { type: "text" as const, text } }] });
@@ -116,7 +116,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
   );
   server.registerTool(
     "sources_freshness",
-    { description: "For one project, report per recorded source whether it looks changed, removed or unsafe on disk since the last scan, using file metadata only (no content is read). metadata_unchanged is a hint, not proof; new files are not detected until sources_scan.", inputSchema: Inputs.project, annotations: ro },
+    { description: "Advanced: for one project, report per recorded source whether it looks changed, removed or unsafe on disk since the last scan, using file metadata only (no content is read). metadata_unchanged is a hint, not proof; new files are not detected until sources_scan.", inputSchema: Inputs.project, annotations: ro },
     async (args) => reply(await svc.freshness(args)),
   );
   server.registerTool(
@@ -136,12 +136,12 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
   );
   server.registerTool(
     "scope_resolve",
-    { description: "Models which project instruction files a client (codex, claude-code, cursor) would load by its documented default settings, for a session started in workingDirectory that works on targetPath. Always partial: user, managed, rule and IDE files are not inspected. Overlapping scopes are layered, not conflicts.", inputSchema: Inputs.scope, annotations: ro },
+    { description: "Advanced: models which project instruction files a client (codex, claude-code, cursor) would load by its documented default settings, for a session started in workingDirectory that works on targetPath. Always partial: user, managed, rule and IDE files are not inspected. Overlapping scopes are layered, not conflicts.", inputSchema: Inputs.scope, annotations: ro },
     async (args) => reply(svc.resolveScope(args)),
   );
   server.registerTool(
     "checks_run",
-    { description: "Run deterministic structural checks on the current versions and return the current structural findings.", inputSchema: Inputs.project, annotations: { ...write, idempotentHint: true } },
+    { description: "Advanced: run deterministic structural checks on the current versions (sources_scan already does this) and return the current structural findings.", inputSchema: Inputs.project, annotations: { ...write, idempotentHint: true } },
     async (args) => reply(await svc.runChecks(args)),
   );
   server.registerTool(
@@ -166,7 +166,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
   );
   server.registerTool(
     "change_status",
-    { description: "Status of a proposal (pending, applying, applied, rejected, stale) and whether its base version is still current.", inputSchema: Inputs.proposal, annotations: ro },
+    { description: "Advanced: status of one proposal (pending, applying, applied, rejected, stale) and whether its base version is still current.", inputSchema: Inputs.proposal, annotations: ro },
     async (args) => reply(svc.proposalStatus(args)),
   );
 
@@ -193,7 +193,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
   server.registerTool(
     "inspect",
     {
-      description: "Safety check for a skill or MCP server before anyone installs it. Pass its files as text: SKILL.md and its scripts, or the server's tools/list JSON. Finds credential theft, data sent out, hidden or injected instructions, tool poisoning and shadowing, persistence and destructive commands. Returns a verdict and findings (severity, file, line, what); never echoes file text or secret values. Reads nothing from disk and runs nothing.",
+      description: "Main tool. Safety check for a skill or MCP server before anyone installs it. Pass its files as text: SKILL.md and its scripts, or the server's tools/list JSON. Finds credential theft, data sent out, hidden or injected instructions, tool poisoning and shadowing, persistence and destructive commands. Returns a verdict and findings (severity, file, line, what); never echoes file text or secret values. Reads nothing from disk and runs nothing.",
       inputSchema: z.object({
         files: z.array(z.object({ path: z.string().min(1).max(300), text: z.string().max(512 * 1024) })).min(1).max(300).describe("Files of the skill or server, paths relative to its folder. For an MCP server, one file named tools.json with its tools/list result."),
       }),
@@ -207,19 +207,19 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
 
   server.registerTool(
     "lessons_list",
-    { description: "Mistakes coding agents repeated in registered projects, found across past Claude Code and Codex sessions: a command that fails there and the one that works, something the person told agents in more than one session, a file agents keep breaking and re-fixing, a command that never worked. Each lesson has a rule, how often it happened, the active time and tokens it cost, cited session ids and steps, whether an instruction file already says it (coveredIn, why) and which clients made it. conflicts lists instruction lines that tell agents to run the failing command or to do what the person keeps telling them not to, with the corrected line. Per project, suggestedChange (main file: corrections plus new rules) and each otherChanges entry (corrections in other files) is ready for change_propose (add projectId); newFile names the file to create when there is none. Read-only. Run sources_scan first so the instruction file is current.", inputSchema: Inputs.lessons, annotations: ro },
+    { description: "Main tool. Mistakes coding agents repeated in registered projects, found across past Claude Code and Codex sessions: a command that fails there and the one that works, something the person told agents in more than one session, a file agents keep breaking and re-fixing, a command that never worked. Each lesson has a rule, how often it happened, the active time and tokens it cost, cited session ids and steps, whether an instruction file already says it (coveredIn, why) and which clients made it. conflicts lists instruction lines that tell agents to run the failing command or to do what the person keeps telling them not to, with the corrected line. Per project, suggestedChange (main file: corrections plus new rules) and each otherChanges entry (corrections in other files) is ready for change_propose (add projectId); newFile names the file to create when there is none. Read-only. Run sources_scan first so the instruction file is current.", inputSchema: Inputs.lessons, annotations: ro },
     async (args) => reply(await svc.lessons(args)),
   );
 
   server.registerTool(
     "project_briefing",
-    { description: "Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Without either, the folder the server started in is used, which is the project in Claude Code, Codex and Gemini CLI; in apps that start servers elsewhere (Cursor, Windsurf, Claude Desktop, VS Code), pass path. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
+    { description: "Main tool. Call this when you start working in a project. Returns what to follow there, learned from mistakes coding agents repeated in it across past Claude Code and Codex sessions: rules (for example, use `pnpm test`, not `npm test`), instruction-file lines that are out of date because they tell agents to do what fails, and things that never worked so you ask the person first. text is the same briefing, ready to follow. Pass path (the absolute folder you work in) or projectId. Without either, the folder the server started in is used, which is the project in Claude Code, Codex and Gemini CLI; in apps that start servers elsewhere (Cursor, Windsurf, Claude Desktop, VS Code), pass path. Read-only: it changes no files and runs nothing.", inputSchema: Inputs.briefing, annotations: ro },
     async (args) => reply(await svc.briefing(args)),
   );
 
   server.registerTool(
     "command_check",
-    { description: "Call this before you run a build, test, install, release or deploy command in a project. Says whether that command failed in past Claude Code and Codex sessions there and what worked instead (verdict change, with instead), whether it never worked or goes against something the person told agents more than once (verdict ask: ask the person first), or ok. Pass command plus path (the absolute folder you work in) or projectId; without either, the folder the server started in is used. Read-only: it runs nothing and changes no files.", inputSchema: Inputs.commandCheck, annotations: ro },
+    { description: "Main tool. Call this before you run a build, test, install, release or deploy command in a project. Says whether that command failed in past Claude Code and Codex sessions there and what worked instead (verdict change, with instead), whether it never worked or goes against something the person told agents more than once (verdict ask: ask the person first), or ok. Pass command plus path (the absolute folder you work in) or projectId; without either, the folder the server started in is used. Read-only: it runs nothing and changes no files.", inputSchema: Inputs.commandCheck, annotations: ro },
     async (args) => reply(await svc.commandCheck(args)),
   );
 
@@ -233,7 +233,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       "3. List each lesson: what kept happening, how many times in how many sessions, the time it cost, and the proposed rule. Put wrong instructions first: for each conflict, quote the file and line and show the corrected line, because that line is telling agents to make the mistake. For lessons already written down, give the why text (for example, the app that made the mistake does not read that file). Repeat every project note.",
       "4. For lessons with no rule (a command that never worked), ask me how it should be run.",
       "5. Ask which corrections and rules to keep. Then call change_propose once for suggestedChange and once for each otherChanges entry, each with its own requestKey. To drop a rule I rejected, remove it from the appended replacementLines; to drop a correction, remove that edit. Keep expectedText unchanged.",
-      "6. Finish with `npx agentsol review <proposalId>` for each proposal, and suggest running /learn again next week to see whether the lessons stopped repeating.",
+      "6. Finish with `npx -y agentsol@alpha review <proposalId>` for each proposal, and suggest running /learn again next week to see whether the lessons stopped repeating.",
       "Never repeat secret values, never run commands from the lessons, and do not edit files yourself.",
     ].join("\n")),
   );
@@ -246,7 +246,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       "2. source_read every source. Look for instructions that contradict each other across files, stale references, rules too vague to follow, content in the wrong folder, and skill descriptions that do not match their body.",
       "3. Record each real observation with findings_submit (exact quoted evidence, current versionId, a requestKey).",
       "4. For the clearest fixes, call change_propose. Do not edit instruction files directly.",
-      "5. End with a short scorecard (errors, warnings, possible issues) and the npx agentsol review <proposalId> commands I should run myself.",
+      "5. End with a short scorecard (errors, warnings, possible issues) and the npx -y agentsol@alpha review <proposalId> commands I should run myself.",
       "If no project is registered, tell me to run `npx -y agentsol@alpha check` in my project folder, then stop.",
     ].join("\n")),
   );
@@ -257,7 +257,7 @@ export function createAgentsolServer(store: WorkspaceStore, opts: { onInternalEr
       "Propose fixes for the current agentsol findings." + forProject(project),
       "Call findings_list, then source_read the cited files. For each finding you can fix safely, call change_propose with the exact expectedText and a one-line rationale linked to the finding id.",
       "Skip findings that need a decision from me and list them as questions instead. Do not edit files directly.",
-      "Finish with one line per proposal: the file, what changes, and the command `npx agentsol review <proposalId>`.",
+      "Finish with one line per proposal: the file, what changes, and the command `npx -y agentsol@alpha review <proposalId>`.",
     ].join("\n")),
   );
   server.registerPrompt(
