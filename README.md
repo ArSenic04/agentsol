@@ -127,7 +127,7 @@ npx -y agentsol@alpha connect     # setup lines for each app
 npx -y agentsol@alpha prompt      # no MCP? one masked prompt to paste into any chat AI
 ```
 
-The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. In clients that support MCP prompts you get `/audit`, `/fix`, `/explain`, `/review`, `/setup` and `/learn`. Claude Desktop is not in the connector directory; add it through Settings → Developer → Edit Config (`connect claude-desktop` prints the config).
+The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. In clients that support MCP prompts you get `audit`, `fix`, `explain`, `review`, `setup` and `learn` (Claude Code lists them as `/mcp__agentsol__audit` and so on). In any client you can also just ask: "Use agentsol learn." Claude Desktop is not in the connector directory; add it through Settings → Developer → Edit Config (`connect claude-desktop` prints the config).
 
 ### As a skill
 

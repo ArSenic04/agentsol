@@ -90,6 +90,14 @@ function activeMs(steps: readonly SessionStep[], from: number, to: number): numb
   return ms;
 }
 
+const failedAt = (steps: readonly SessionStep[], from: number, to: number): number[] => {
+  const out: number[] = [];
+  for (let k = from; k < to && k < steps.length; k += 1) if (steps[k]!.kind === "command" && steps[k]!.failed === true) out.push(k);
+  return out;
+};
+/** Time spent on failed steps only: the gap from each failed step to the next one. */
+const failedMs = (steps: readonly SessionStep[], from: number, to: number): number => failedAt(steps, from, to).reduce((ms, k) => ms + activeMs(steps, k, k + 1), 0);
+
 /** The command that matters in a command line: skips cd, echo, pipes into tail or grep, and redirections. */
 function realCommands(command: string): string[][] {
   const out: string[][] = [];
@@ -278,8 +286,8 @@ function analyze(all: readonly Collected[], home: string): Group[] {
         if (kind && !fixed.has(j)) {
           fixed.add(j);
           resolved.add(i);
-          const lostSteps = j - i;
-          const hit: Hit = { sessionId: id, conv: convAt(s.n), client, step: s.n, at: s.at, lostSteps, lostMs: activeMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
+          const lostSteps = failedAt(steps, i, j).length;
+          const hit: Hit = { sessionId: id, conv: convAt(s.n), client, step: s.n, at: s.at, lostSteps, lostMs: failedMs(steps, i, j), lostTokens: tokensFor(session, lostSteps) };
           const [a0, b0] = [a[0] ?? "", b[0] ?? ""];
           let g: Group;
           if (kind === "program" && a.length > 1) {
@@ -343,8 +351,8 @@ function analyze(all: readonly Collected[], home: string): Group[] {
         && (!pathLike(w) || w.slice(1).some((x) => { const a = x.replace(/^\.\//, "").replace(/\/$/, ""); return a === rel || rel.startsWith(`${a}/`) || path.basename(a).includes(stem); }));
       const v = passes.map((t) => mainCommand(t.command ?? "")).find((w): w is string[] => w !== null && fits(w)) ?? null;
       if (v) { const shown = show(v); f.verify.set(shown, (f.verify.get(shown) ?? 0) + 1); }
-      const lostSteps = steps.slice(l.first, end + 1).filter((t) => t.kind === "command" && t.failed === true).length + l.n;
-      f.hits.push({ sessionId: id, conv: convAt(steps[l.first]?.n), client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: activeMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
+      const lostSteps = failedAt(steps, l.first, end).length;
+      f.hits.push({ sessionId: id, conv: convAt(steps[l.first]?.n), client, step: steps[l.first]?.n ?? null, at: steps[l.first]?.at ?? null, lostSteps, lostMs: failedMs(steps, l.first, end), lostTokens: tokensFor(session, lostSteps) });
       fragile.set(rel, f);
     }
 
@@ -389,7 +397,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
       same.title += ` You also told agents this yourself in ${sessions.size} sessions.`;
       return;
     }
-    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.conv, client: x.client, step: x.step, at: x.at, lostSteps: 0, lostMs: 0, lostTokens: 0 })));
+    group(`said:${i}`, { kind: "correction", title: `You told agents this in ${sessions.size} sessions: “${best.text}”`, rule: ruleFromCorrection(best.text), probe: [...best.words] }).hits.push(...cluster.map((x) => ({ sessionId: x.sessionId, conv: x.conv, client: x.client, step: x.step, at: x.at, lostSteps: 1, lostMs: 0, lostTokens: 0 })));
   });
 
   // A command that failed and later ran fine as-is means the project changed; the lesson is out of date.
