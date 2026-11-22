@@ -72,10 +72,10 @@ Commands (human-run, local only):
   reject <proposalId>                   reject a proposal (interactive terminal only)
   apply <proposalId>                    apply an approved proposal (interactive terminal only)
   reconcile <proposalId>                resolve a proposal stuck in "applying" after a crash
-  audit [entityId]                      show the audit log
+  log [entityId]                        show the audit log (who approved, applied or rejected what)
 `;
 
-const COMMANDS = ["start", "check", "audit", "connect", "prompt", "inspect", "learn", "sessions", "session", "doctor", "project", "projects", "status", "freshness", "scan", "sources", "findings", "proposals", "review", "approve", "reject", "apply", "reconcile"];
+const COMMANDS = ["start", "check", "audit", "log", "connect", "prompt", "inspect", "learn", "sessions", "session", "doctor", "project", "projects", "status", "freshness", "scan", "sources", "findings", "proposals", "review", "approve", "reject", "apply", "reconcile"];
 const editDistance = (a: string, b: string): number => {
   let prev = [...Array(b.length + 1).keys()];
   for (let i = 1; i <= a.length; i++) {
@@ -983,9 +983,12 @@ async function run(argv: string[]): Promise<number> {
         out(`reconcile: ${await ops.reconcile(arg)}`);
         return 0;
       }
-      case "audit":
-        for (const e of ops.audit(arg || undefined)) out(`${e.at}  ${e.actor}  ${e.action}  ${e.entity_id}  ${e.detail}`);
+      case "log": {
+        const entries = ops.audit(arg || undefined);
+        if (entries.length === 0) out("No audit entries yet. Approving, applying or rejecting a proposal is recorded here.");
+        for (const e of entries) out(`${e.at}  ${e.actor}  ${e.action}  ${e.entity_id}  ${e.detail}`);
         return 0;
+      }
       default:
         out(USAGE);
         return 2;

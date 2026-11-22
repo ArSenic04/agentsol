@@ -32,6 +32,9 @@ test("CLI registers a project, scans it, and refuses home or filesystem root", a
     const scan = run(ws2, "scan", id);
     assert.equal(scan.status, 0, scan.stderr);
     assert.match(run(ws2, "sources", id).stdout, /AGENTS\.md/);
+    const log = run(ws2, "log");
+    assert.equal(log.status, 0, log.stderr);
+    assert.doesNotMatch(log.stdout, /show the audit log/, "log prints the audit log, not the usage text");
   } finally {
     await fx.cleanup();
   }
