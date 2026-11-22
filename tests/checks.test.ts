@@ -101,6 +101,25 @@ test("shared code samples and table rulers are not reported as repeated guidance
   assert.equal(fs.filter((f) => f.checkId === "D10").length, 0);
 });
 
+test("instructions that run a package manager the project does not use are reported with the right command", async () => {
+  const fs = await findingsFor({
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+    "AGENTS.md": "# App\n- Run `npm test` before you commit.\n- Install tools with `npm i -g tsx`.\n- This repo uses pnpm, not npm.\n- Never use npm install here.\n- Publish with `npm publish`.\n",
+    "CLAUDE.md": "@AGENTS.md\n\nRun `npm ci` then `npm run build`.\n",
+    "tools/bun-app/bun.lock": "{}\n",
+    "tools/bun-app/AGENTS.md": "# Tool\nRun `npm test` here.\n",
+    "docs/AGENTS.md": "# Docs\nRun `pnpm build` to check links.\n",
+    "web/AGENTS.md": "# Web\nAlways run npm run build before you push.\nThen npm test runs the suite.\n",
+    ".claude/skills/x/SKILL.md": "---\nname: x\ndescription: Example skill.\n---\nRun `npm install` in your project.\n",
+  });
+  const d16 = fs.filter((f) => f.checkId === "D16").map((f) => `${f.evidence[0]?.relPath}:${f.evidence[0]?.startLine} ${f.message.match(/Use `([^`]+)`/)?.[1]}`).sort();
+  assert.deepEqual(d16, ["AGENTS.md:2 pnpm test", "CLAUDE.md:3 pnpm install --frozen-lockfile", "tools/bun-app/AGENTS.md:2 bun run test", "web/AGENTS.md:2 pnpm run build", "web/AGENTS.md:3 pnpm test"]);
+  const none = await findingsFor({ "package-lock.json": "{}\n", "pnpm-lock.yaml": "x\n", "AGENTS.md": "# A\n- Run `npm test`.\n" });
+  assert.equal(none.filter((f) => f.checkId === "D16").length, 0, "two lockfiles: the project's package manager is unclear");
+  const declared = await findingsFor({ "package.json": "{\"packageManager\": \"yarn@4.1.0\"}\n", "AGENTS.md": "# A\n- Run `npm run lint`.\n" });
+  assert.match(declared.find((f) => f.checkId === "D16")?.message ?? "", /uses yarn \(the packageManager field in package\.json\).*`yarn run lint`/);
+});
+
 test("overlapping scopes are layered, not conflicts; identical lines are labelled not-a-conflict", async () => {
   const layered = await findingsFor({
     "AGENTS.md": "# Root\n- Use npm for scripts in this repository.\n",

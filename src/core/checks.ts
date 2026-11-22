@@ -1,8 +1,10 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { findClaudeImports } from "./claudeImports.ts";
 import { FORMAT_DOCS, fileDirOf, isSameOrBelow, scopeDirOf, type SourceFormat } from "./formats.ts";
 import { readFrontmatter } from "./frontmatter.ts";
 import { sha256Hex } from "./hash.ts";
+import { COMMON_SUBS, conflictsFor } from "./learn.ts";
 import { findingIdFromDigest, type SourceId, type VersionId } from "./ids.ts";
 import { normalizeRelPath, resolveExistingInsideRoot } from "./paths.ts";
 import { instructionRisks } from "./risks.ts";
@@ -37,6 +39,7 @@ export const STRUCTURAL_CHECKS: Record<StructuralCheckId, string> = {
   D13: "Instruction tells assistants to do something unsafe",
   D14: "Invisible characters in an instruction file",
   D15: "Prompt-injection phrasing in an instruction file",
+  D16: "Instruction uses a package manager this project does not use",
 };
 
 const CODEX_MAX_BYTES = 32 * 1024;
@@ -262,7 +265,76 @@ function duplicateChecks(sources: readonly CheckSource[]): StructuralFinding[] {
   return out;
 }
 
-/** Runs every deterministic check. Reads nothing except existence of @import targets. */
+type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
+const LOCKFILES: readonly [string, PackageManager][] = [["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["bun.lock", "bun"], ["bun.lockb", "bun"], ["package-lock.json", "npm"]];
+
+/** The one package manager a folder's lockfile or `packageManager` field names; null when there is none or more than one. */
+async function packageManagerIn(dir: string): Promise<{ pm: PackageManager; why: string } | null> {
+  const found: { pm: PackageManager; why: string }[] = [];
+  for (const [file, pm] of LOCKFILES) if (await fs.stat(path.join(dir, file)).then((s) => s.isFile(), () => false)) found.push({ pm, why: file });
+  const declared = await fs.readFile(path.join(dir, "package.json"), "utf8").then((t) => /"packageManager"\s*:\s*"(npm|pnpm|yarn|bun)@/.exec(t)?.[1] as PackageManager | undefined, () => undefined);
+  if (declared) found.push({ pm: declared, why: "the packageManager field in package.json" });
+  const kinds = new Set(found.map((f) => f.pm));
+  return kinds.size === 1 ? found[0]! : null;
+}
+
+// Script names a package manager runs itself instead of as a package.json script.
+const BUILTIN: Record<PackageManager, ReadonlySet<string>> = {
+  npm: new Set(["test", "start", "install", "i", "ci", "add", "exec", "x", "run"]),
+  pnpm: new Set(COMMON_SUBS), yarn: new Set(COMMON_SUBS),
+  bun: new Set(["install", "i", "add", "run", "x", "start", "dev", "lint"]),
+};
+const commandFor = (pm: PackageManager, sub: string, rest: string): string => {
+  if (sub === "ci") return pm === "npm" ? `npm ci${rest}` : `${pm} install --frozen-lockfile${rest}`;
+  return BUILTIN[pm].has(sub) ? `${pm} ${sub}${rest}` : `${pm} run ${sub}${rest}`;
+};
+
+/** AGENTS.md and CLAUDE.md lines that run `npm test` where the nearest lockfile says pnpm, yarn or bun (and the reverse). */
+async function packageManagerChecks(sources: readonly CheckSource[], rootReal: string): Promise<StructuralFinding[]> {
+  const cache = new Map<string, Promise<{ pm: PackageManager; why: string } | null>>();
+  const nearest = async (dir: string): Promise<{ pm: PackageManager; why: string; dir: string } | null> => {
+    for (let d = dir; ; d = path.dirname(d)) {
+      if (!cache.has(d)) cache.set(d, packageManagerIn(path.join(rootReal, d)));
+      const hit = await cache.get(d)!;
+      if (hit) return { ...hit, dir: d };
+      if (d === "." || d === "" || d === path.dirname(d)) return null;
+    }
+  };
+  const out: StructuralFinding[] = [];
+  for (const src of sources) {
+    // Skills are written for other projects, so their commands are not about this one.
+    if (src.format === "skill-md") continue;
+    const project = await nearest(fileDirOf(src.relPath) || ".");
+    if (!project) continue;
+    const file = { relPath: src.relPath, lines: src.lines, redacted: src.redactedLineNumbers };
+    for (const other of ["npm", "pnpm", "yarn", "bun"] as const) {
+      if (other === project.pm) continue;
+      for (const c of conflictsFor({ program: [other, project.pm], subs: new Set() }, [file])) {
+        // Global installs (`npm i -g tool`) and npx-style one-offs work under any package manager.
+        if (/\s(-g|--global)\b/.test(c.text)) continue;
+        const m = new RegExp(`(^|[\\s\`'"(>])${other}\\s+([\\w:-]+)([^\`\\n;&|]*)`).exec(c.text);
+        if (!m) continue;
+        // Only orders: "Run `npm test`", "- `npm test`", "**Test**: `npm test`". Not descriptions of what code does ("installed via `npm install`").
+        const before = c.text.slice(0, m.index + m[1]!.length).replace(/^\s*(?:[-*+]|\d+[.)])?\s*\$?\s*`?$/, "");
+        if (before && !/(\b(run|runs|running|use|using|with|execute|try|then|and|or|first|always|please)|[:—–]|\*\*)\s*`?$/i.test(before)) continue;
+        const sub = m[2]!;
+        // Inside backticks the rest is the command; in prose keep only a script name after `run`.
+        const rest = m[1] === "`" ? (m[3] ?? "").replace(/\s+$/, "") : /^(run|exec|x)$/.test(sub) ? (/^\s+[\w:./@-]+/.exec(m[3] ?? "")?.[0] ?? "") : "";
+        const where = project.dir === "." || project.dir === "" ? "" : ` in \`${project.dir}\``;
+        out.push(finding({
+          checkId: "D16",
+          severity: "warn",
+          message: `Tells agents to run \`${other} ${sub}${rest}\`, but this project uses ${project.pm} (${project.why}${where}). Agents following it hit errors or create a second lockfile. Use \`${commandFor(project.pm, sub, rest)}\` instead.`,
+          evidence: [span(src, c.line, c.line)],
+          docUrl: FORMAT_DOCS[src.format],
+        }));
+      }
+    }
+  }
+  return out;
+}
+
+/** Runs every deterministic check. Reads nothing except existence of @import targets, lockfiles and package.json. */
 export async function runStructuralChecks(ctx: CheckContext): Promise<StructuralFinding[]> {
   const out: StructuralFinding[] = [];
   for (const src of ctx.sources) {
@@ -275,7 +347,7 @@ export async function runStructuralChecks(ctx: CheckContext): Promise<Structural
     out.push(...precedenceChecks(src, ctx.sources), ...sizeChecks(src), ...secretChecks(src));
     for (const r of instructionRisks(src.lines)) out.push(finding({ checkId: r.checkId, severity: r.severity, message: r.message, evidence: [span(src, r.line, r.line)], docUrl: RISK_DOC }));
   }
-  out.push(...duplicateChecks(ctx.sources));
+  out.push(...duplicateChecks(ctx.sources), ...(await packageManagerChecks(ctx.sources, ctx.rootReal)));
   const unique = new Map(out.map((f) => [f.id, f]));
   return [...unique.values()];
 }

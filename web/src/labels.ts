@@ -37,6 +37,7 @@ export const CHECK_NAMES: Record<string, string> = {
   D13: "Unsafe instruction",
   D14: "Invisible characters",
   D15: "Prompt injection",
+  D16: "Wrong package manager",
   S01: "Possible contradiction",
   S02: "Possibly stale",
   S03: "Possibly vague",

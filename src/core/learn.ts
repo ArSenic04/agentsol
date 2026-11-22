@@ -414,7 +414,7 @@ function covered(g: Group, fileText: string): boolean {
 const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Lines that already warn against the command are advice, not a conflict. */
 const NEGATED = /\b(never|don'?t|do not|not|avoid|instead|rather than|no longer|deprecated|fails?|broken)\b/i;
-const COMMON_SUBS = ["run", "test", "install", "i", "ci", "add", "exec", "x", "start", "build", "lint", "dev"];
+export const COMMON_SUBS = ["run", "test", "install", "i", "ci", "add", "exec", "x", "start", "build", "lint", "dev"];
 const BEFORE = "(^|[\\s`'\"(>])";
 
 const NEGATION = /\b(never|don'?t|do not|stop|avoid|no longer)\s+/i;
