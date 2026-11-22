@@ -48,7 +48,7 @@ Fixed false negatives:
 - "Never forget to:" followed by a list hid the list from checks; it no longer does.
 - A script that reads `~/.ssh` and then uploads is now one high-severity finding on the upload line ("sends what it read from your credential files"), not a medium "sends data".
 
-Still open: documentation of attacks inside security-auditing skills, `chmod 600 ~/.netrc`, and a linter sample config that names `bypassPermissions`.
+Still open: documentation of attacks inside security-auditing skills, and a linter sample config that names `bypassPermissions`.
 
 ## `learn`
 

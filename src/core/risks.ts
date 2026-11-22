@@ -84,7 +84,8 @@ const CREDENTIAL_PATHS = /["'`]\.(ssh|aws|gnupg|kube|docker)["'`]|(~|\$HOME|\$\{
 type Rule = { re: RegExp; what: string; severity: "high" | "medium" | "low"; scriptsOnly?: boolean };
 
 const SCRIPT_RISKS: readonly Rule[] = [
-  { re: CREDENTIAL_PATHS, what: "reads credential files (SSH keys, cloud, npm or git tokens, browser passwords)", severity: "high" },
+  // `chmod 600 ~/.netrc` only tightens permissions; it does not read the file.
+  { re: new RegExp(`^(?!\\s*(sudo\\s+)?(chmod|chown)\\s[^;&|\\n]*$).*(?:${CREDENTIAL_PATHS.source})`), what: "reads credential files (SSH keys, cloud, npm or git tokens, browser passwords)", severity: "high" },
   { re: /\bcurl\b[^\n]*\s(-d|--data(-\w+)?|-F|--form|-T|--upload-file)\b|\bwget\b[^\n]*--post-(data|file)|\brequests\.(post|put)\s*\(|\bfetch\s*\([^)]*method\s*:\s*["'](POST|PUT)|\b(nc|ncat|netcat)\s+[\w.-]+\s+\d+|\/dev\/tcp\/|\burlopen\s*\([^)]*data\s*=|\bhttp\.request\s*\([^)]*method\s*:\s*["']POST|\bsocket\.(socket|create_connection)\s*\((?!\s*\)|[^\n]*\b(AF_UNIX|localhost|127\.0\.0\.1)\b)|\bnet\.connect\s*\(/, what: "sends data to a remote server", severity: "medium" },
   { re: /\bresolve(4|6|Txt|Any)?\s*\(\s*`[^`]*\$\{|\bgethostbyname\s*\(\s*f["']/, what: "hides data inside DNS lookups, a common way to sneak secrets out", severity: "high" },
   { re: /\bbase64\s+(-d|-D|--decode)\b[^\n]*\|\s*(sudo\s+)?(ba|z)?sh\b|\beval\s*\(\s*(atob|Buffer\.from|base64|b64decode|codecs\.decode)|\bexec\s*\(\s*(base64\.)?b64decode|\bString\.fromCharCode\s*\([^)]{40,}/, what: "decodes hidden code and runs it", severity: "high" },
