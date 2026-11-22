@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ArSenic04/agentsol",
+  "title": "Agentsol",
+  "description": "Lint AGENTS.md/CLAUDE.md/skills, scan skills and MCP servers, learn from past agent sessions",
+  "repository": {
+    "url": "https://github.com/ArSenic04/agentsol",
+    "source": "github"
+  },
+  "websiteUrl": "https://arsenic04.github.io/agentsol-site/",
+  "version": "0.2.0-alpha.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "agentsol",
+      "version": "0.2.0-alpha.3",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        { "type": "positional", "value": "-y" },
+        { "type": "positional", "value": "--package" }
+      ],
+      "packageArguments": [
+        { "type": "positional", "value": "agentsol-mcp", "description": "The package has two commands; this starts the MCP server instead of the CLI." }
+      ],
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "AGENTSOL_WORKSPACE", "description": "Folder where Agentsol keeps its local database. Defaults to ~/.agentsol.", "format": "filepath", "isRequired": false }
+      ]
+    }
+  ]
+}

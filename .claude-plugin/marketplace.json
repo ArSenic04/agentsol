@@ -1,0 +1,15 @@
+{
+  "name": "agentsol",
+  "description": "Agentsol: check agent instruction files, inspect skills and MCP servers, learn from past sessions",
+  "owner": {
+    "name": "Shivam Ardeshna",
+    "url": "https://github.com/ArSenic04"
+  },
+  "plugins": [
+    {
+      "name": "agentsol",
+      "source": "./skills",
+      "description": "MCP server plus a skill: briefing at start, command checks, lessons from past sessions, inspect before installing"
+    }
+  ]
+}

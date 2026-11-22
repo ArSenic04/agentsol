@@ -56,7 +56,18 @@ cd your-project
 npx -y agentsol@alpha start
 ```
 
-One command: registers and scans this folder, connects the AI apps you have (it asks first), shows what past sessions cost, and what to fix first. Nothing is installed globally. No account, no API key, no hosted service.
+One command: registers and scans this folder, connects the AI apps you have (it asks first), shows what past sessions cost, and what to fix first. Nothing is installed globally. No account, no API key, no hosted service. Everything runs offline on your machine, and `inspect` only reads a skill or server: it never runs it.
+
+Or add the MCP server to your app yourself:
+
+| App | Run once |
+|---|---|
+| Claude Code (plugin: server + skill) | `claude plugin marketplace add ArSenic04/agentsol` then `claude plugin install agentsol@agentsol` |
+| Claude Code | `claude mcp add agentsol -s user -- npx -y -p agentsol@alpha agentsol-mcp` |
+| Codex | `codex mcp add agentsol -- npx -y -p agentsol@alpha agentsol-mcp` |
+| Gemini CLI | `gemini mcp add -s user agentsol npx -y -p agentsol@alpha agentsol-mcp` |
+| VS Code | `code --add-mcp '{"name":"agentsol","command":"npx","args":["-y","-p","agentsol@alpha","agentsol-mcp"]}'` |
+| Cursor, Claude Desktop, Windsurf | `npx -y agentsol@alpha connect` prints the JSON for each |
 
 <p align="center">
   <img src="docs/images/cli-start.png" alt="agentsol start in a terminal" width="760">

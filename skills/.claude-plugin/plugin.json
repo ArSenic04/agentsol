@@ -1,0 +1,20 @@
+{
+  "name": "agentsol",
+  "displayName": "Agentsol",
+  "description": "Checks AGENTS.md, CLAUDE.md and skills, inspects skills and MCP servers before you install them, and turns mistakes agents repeat into reviewed instruction fixes. Local, no account.",
+  "author": {
+    "name": "Shivam Ardeshna",
+    "url": "https://github.com/ArSenic04"
+  },
+  "homepage": "https://arsenic04.github.io/agentsol-site/",
+  "repository": "https://github.com/ArSenic04/agentsol",
+  "license": "MIT",
+  "keywords": ["agents-md", "claude-md", "skills", "mcp", "security", "lint", "learn"],
+  "skills": ["./agentsol"],
+  "mcpServers": {
+    "agentsol": {
+      "command": "npx",
+      "args": ["-y", "-p", "agentsol@alpha", "agentsol-mcp"]
+    }
+  }
+}

@@ -22,7 +22,7 @@ type Client = { id: string; name: string; where: string; lines: string[]; wrap?:
 
 /** One entry per assistant. Every one runs the same npm package on the person's own machine. */
 export const CLIENTS: readonly Client[] = [
-  { id: "claude-code", name: "Claude Code", where: "Run once in any terminal:", lines: [`claude mcp add agentsol -s user -- npx ${PKG.join(" ")}`] },
+  { id: "claude-code", name: "Claude Code", where: "Run once in any terminal:", lines: [`claude mcp add agentsol -s user -- npx ${PKG.join(" ")}`], note: "Or install the plugin, which adds the server and the Agentsol skill: claude plugin marketplace add ArSenic04/agentsol, then claude plugin install agentsol@agentsol." },
   { id: "codex", name: "Codex", where: "Run once (the Codex CLI, IDE extension and app share this config):", lines: [`codex mcp add agentsol -- npx ${PKG.join(" ")}`] },
   { id: "gemini", name: "Gemini CLI", where: "Run once in any terminal:", lines: [`gemini mcp add -s user agentsol npx ${PKG.join(" ")}`], note: "Gemini CLI loads MCP servers only in folders you trust. If agentsol shows as disabled, trust the folder when Gemini asks." },
   { id: "vscode", name: "VS Code", where: "Run once (GitHub Copilot agent mode reads it):", lines: [`code --add-mcp '{"name":"agentsol","command":"npx","args":[${PKG.map((a) => `"${a}"`).join(",")}]}'`] },
