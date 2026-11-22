@@ -14,6 +14,10 @@ test("one version everywhere: package.json, lockfile, CLI --version and the MCP 
   assert.equal(pkg.version, PRODUCT_VERSION);
   assert.equal(lock.version, PRODUCT_VERSION);
   assert.equal(lock.packages[""].version, PRODUCT_VERSION);
+  const registry = JSON.parse(readFileSync(path.join(REPO, "server.json"), "utf8"));
+  assert.equal(registry.name, pkg.mcpName, "the MCP Registry checks this against the published package");
+  assert.equal(registry.version, PRODUCT_VERSION);
+  assert.ok(registry.packages.every((p: { version: string }) => p.version === PRODUCT_VERSION));
   assert.match(PRODUCT_VERSION, /^\d+\.\d+\.\d+-alpha\.\d+$/, "an explicit prerelease, not a stable version");
   const r = spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "--version"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);

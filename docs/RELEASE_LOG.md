@@ -53,3 +53,10 @@
 - Release file: `artifacts/release/agentsol-0.2.0-alpha.3.tgz`, 48 files, 140,651 bytes, sha256 5b114ba7f879f93e78fbd21b3ac6818e50503a2fc1e4dba1ba644a6de4003cfb, integrity sha512-OpWGp5vXe2XQ8PGV+O6HgUpLrv03P8L2ZY5JzB2uJKlDMT2T2X6SO4xU7x2iZax7x5iTHY4f8j5asaLAifEiFQ==.
 - `release:check` READY: pack audit; sha512 equals npm pack; clean install + CLI + MCP 21/21 on Node 26.8.2 and 25.9.0; `npm publish --dry-run` tag alpha, public; tarball unchanged.
 - Next steps (a person, in Terminal): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.3.tgz --tag alpha --access public --registry https://registry.npmjs.org/`, then `npm dist-tag add agentsol@0.2.0-alpha.3 latest`.
+
+## Agentsol 0.2.0-alpha.4: prepared, NOT published (Nov 22, 2026)
+- Replaces the unpublished alpha.3 (its tarball is kept unchanged): alpha.3 lacks `mcpName`, which the MCP Registry needs to verify the npm package.
+- Adds since alpha.3: check D16 (instructions name a package manager the project doesn't use); fewer `inspect` false alarms (danger 27 → 22 on 1,567 public items); commands in boxes wrap instead of being cut off; next steps match how agentsol was run (npx or installed); "did you mean" for unknown commands; `agentsol log` for the audit log; clearer MCP tool descriptions; `learn` time-lost counts only failed steps; `server.json` and a Claude Code plugin marketplace.
+- Release file: `artifacts/release/agentsol-0.2.0-alpha.4.tgz`, 48 files, 144,698 bytes, sha256 e426f5b0277e14bd954c476f4a6e7fac537391466bb1483fdced012b0644b2cf, integrity sha512-PT0Sls/kwm5ipA11UGaC4oS4JzLU+aOFDbpm3l/sjfsoAS1q4lR1NzwScf9mFj+DgiAagK7NDAv39x6HQXFpfw==.
+- `release:check` READY: pack audit; sha512 equals npm pack; clean install + CLI + MCP 21/21 on Node 26.8.2 and 25.9.0; dry run tag alpha, public; tarball unchanged.
+- Next steps (a person): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.4.tgz --tag alpha --access public --registry https://registry.npmjs.org/`; `npm dist-tag add agentsol@0.2.0-alpha.4 latest`; then `mcp-publisher login github` and `mcp-publisher publish` in the repo.
