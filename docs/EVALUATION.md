@@ -9,7 +9,7 @@ Agentsol was run against real public projects to find out whether its findings a
 | `check` | 32 public repos, 981 instruction files (AGENTS.md, CLAUDE.md, SKILL.md) | Every error and warning reviewed by hand. Remaining D01, D02, D04 and D07 findings are all real; 72 of 72 remaining D08 findings are real. |
 | `inspect` | 1,567 public skills and MCP servers from 8 collections | Danger verdicts 36 → 22 after fixes. 18 of the 22 are an offensive-security collection that really does contain persistence, exfiltration and reverse-shell payloads. |
 | `learn` | The real Claude Code history of building Agentsol (1 conversation, 5h 25m, 123M tokens, 20 compactions) | 0 lessons, which hand review confirmed is correct: every failure there happened once. Synthetic histories (below) show what it reports when mistakes repeat. |
-| `learn` eval | 35 labelled synthetic histories (Claude Code and Codex), 19 dev and 16 held out | Held out: 100% precision, 89% recall, 89% fix-correct, 0 secret leaks. Dev: 100% on all three. |
+| `learn` eval | 48 labelled synthetic histories (Claude Code and Codex), 21 dev and 27 held out | Held out: 100% precision, 86% recall, 86% fix-correct, 0 secret leaks. Dev: 100% on all three. |
 | `guard` | 1,178 real shell commands an agent ran while building Agentsol (an npm project) | 1,178 allowed, 0 blocked, 0 asked. The 8 false alarms of the first replay (risky text in echo, printf, heredoc bodies and data-only `python -c` / `node -e`) are gone; real download-and-run, `sh -c 'rm -rf ~'` and settings rewrites still ask. |
 
 ## `check`: real problems found in public repos
@@ -67,7 +67,7 @@ Findings from running on real history:
 
 ### The `learn` eval
 
-`npm run eval:learn` renders 35 labelled histories into real Claude Code and Codex transcript files in a temporary home folder, runs `learn` on each, and scores three things: **precision** (reported lessons that are expected), **recall** (expected lessons that are reported) and **fix-correct** (applying the proposed edit leaves the right rule in the target file and removes the stale line). A random fake secret is planted in commands and corrections; the run fails if it appears anywhere in the output. It fails below 90% precision, 80% recall or 80% fix-correct on either set.
+`npm run eval:learn` renders 48 labelled histories into real Claude Code and Codex transcript files in a temporary home folder, runs `learn` on each, and scores three things: **precision** (reported lessons that are expected), **recall** (expected lessons that are reported) and **fix-correct** (applying the proposed edit leaves the right rule in the target file and removes the stale line). A random fake secret is planted in commands and corrections; the run fails if it appears anywhere in the output. It fails below 90% precision, 80% recall or 80% fix-correct on either set.
 
 Scenarios: wrong package manager against the instructions, wrong test path or folder, a fragile file broken in several sessions, user corrections, repeats across compactions, subagents, Codex rollouts, and negatives that must produce nothing: one-off failures, network and DNS errors, rate limits, sandbox denials, a flaky test that passes on retry, a test-first red → green run, a user trying package managers on purpose, failures in another project.
 
@@ -76,11 +76,14 @@ Scenarios: wrong package manager against the instructions, wrong test path or fo
 | Dev, before fixes | 85% | 92% | 82% | 0 |
 | Dev, after | 100% | 100% | 100% | 0 |
 | Held out, before | 78% | 78% | 78% | 0 |
-| Held out, after | 100% | 89% | 89% | 0 |
+| Held out (16), after | 100% | 89% | 89% | 0 |
+| Held out (27), after review | 100% | 86% | 86% | 0 |
 
-Fixes were tuned on dev only. They made `learn` ignore failures the project cannot fix (network, rate limits, sandbox), learn files looked for in the wrong folder ("use paths under `src/`, not `tests/`"), and correct prose lines such as "Use npm to run scripts." in place. The one held-out miss is left on purpose: `cargo test` → `cargo test --workspace`, where the fix is an added flag.
+The fixes made `learn` ignore failures the project cannot fix (network, rate limits, sandbox), learn files looked for in the wrong folder ("use paths under `src/`, not `tests/`"), and correct prose lines such as "Use npm to run scripts." in place. The network and rate-limit filter was written against two held-out scenarios (`dns-curl`, `rate-limit`), so the 16-scenario held-out score was contaminated. Those two moved to dev, and 13 new held-out scenarios were written with other wording (`getaddrinfo EAI_AGAIN`, `Temporary failure in name resolution`, `429 Too Many Requests`, `API rate limit exceeded`, `Connection reset by peer`, a Docker timeout, a Codex `Operation not permitted` without sandbox wording) plus positives. Nothing in `learn` was changed after seeing their results. "Operation not permitted" and "read-only file system" now count as environmental only when the output names a sandbox, so a wrong path that fails with EPERM still becomes a lesson.
 
-**Caveat:** the histories are synthetic and were written in the same effort that tuned `learn`. The scores are a regression bar, not a measurement on real people's histories.
+Two held-out misses remain: `cargo test` → `cargo test --workspace` (the fix is an added flag) and `go test ./pkg/auth/...` → `go test ./internal/auth/...` (a moved Go package pattern). Most new negatives fail without a later fix, so they show that no false lesson appears, not that the filter alone stopped one.
+
+**Caveat:** the histories are synthetic, and the older ones were written in the same effort that tuned `learn`. The scores are a regression bar, not a measurement on real people's histories.
 
 ### Example output
 

@@ -72,7 +72,7 @@ It finds **commands** that fail here and the one that works, files agents look f
   <img src="docs/images/cli-learn.png" alt="agentsol learn: time and tokens lost, three lessons, one wrong instruction line with its fix" width="760">
 </p>
 
-**Measured:** `npm run eval:learn` replays 35 labelled agent histories in Claude Code and Codex formats. On the 16 held out from tuning, 100% of reported lessons were right and 89% of expected lessons were found; no planted secret ever reached the output. The histories are synthetic and were written alongside the tuning, so treat this as a regression bar, not proof on your history. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
+**Measured:** `npm run eval:learn` replays 48 labelled agent histories in Claude Code and Codex formats. On the 27 held out, 100% of reported lessons were right and 86% of expected lessons were found; no planted secret ever reached the output. The histories are synthetic and many were written alongside the tuning, so treat this as a regression bar, not proof on your history. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ## Guard · stop wrong commands before they run
 
@@ -289,7 +289,7 @@ Requirements: the installed package needs Node 24 or later. The source checkout 
 
 1. **Install from the lockfile.** `npm ci` (exact versions from `package-lock.json`; nothing global).
 2. **Preflight.** `npm run doctor`. It reports the Node version, whether the installed packages match the lockfile, whether this terminal is agent-driven (approve/apply refuse there), and with `-- --workspace <dir>` whether that folder is private. It reads only. `--json` for machine-readable output.
-3. **Tests.** `npm run check` (typecheck plus all tests; fixtures are synthetic temp folders). `npm run eval:learn` scores `learn` on 35 labelled histories and fails below 90% precision or 80% recall.
+3. **Tests.** `npm run check` (typecheck plus all tests; fixtures are synthetic temp folders). `npm run eval:learn` scores `learn` on 48 labelled histories and fails below 90% precision or 80% recall.
 4. **Synthetic demo.** `npm run demo` creates `$TMPDIR/agentsol-demo` with a made-up project, drives the MCP server over stdio with the official SDK client (scan, read, a "possible" finding, one proposed edit), and prints the next commands. Run it again to see pending proposals; `-- --reset` recreates it (refuses while it holds proposals; add `--discard-proposals`); `-- --dir <empty folder>` puts it elsewhere.
 5. **Check the workspace.** `npm run cli -- --workspace "$TMPDIR/agentsol-demo/workspace" status`.
 6. **Review and decide, as a person.** `review <proposalId>`, then `approve <proposalId>` (type the one-time code), then `apply <proposalId>` (writes the demo file and keeps a backup).
