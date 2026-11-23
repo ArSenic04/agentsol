@@ -109,6 +109,25 @@ Reads AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md and SKILL.md, 
   <img src="docs/images/cli-check.png" alt="agentsol check: findings with severity, check id, file and line" width="760">
 </p>
 
+### In CI
+
+Findings show up in GitHub code scanning on each pull request. The job needs `security-events: write`:
+
+```yaml
+name: agentsol
+on: [pull_request]
+permissions: { contents: read, security-events: write }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ArSenic04/agentsol@main
+        with: { strict: "true" }
+```
+
+Locally, `npx -y agentsol@alpha check --sarif-file agentsol.sarif` writes the same SARIF and keeps the normal report. The action needs the next published alpha; `0.2.0-alpha.4` has no `--sarif`.
+
 ## Inspect · before you install a skill or MCP server
 
 ```sh
