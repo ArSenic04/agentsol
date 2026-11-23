@@ -315,7 +315,12 @@ async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops:
   const code = flags.strict && errors > 0 ? 1 : 0;
   const pending = proposals.value.proposals.filter((p) => p.status === "pending");
   if (flags.sarif || flags.sarifFile) {
-    const sarif = JSON.stringify(checkSarif(list, project.rootReal, await realpath(process.cwd())), null, 2);
+    const files = new Map<string, string[] | null>();
+    const lineText = (relPath: string, line: number): string | undefined => {
+      if (!files.has(relPath)) { try { files.set(relPath, readFileSync(path.join(project.rootReal, relPath), "utf8").split(/\r?\n/)); } catch { files.set(relPath, null); } }
+      return files.get(relPath)?.[line - 1];
+    };
+    const sarif = JSON.stringify(checkSarif(list, project.rootReal, await realpath(process.cwd()), lineText), null, 2);
     if (flags.sarifFile) await writeFile(path.resolve(flags.sarifFile), `${sarif}\n`);
     if (flags.sarif) { raw(sarif); return code; }
   }

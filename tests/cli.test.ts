@@ -298,6 +298,19 @@ test("SARIF uris are relative to the checkout when the checked folder is inside 
   const f = { kind: "structural", id: "x", checkId: "D07", severity: "warn", title: "t", message: "m", docUrl: "", evidence: [{ sourceId: "s", versionId: "v", relPath: path.join("docs", "AGENTS.md"), startLine: 3, endLine: 2, textSha256: "0".repeat(64) }] } as never;
   const at = (root: string, base: string) => (checkSarif([f], root, base) as { runs: { results: { locations: { physicalLocation: { artifactLocation: { uri: string }; region: { endLine: number } } }[] }[] }[] }).runs[0]!.results[0]!.locations[0]!.physicalLocation;
   assert.equal(at("/ci/repo/pkg", "/ci/repo").artifactLocation.uri, "pkg/docs/AGENTS.md");
-  assert.equal(at("/elsewhere", "/ci/repo").artifactLocation.uri, "docs/AGENTS.md");
+  assert.deepEqual(at("/elsewhere", "/ci/repo").artifactLocation, { uri: "docs/AGENTS.md", uriBaseId: "PROJECTROOT" }, "outside the checkout the uri is marked as relative to the checked folder");
+  assert.ok((checkSarif([f], "/elsewhere", "/ci/repo") as { runs: { originalUriBaseIds: Record<string, unknown> }[] }).runs[0]!.originalUriBaseIds["PROJECTROOT"]);
   assert.equal(at("/ci/repo", "/ci/repo").region.endLine, 3);
+  assert.equal("uriBaseId" in at("/ci/repo/pkg", "/ci/repo").artifactLocation, false);
+});
+
+test("SARIF fingerprints follow the flagged line's text, not the line number or numbers in the message", async () => {
+  const { checkSarif } = await import("../src/core/sarif.ts");
+  const finding = (startLine: number, message: string) => ({ kind: "structural", id: "x", checkId: "D16", severity: "warn", title: "t", message, docUrl: "", evidence: [{ sourceId: "s", versionId: "v", relPath: "AGENTS.md", startLine, endLine: startLine, textSha256: "0".repeat(64) }] }) as never;
+  const fp = (f: never, lines: string[]) => (checkSarif([f], "/r", "/r", (_p, n) => lines[n - 1]) as { runs: { results: { partialFingerprints: Record<string, string> }[] }[] }).runs[0]!.results[0]!.partialFingerprints["agentsolFinding/v1"];
+  const before = fp(finding(3, "line 3 says npm"), ["# Rules", "", "- Run  `npm test`."]);
+  assert.equal(fp(finding(5, "line 5 says npm"), ["# Rules", "", "intro", "", "- Run `npm test`. "]), before, "moved line, same finding");
+  assert.notEqual(fp(finding(3, "line 3 says npm"), ["# Rules", "", "- Run `npm run lint`."]), before, "different line text, different finding");
+  const noText = (n: number) => (checkSarif([finding(n, `line ${n} says npm`)], "/r", "/r") as { runs: { results: { partialFingerprints: Record<string, string> }[] }[] }).runs[0]!.results[0]!.partialFingerprints["agentsolFinding/v1"];
+  assert.equal(noText(3), noText(9), "without the line text, digits in the message do not change it");
 });
