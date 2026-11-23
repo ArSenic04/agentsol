@@ -8,7 +8,7 @@ import path from "node:path";
 import { commandAdvice, type Lesson } from "./learn.ts";
 import { commandRisks } from "./risks.ts";
 import { containsSecretLike } from "./secrets.ts";
-import { commandSegments, programName, strip } from "./sessions.ts";
+import { commandSegments, programName, shellSegments, strip } from "./sessions.ts";
 
 export type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
 export const LOCKFILES: readonly [string, PackageManager][] = [["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["bun.lock", "bun"], ["bun.lockb", "bun"], ["package-lock.json", "npm"]];
@@ -38,6 +38,102 @@ const DATABASES = new Set(["psql", "mysql", "sqlite3", "mongosh", "mongo", "redi
 const noHeredocBodies = (c: string): string => c.replace(/(<<-?\s*(["']?)(\w+)\2[^\n]*)\n[\s\S]*?\n[ \t]*\3[ \t]*(?=\n|$)/g, "$1");
 /** Commit messages, PR bodies and echoed text are data: `git commit -m "fix curl | sh"` runs nothing. */
 const noMessages = (c: string): string => c.replace(/((?:^|\s)(?:-m|--message|--body|--title|-b|--notes|--description|echo|printf)(?:=|\s+))("(?:[^"\\]|\\.)*"|'[^']*')/g, '$1""');
+const SHELL_NAMES = new Set(["bash", "sh", "zsh", "dash", "ksh", "fish"]);
+const INTERPRETERS = /^(python[\d.]*|node|nodejs|deno|bun|ruby|perl|php)$/;
+const CODE_FLAGS = new Set(["-c", "-e", "--eval", "-p", "--print", "-r", "-E"]);
+/** Interpreter code that starts other programs; code without this only reads and writes data. */
+const RUNS_PROGRAMS = /\b(os\.(system|popen|exec\w*|spawn\w*)|subprocess|pty\.spawn|child_process|exec(Sync|File\w*)?\s*\(|spawn(Sync)?\s*\(|system\s*\(|popen\s*\(|Deno\.(run|Command)|Bun\.(spawn|\$))/;
+const noStrings = (c: string): string => c.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''|`(?:[^`\\]|\\.)*`|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, "''");
+const HEREDOC = /([^\n]*<<-?\s*(["']?)(\w+)\2[^\n]*)\n([\s\S]*?)\n[ \t]*\3[ \t]*(?=\n|$)/g;
+const SETTINGS_WHAT = "rewrites AI assistant settings or permissions";
+const SETTINGS_FILE = /\.claude\/settings(\.local)?\.json$|\.claude\.json$|\.cursor\/mcp\.json$|\.codex\/config\.toml$|claude_desktop_config\.json$/;
+const SETTINGS_IN = /\.claude\/settings(\.local)?\.json|\.claude\.json|\.cursor\/mcp\.json|\.codex\/config\.toml|claude_desktop_config\.json/;
+const TEMP_ROOT = /^(\/tmp(\/|$)|\/private\/tmp(\/|$)|\/var\/folders\/|\$\{?(TMPDIR|RUNNER_TEMP)\}?)/;
+const headOf = (words: readonly string[]): string => programName(strip(words)[0] ?? "");
+
+/**
+ * The parts of a command line that run. Quoted data (echo text, printf arguments, for-lists, grep patterns)
+ * is blanked except for its `$(…)`; heredoc bodies stay only when a shell reads them. Interpreter code
+ * (`python -c`, `node -e`, `python - <<EOF`) is returned separately.
+ */
+function executable(command: string): { shell: string; code: string[] } {
+  const code: string[] = [];
+  const s = command.replace(HEREDOC, (_m, header: string, _q: string, _tag: string, body: string) => {
+    const at = header.indexOf("<<");
+    const head = headOf(shellSegments(header.slice(0, at)).pop() ?? []);
+    if (SHELL_NAMES.has(head) || head === "ssh" || /\|\s*(sudo\s+)?(ba|z|da|k)?sh\b/.test(header.slice(at))) return `${header}\n${body}`;
+    if (INTERPRETERS.test(head)) code.push(body);
+    return header;
+  });
+  let out = "";
+  let words: string[] = [];
+  let cur = "";
+  const flush = (): void => { if (cur) words.push(cur); cur = ""; };
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i] ?? "";
+    if (c === "'" || c === "\"") {
+      let j = i + 1;
+      let content = "";
+      while (j < s.length && s[j] !== c) {
+        if (c === "\"" && s[j] === "\\" && j + 1 < s.length) { content += s[j + 1]; j += 2; continue; }
+        content += s[j];
+        j += 1;
+      }
+      i = j;
+      const ctx = strip(words);
+      const head = programName(ctx[0] ?? "");
+      const prev = words[words.length - 1] ?? "";
+      if (!cur && (ctx.length === 0 || head === "eval" || head === "ssh" || (/^-[a-z]*c$/i.test(prev) && words.some((x) => SHELL_NAMES.has(programName(x)))))) out += ` ${content} `;
+      else if (!cur && INTERPRETERS.test(head) && CODE_FLAGS.has(prev)) { code.push(content); out += "''"; }
+      else {
+        const subs = c === "\"" ? [...content.matchAll(/\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)|`([^`]*)`/g)].map((m) => `$(${m[1] ?? m[2] ?? ""})`) : [];
+        out += subs.length ? subs.join(" ") : "''";
+      }
+      cur += "Q";
+      continue;
+    }
+    if (c === "\\" && i + 1 < s.length) { out += c + s[i + 1]; cur += s[i + 1]; i += 1; continue; }
+    out += c;
+    if (/[;&|()\n]/.test(c)) { flush(); words = []; } else if (/\s/.test(c)) flush(); else cur += c;
+  }
+  return { shell: out, code };
+}
+
+/** Variables the command points at a temporary folder: `T=$(mktemp -d)`, `H=/tmp/x`, `P=$T/proj`. */
+function tempVars(s: string): Set<string> {
+  const vars = new Set<string>();
+  const under = (val: string): boolean => TEMP_ROOT.test(val) || [...vars].some((v) => new RegExp(`^\\$\\{?${v}\\}?(/|$)`).test(val));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const m of s.matchAll(/\b([A-Za-z_]\w*)=["']?([^\s;&|"']*)/g)) {
+      const name = m[1] ?? "";
+      const val = m[2] ?? "";
+      if (!vars.has(name) && (/^\$\(\s*mktemp\b/.test(val) || under(val))) { vars.add(name); grew = true; }
+    }
+  }
+  return vars;
+}
+
+/** A redirect, tee, cp or mv into an AI app's settings file, outside a temporary folder; or interpreter code writing one. */
+function writesSettings(shell: string, code: readonly string[]): boolean {
+  const vars = tempVars(shell);
+  const temp = (p: string): boolean => TEMP_ROOT.test(p) || [...vars].some((v) => new RegExp(`^\\$\\{?${v}\\}?(/|$)`).test(p));
+  const relative = (p: string): boolean => !/^[/~$]/.test(p);
+  let inTemp = false;
+  for (const seg of commandSegments(shell)) {
+    const w = strip(seg);
+    const head = programName(w[0] ?? "");
+    if (head === "cd" || head === "pushd") { const t = w[1] ?? ""; inTemp = temp(t) || (inTemp && relative(t)); continue; }
+    const targets: string[] = [];
+    seg.forEach((x, i) => { const m = /^\d?>>?(.*)$/.exec(x); if (m) { const t = m[1] || seg[i + 1] || ""; if (!t.startsWith("&")) targets.push(t); } });
+    if (head === "tee") targets.push(...w.slice(1).filter((a) => !a.startsWith("-")));
+    if (head === "cp" || head === "mv" || head === "install" || head === "ln") { const last = w.slice(1).filter((a) => !a.startsWith("-")).pop(); if (last) targets.push(last); }
+    if (targets.some((t) => SETTINGS_FILE.test(t) && !temp(t) && !(inTemp && relative(t)))) return true;
+  }
+  const writes = [/\b(?:writeFile|writeFileSync|appendFile|appendFileSync)\s*\(\s*([^,)]+)/g, /\bopen\s*\(\s*([^,)]+),\s*["'][wa+]/g, /\bPath\s*\(\s*([^)]+)\)\s*\.\s*write_(?:text|bytes)/g];
+  return code.some((c) => writes.some((re) => [...c.matchAll(re)].some((m) => SETTINGS_IN.test(m[1] ?? "") && !/tmp|mkdtemp|tmpdir/i.test(m[1] ?? ""))));
+}
+
 const shQuote = (w: string): string => (/^[\w./:=@%+,~^-]+$/.test(w) ? w : `'${w.replace(/'/g, "'\\''")}'`);
 const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -103,10 +199,15 @@ function lessonHits(command: string, ctx: GuardContext): Hit[] {
 
 function dangerHits(command: string, cwd: string, ctx: GuardContext): Hit[] {
   const text = noMessages(noHeredocBodies(command));
-  const found = new Set<string>(commandRisks(text).map((w) => (w.startsWith("installs itself") ? "makes something run again later (shell startup file, cron, launch agent or git hook)" : w)));
+  const run = executable(command);
+  const runs = run.code.filter((c) => RUNS_PROGRAMS.test(noStrings(c)));
+  const risks = [...commandRisks(run.shell), ...runs.flatMap(commandRisks)].filter((w) => w !== SETTINGS_WHAT);
+  if (writesSettings(run.shell, run.code)) risks.push(SETTINGS_WHAT);
+  const found = new Set<string>(risks.map((w) => (w.startsWith("installs itself") ? "makes something run again later (shell startup file, cron, launch agent or git hook)" : w)));
   const home = ctx.home ? path.resolve(ctx.home) : null;
   const expand = (t: string): string => t.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home ?? "~");
-  for (const seg of commandSegments(text)) {
+  const inCode = runs.flatMap((c) => [...c.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? ""));
+  for (const seg of [text, ...inCode].flatMap((t) => commandSegments(t))) {
     const w = strip(seg);
     const head = programName(w[0] ?? "");
     const args = w.slice(1);
