@@ -17,7 +17,7 @@ try {
     page.on("pageerror", (e) => errors.push(`${label}: ${e.message}`));
     await page.goto(base);
     await page.waitForSelector(".excerpt");
-    await page.waitForSelector(".hero-art svg");
+    await page.waitForSelector(".hero-art .term-body");
     await page.screenshot({ path: path.join(out, `hero-${label}.png`), fullPage: false });
     await page.screenshot({ path: path.join(out, `landing-${label}.png`), fullPage: true });
     await page.goto(`${base}#/demo`);
