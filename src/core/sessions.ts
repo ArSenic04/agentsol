@@ -104,7 +104,7 @@ const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const lines = (s: string | null): string[] => (s ? s.split(/\r?\n/) : []);
 
-const ENVIRONMENT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|could not resolve (host|proxy)|temporary failure in name resolution|name or service not known|network is unreachable|connection (refused|reset|timed out)|rate limit|too many requests|\bhttp\S* 429\b|status( code)?:? 429\b|sandbox_apply|(denied|blocked) by (the )?sandbox|ssl certificate problem|unable to get local issuer certificate/i;
+const ENVIRONMENT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|could not resolve (host|proxy)|temporary failure in name resolution|name or service not known|network is unreachable|connection (refused|reset|timed out)|rate limit|too many requests|\bhttp\S* 429\b|status( code)?:? 429\b|sandbox_apply|(denied|blocked) by (the )?sandbox|ssl certificate problem|unable to get local issuer certificate|\bSSL_ERROR_[A-Z_]+|gnutls_handshake\(\) failed|TLS handshake timeout/i;
 // EPERM and EROFS also come from a wrong path, so they count only when the output names a sandbox.
 const PERMISSION = /operation not permitted|read-only file system|\b(EPERM|EROFS)\b/i;
 const SANDBOX = /sandbox|seatbelt|landlock/i;

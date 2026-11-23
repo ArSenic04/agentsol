@@ -832,9 +832,11 @@ test("failures caused by the network, a rate limit or the sandbox never become l
     const dns: Cmd = ["npm install", true, "npm ERR! getaddrinfo ENOTFOUND registry.npmjs.org"];
     const limit: Cmd = ["gh pr list", true, "HTTP 429: API rate limit exceeded"];
     const sandbox: Cmd = ["swift build", true, "sandbox-exec: sandbox_apply: Operation not permitted"];
+    const tls: Cmd = ["git push -q origin main", true, "fatal: unable to access 'https://github.com/o/r.git/': LibreSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443"];
+    const handshake: Cmd = ["git push -q origin main", true, "fatal: unable to access 'https://github.com/o/r.git/': gnutls_handshake() failed: The TLS connection was non-properly terminated."];
     await writeTree(home, {
-      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [dns, dns, sandbox, sandbox, ["npm install", true, "npm ERR! getaddrinfo ENOTFOUND"], ["pnpm install", false]]),
-      ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-fake.jsonl": codexRun(fx.root, T + 86_400_000, [dns, limit, limit, limit, sandbox]),
+      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [dns, dns, sandbox, sandbox, tls, ["npm install", true, "npm ERR! getaddrinfo ENOTFOUND"], ["pnpm install", false]]),
+      ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-fake.jsonl": codexRun(fx.root, T + 86_400_000, [dns, limit, limit, limit, sandbox, tls, handshake]),
     });
     const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
     assert.equal(r.sessionsRead, 2);
