@@ -280,6 +280,12 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
 
     assert.match(connect({}, "--yes").stdout, /already installed; nothing changed/);
     assert.equal(backups().length, 1, "idempotent: no second backup");
+    const doctor = () => spawnSync(process.execPath, [CLI, "doctor"], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } }).stdout;
+    assert.doesNotMatch(doctor(), /guard hook/);
+    const installed = await readFile(settings, "utf8");
+    await writeFile(settings, installed.replace(JSON.stringify(process.execPath).slice(1, -1), "/gone/bin/node"));
+    assert.match(doctor(), /WARN {2}The guard hook in ~\/\.claude\/settings\.json runs \/gone\/bin\/node, which no longer exists.*connect claude-code --guard/);
+    await writeFile(settings, installed);
     const off = connect({}, "--yes", "--remove");
     assert.match(off.stdout, /Removed the guard hook/);
     assert.deepEqual(JSON.parse(await readFile(settings, "utf8")), original);

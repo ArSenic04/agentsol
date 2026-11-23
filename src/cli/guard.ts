@@ -216,6 +216,32 @@ export function installClaudeGuard(home: string, command: string | null): Instal
   return { ok: true, file, changed: true, backup };
 }
 
+/** Shell words of a hook command, enough for the commands guardHookCommand writes. */
+function shellWords(command: string): string[] {
+  return [...command.matchAll(/'((?:[^']|'\\'')*)'|"([^"]*)"|(\S+)/g)].map((m) => m[1] !== undefined ? m[1].replace(/'\\''/g, "'") : (m[2] ?? m[3] ?? ""));
+}
+/** Installed guard hooks whose node or script no longer exists (Node upgraded, npx cache cleared, package moved). */
+export function brokenGuardHooks(home: string): { client: HookClient; file: string; missing: string }[] {
+  const out: { client: HookClient; file: string; missing: string }[] = [];
+  for (const [client, rel] of [["claude-code", ".claude/settings.json"], ["codex", ".codex/hooks.json"], ["gemini", ".gemini/settings.json"]] as const) {
+    let json: unknown;
+    try { json = JSON.parse(readFileSync(path.join(home, rel), "utf8")); } catch { continue; }
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) { v.forEach(walk); return; }
+      if (!v || typeof v !== "object") return;
+      if (isGuard(v)) {
+        const words = shellWords((v as { command: string }).command).filter((w) => !/^[A-Z_][A-Z0-9_]*=/.test(w));
+        const missing = words.slice(0, 2).find((w) => path.isAbsolute(w) && !existsSync(w));
+        if (missing) out.push({ client, file: `~/${rel}`, missing });
+        return;
+      }
+      Object.values(v).forEach(walk);
+    };
+    walk(json);
+  }
+  return out;
+}
+
 /** Where each app reads hooks, and the entry to add there by hand. */
 export function guardSnippets(command: string): { id: HookClient; name: string; file: string; json: string; note?: string }[] {
   const entry = { type: "command", command, timeout: 5 };

@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { detectAgentEnvironment } from "../core/agentEnv.ts";
 import type { ProjectFreshness } from "../core/freshness.ts";
 import { runDoctor } from "./doctor.ts";
-import { guardCli, guardHookCommand, guardSnippets, installClaudeGuard, runsFromNpxCache } from "./guard.ts";
+import { brokenGuardHooks, guardCli, guardHookCommand, guardSnippets, installClaudeGuard, runsFromNpxCache } from "./guard.ts";
 import { sanitizeForTerminal } from "../core/display.ts";
 import { STRUCTURAL_CHECKS } from "../core/checks.ts";
 import { handoffPrompt } from "../core/handoff.ts";
@@ -906,6 +906,7 @@ async function run(argv: string[]): Promise<number> {
     const here = fileURLToPath(import.meta.url);
     const install = { kind: here.endsWith(".js") ? "package" : "repo", root: path.resolve(path.dirname(here), "../..") } as const;
     const report = runDoctor({ install, workspace: dir, env: process.env, isTTY: isInteractive() });
+    for (const b of brokenGuardHooks(machine().home)) report.checks.push({ id: "guard_hook", status: "warn", message: `The guard hook in ${b.file} runs ${b.missing}, which no longer exists, so commands go unchecked. Run: ${CMD} connect ${b.client} --guard${b.client === "claude-code" ? "" : " and replace the entry it prints"}` });
     const setup = auditSetup({ ...machine(), projectRoots: [process.cwd()] });
     const setupFailed = strict && setup.summary.errors > 0;
     if (json) process.stdout.write(`${JSON.stringify({ ...report, setup }, null, 2)}\n`);
