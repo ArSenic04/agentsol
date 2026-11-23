@@ -69,13 +69,13 @@
 - Next steps (a person): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.5.tgz --tag alpha --access public --registry https://registry.npmjs.org/`; `npm dist-tag add agentsol@0.2.0-alpha.5 latest`; `mcp-publisher login github` then `mcp-publisher publish`.
 
 ## Agentsol 0.2.0-alpha.6: published (Nov 23, 2026, 1:52 PM EST)
-- Published by a person to npm under the `alpha` tag; the registry integrity matches the release file below. `latest` still points to 0.2.0-alpha.2 until `npm dist-tag add agentsol@0.2.0-alpha.6 latest`.
+- Published by a person to npm under the `alpha` tag; the registry integrity matches the release file below. `latest` and `alpha` both point to 0.2.0-alpha.6.
 - Supersedes the unpublished alpha.5 (tarball kept unchanged).
 - Hardening after an independent review and a red-team (113-command table in tests): commands longer than 20,000 characters are asked about instead of passing on padding; six missed dangers now caught; a lock-write failure no longer loses the decision; `CLAUDECODE=1` counts as an agent; Windows hook quoting. `connect --guard` keeps a symlinked settings.json a symlink. SARIF fingerprints follow the flagged line's text; the Action skips upload on fork PRs and its default version is the exact release. `doctor` warns about a stale node path.
 - `eval:learn` held-out set rebuilt without dev overlap: 27 scenarios, precision 100%, recall 86%, fix correct 86%, no leaks (dev 21: 100%). Guard replay on 1,187 real agent commands: 0 blocked, 0 asked.
 - Release file: `artifacts/release/agentsol-0.2.0-alpha.6.tgz`, 51 files, 162,000 bytes, sha256 b73da4af816babdcecd4803c6350e2064ac1724fa667feaf8221f2b332fbcb0c, integrity sha512-7ZG5Fw9jk5C1i1AlWCoQrPCV95Zuyy6HCuUmvXI2Fz6ouso35AXtZT/WmgNEQ/ouXDEMS9cHgxU0VieASAmN8Q==.
 - `release:check` READY on Node 25 (dry run tag alpha, public, tarball unchanged). Verified from the installed tarball: `guard --test` denies `npm test` in a pnpm project, a padded `curl | sh` is asked about, `connect claude-code --guard` keeps a symlinked settings.json, `check --sarif` reports D16 at AGENTS.md:2.
-- Remaining steps (a person): `npm dist-tag add agentsol@0.2.0-alpha.6 latest`; `mcp-publisher login github` then `mcp-publisher publish`.
+- Listed in the official MCP Registry as `io.github.ArSenic04/agentsol` 0.2.0-alpha.6, status active (Nov 23, 2026, 4:17 PM EST).
 
 ## Unreleased
 - `learn` treats TLS failures (`SSL_ERROR_*`, `gnutls_handshake() failed`, `TLS handshake timeout`) as the network's fault, so a flaky connection no longer turns `git push` into a "never worked" lesson.
