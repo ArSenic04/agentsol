@@ -1,0 +1,53 @@
+name: Agentsol check
+description: Lint AGENTS.md, CLAUDE.md and SKILL.md on every pull request and show findings in GitHub code scanning. Offline; nothing is sent anywhere.
+author: ArSenic04
+branding:
+  icon: sun
+  color: orange
+
+inputs:
+  path:
+    description: Folder to check, relative to the checkout.
+    default: "."
+  strict:
+    description: Fail the job when Agentsol reports an error.
+    default: "false"
+  upload-sarif:
+    description: Upload findings to GitHub code scanning (needs `security-events write` permission).
+    default: "true"
+  version:
+    description: Agentsol version or npm dist-tag to run.
+    default: alpha
+
+outputs:
+  sarif-file:
+    description: Path of the SARIF file Agentsol wrote.
+    value: ${{ steps.check.outputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24
+
+    - id: check
+      shell: bash
+      env:
+        AGENTSOL_PATH: ${{ inputs.path }}
+        AGENTSOL_STRICT: ${{ inputs.strict }}
+        AGENTSOL_VERSION: ${{ inputs.version }}
+      run: |
+        if [[ ! "$AGENTSOL_VERSION" =~ ^[A-Za-z0-9.+-]+$ ]]; then echo "::error::invalid version: $AGENTSOL_VERSION"; exit 2; fi
+        sarif="$RUNNER_TEMP/agentsol.sarif"
+        strict=()
+        if [[ "$AGENTSOL_STRICT" == "true" ]]; then strict=(--strict); fi
+        npx -y "agentsol@$AGENTSOL_VERSION" --workspace "$RUNNER_TEMP/agentsol-workspace" check "${strict[@]}" --sarif-file "$sarif" "$AGENTSOL_PATH" || status=$?
+        if [[ -f "$sarif" ]]; then echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"; fi
+        exit "${status:-0}"
+
+    - if: always() && inputs.upload-sarif == 'true' && steps.check.outputs.sarif-file != ''
+      uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+      with:
+        sarif_file: ${{ steps.check.outputs.sarif-file }}
+        category: agentsol

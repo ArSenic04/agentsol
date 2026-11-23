@@ -253,3 +253,51 @@ test("terminal width comes from the terminal, else COLUMNS (piped output), withi
   assert.equal(detectTerm({}, { COLUMNS: "500" }).width, 110);
   assert.deepEqual([detectTerm({}, {}).color, detectTerm({ isTTY: true }, { NO_COLOR: "1" }).color, detectTerm({ isTTY: true }, { TERM: "dumb" }).color, detectTerm({}, { FORCE_COLOR: "1" }).color], [false, false, false, true]);
 });
+
+test("check --sarif emits SARIF 2.1.0 that code scanning can place, without paths or secret values", async () => {
+  const token = ["ghp", "_", "Q7".repeat(18)].join("");
+  const fx = await fixture({
+    "package.json": JSON.stringify({ name: "x", packageManager: "pnpm@9.0.0" }),
+    "pnpm-lock.yaml": "",
+    "AGENTS.md": `# Rules\n\n- Run \`npm test\` before you commit.\n- Deploy token: ${token}\n`,
+    "skills/demo/SKILL.md": "---\nname: wrong\ndescription: d\n---\nbody\n",
+  });
+  try {
+    const ws = path.join(path.dirname(fx.root), "ws-sarif");
+    const r = run(ws, "check", "--sarif", fx.root);
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(!r.stdout.includes(token), "secret value never appears");
+    assert.ok(!r.stdout.includes(fx.root) && !r.stdout.includes(homedir()), "no absolute paths");
+    const sarif = JSON.parse(r.stdout);
+    assert.equal(sarif.version, "2.1.0");
+    const [run0] = sarif.runs;
+    const ruleIds = run0.tool.driver.rules.map((x: { id: string }) => x.id);
+    assert.ok(ruleIds.includes("D16") && ruleIds.includes("S01"));
+    for (const res of run0.results) {
+      assert.equal(ruleIds[res.ruleIndex], res.ruleId);
+      assert.ok(["error", "warning", "note"].includes(res.level));
+      assert.match(res.partialFingerprints["agentsolFinding/v1"], /^[0-9a-f]{32}$/);
+      for (const loc of res.locations) {
+        assert.match(loc.physicalLocation.artifactLocation.uri, /^[^/\\][^\\]*$/, "relative, forward slashes");
+        assert.ok(loc.physicalLocation.region.startLine >= 1);
+      }
+    }
+    assert.deepEqual(new Set(run0.results.map((x: { ruleId: string }) => x.ruleId)), new Set(["D02", "D12", "D16"]));
+    const strict = run(ws, "check", "--strict", "--sarif-file", path.join(fx.root, "out.sarif"), fx.root);
+    assert.equal(strict.status, 1, "--strict still fails on errors");
+    assert.match(strict.stdout, /agentsol check/, "--sarif-file keeps the normal report");
+    assert.deepEqual(JSON.parse(await readFile(path.join(fx.root, "out.sarif"), "utf8")).runs[0].results.length, run0.results.length);
+    assert.equal(run(ws, "check", "--sarif-file").status, 2);
+  } finally {
+    await fx.cleanup();
+  }
+});
+
+test("SARIF uris are relative to the checkout when the checked folder is inside it", async () => {
+  const { checkSarif } = await import("../src/core/sarif.ts");
+  const f = { kind: "structural", id: "x", checkId: "D07", severity: "warn", title: "t", message: "m", docUrl: "", evidence: [{ sourceId: "s", versionId: "v", relPath: path.join("docs", "AGENTS.md"), startLine: 3, endLine: 2, textSha256: "0".repeat(64) }] } as never;
+  const at = (root: string, base: string) => (checkSarif([f], root, base) as { runs: { results: { locations: { physicalLocation: { artifactLocation: { uri: string }; region: { endLine: number } } }[] }[] }[] }).runs[0]!.results[0]!.locations[0]!.physicalLocation;
+  assert.equal(at("/ci/repo/pkg", "/ci/repo").artifactLocation.uri, "pkg/docs/AGENTS.md");
+  assert.equal(at("/elsewhere", "/ci/repo").artifactLocation.uri, "docs/AGENTS.md");
+  assert.equal(at("/ci/repo", "/ci/repo").region.endLine, 3);
+});

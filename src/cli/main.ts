@@ -6,7 +6,8 @@
 import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { realpath, writeFile } from "node:fs/promises";
+import { checkSarif } from "../core/sarif.ts";
 import { homedir, userInfo } from "node:os";
 import { createInterface } from "node:readline/promises";
 import path from "node:path";
@@ -45,6 +46,7 @@ Start here:
   start [path] [--yes]                  one command: register and scan this project, connect the AI apps you have
                                         (asks first; --yes connects without asking), and show what to fix first
   check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
+        [--sarif | --sarif-file <f>]    SARIF 2.1.0 for GitHub code scanning (stdout, or a file next to the normal report)
   connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
   connect claude-code --guard [--remove]
                                         stop agents before they run a wrong or dangerous shell command: adds the
@@ -294,13 +296,14 @@ async function ensureProject(store: WorkspaceStore, ops: ReturnType<typeof creat
   return { project: r.value.project, registeredNow: !r.value.alreadyRegistered };
 }
 
-async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, target: string, flags: { json: boolean; strict: boolean }): Promise<number> {
+async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops: ReturnType<typeof createOperatorService>, target: string, flags: { json: boolean; strict: boolean; sarif: boolean; sarifFile: string | null }): Promise<number> {
   const got = await ensureProject(store, ops, target);
   if (typeof got === "string") return fail(got, 2);
   const { project, registeredNow } = got;
   const projectId = project.id;
   const started = performance.now();
-  const scan = flags.json ? await svc.scan({ projectId }) : await withSpinner(t, `Reading agent instructions in ${project.name}…`, () => svc.scan({ projectId }));
+  const quiet = flags.json || flags.sarif;
+  const scan = quiet ? await svc.scan({ projectId }) : await withSpinner(t, `Reading agent instructions in ${project.name}…`, () => svc.scan({ projectId }));
   if (!scan.ok) return fail(`${scan.error.code}: ${scan.error.message}`);
   const ms = Math.round(performance.now() - started);
   const sources = svc.listSources({ projectId });
@@ -311,6 +314,11 @@ async function check(t: Term, store: WorkspaceStore, svc: AssistantService, ops:
   const errors = list.filter((f) => f.severity === "error").length;
   const code = flags.strict && errors > 0 ? 1 : 0;
   const pending = proposals.value.proposals.filter((p) => p.status === "pending");
+  if (flags.sarif || flags.sarifFile) {
+    const sarif = JSON.stringify(checkSarif(list, project.rootReal, await realpath(process.cwd())), null, 2);
+    if (flags.sarifFile) await writeFile(path.resolve(flags.sarifFile), `${sarif}\n`);
+    if (flags.sarif) { raw(sarif); return code; }
+  }
   if (flags.json) {
     raw(JSON.stringify({ project: { projectId, name: project.name }, registeredNow, scan: scan.value, sources: sources.value, findings: findings.value, pendingProposals: pending.map((p) => p.proposalId) }, null, 2));
     return code;
@@ -862,7 +870,11 @@ async function run(argv: string[]): Promise<number> {
   const { dir, rest: withFlags } = ws;
   const json = withFlags.includes("--json");
   const strict = withFlags.includes("--strict");
-  const rest = withFlags.filter((a) => a !== "--json" && a !== "--strict");
+  const sarif = withFlags.includes("--sarif");
+  const sarifAt = withFlags.indexOf("--sarif-file");
+  const sarifFile = sarifAt >= 0 ? (withFlags[sarifAt + 1] ?? null) : null;
+  if (sarifAt >= 0 && !sarifFile) return fail("--sarif-file needs a file name, for example --sarif-file agentsol.sarif", 2);
+  const rest = withFlags.filter((a, i) => a !== "--json" && a !== "--strict" && a !== "--sarif" && i !== sarifAt && (sarifAt < 0 || i !== sarifAt + 1));
   const term = detectTerm(process.stdout, process.env);
   const [command, ...args] = rest;
   if (command === "--version" || command === "version") {
@@ -921,7 +933,7 @@ async function run(argv: string[]): Promise<number> {
     switch (command) {
       case "check":
       case "audit":
-        return await check(term, store, svc, ops, arg || ".", { json, strict });
+        return await check(term, store, svc, ops, arg || ".", { json, strict, sarif, sarifFile });
       case "prompt":
         return await promptCmd(store, svc, ops, arg || ".");
       case "start":
