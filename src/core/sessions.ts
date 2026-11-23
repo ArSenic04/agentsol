@@ -82,6 +82,8 @@ type Step = {
   cwd: string; command: string | null; files: string[]; deleted: string[];
   added: string[]; removed: string[];
   outSecrets: SecretKind[]; outInjection: boolean;
+  /** The output blames the machine, not the command: no network, a rate limit, the sandbox. */
+  outEnv: boolean;
 };
 type Parsed = {
   client: SessionClient; cwd: string | null; model: string | null; startedAt: string | null; endedAt: string | null;
@@ -102,10 +104,12 @@ const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const lines = (s: string | null): string[] => (s ? s.split(/\r?\n/) : []);
 
+const ENVIRONMENT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|could not resolve (host|proxy)|temporary failure in name resolution|name or service not known|network is unreachable|connection (refused|reset|timed out)|rate limit|too many requests|\bhttp\S* 429\b|status( code)?:? 429\b|operation not permitted|sandbox_apply|(denied|blocked) by (the )?sandbox|read-only file system|ssl certificate problem|unable to get local issuer certificate/i;
 function scanOutput(step: Step, text: string): void {
   const t = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text;
   for (const k of secretKinds(t)) if (!step.outSecrets.includes(k)) step.outSecrets.push(k);
   if (INJECTION.test(t)) step.outInjection = true;
+  if (ENVIRONMENT.test(t)) step.outEnv = true;
 }
 
 function textOf(content: unknown): string {
@@ -143,7 +147,7 @@ class Builder {
   step(at: string | null, kind: StepKind, tool: string, target: string, extra: Partial<Step> = {}, callId?: string | null): Step {
     const s: Step = {
       n: this.steps.length + 1, at, kind, tool, target, failed: null, cwd: this.cwd ?? "/", command: null,
-      files: [], deleted: [], added: [], removed: [], outSecrets: [], outInjection: false, ...extra,
+      files: [], deleted: [], added: [], removed: [], outSecrets: [], outInjection: false, outEnv: false, ...extra,
     };
     this.steps.push(s);
     if (callId) this.byCall.set(callId, s);

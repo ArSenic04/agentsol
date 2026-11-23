@@ -182,12 +182,24 @@ const pathLike = (w: readonly string[]): boolean => w.slice(1).some((x) => x.inc
 const endsWith = (long: readonly string[], short: readonly string[]): boolean =>
   long.length > short.length && long.length - short.length <= 2 && RUNNERS.has(long[0] ?? "") && join(long.slice(long.length - short.length)) === join(short);
 
+/** The one argument that differs is the same file in another folder: `tests/a.test.ts` then `src/a.test.ts`. */
+function movedPath(a: readonly string[], b: readonly string[]): [from: string, to: string] | null {
+  if (a.length !== b.length || a.length < 2) return null;
+  const diff = a.flatMap((x, i) => (x === b[i] ? [] : [i]));
+  if (diff.length !== 1 || diff[0] === 0) return null;
+  const [x, y] = [a[diff[0]!]!, b[diff[0]!]!];
+  if (!/[/.]/.test(x) || !/[/.]/.test(y) || path.posix.basename(x) !== path.posix.basename(y)) return null;
+  const dir = (p: string): string => path.posix.normalize(path.posix.dirname(p));
+  return dir(x) === dir(y) ? null : [dir(x), dir(y)];
+}
+
 /** How a failed command and the next one that worked relate, if the second is a real fix for the first. */
-function fixKind(a: readonly string[], b: readonly string[]): "program" | "runner" | "variant" | null {
+function fixKind(a: readonly string[], b: readonly string[]): "program" | "runner" | "path" | "variant" | null {
   if (join(a) === join(b)) return null;
   const rest = (w: readonly string[]): string => join(w.slice(1));
   if (a[0] !== b[0] && rest(a) === rest(b) && (a.length > 1 || (VERIFY.test(join(a)) && VERIFY.test(join(b))))) return "program";
   if (endsWith(a, b) || endsWith(b, a)) return "runner";
+  if (movedPath(a, b)) return "path";
   if (a[0] === b[0] && a[1] !== b[1] && a.length <= 4 && b.length <= 4 && VERIFY.test(join(a)) && VERIFY.test(join(b)) && !pathLike(a) && !pathLike(b)) return "variant";
   return null;
 }
@@ -271,7 +283,8 @@ function analyze(all: readonly Collected[], home: string): Group[] {
 
     for (let i = 0; i < steps.length; i += 1) {
       const s = steps[i]!;
-      if (s.kind !== "command" || s.failed !== true) continue;
+      // No network, a rate limit or the sandbox is not something a rule in the project can fix.
+      if (s.kind !== "command" || s.failed !== true || s.outEnv) continue;
       const a = mainCommand(s.command ?? "");
       if (!a || NOT_A_MISTAKE.has(a[0] ?? "")) continue;
       for (let j = i + 1; j < Math.min(steps.length, i + 14); j += 1) {
@@ -296,6 +309,9 @@ function analyze(all: readonly Collected[], home: string): Group[] {
           } else if (kind === "runner" && b.length > a.length) {
             const runner = show(b.slice(0, b.length - a.length));
             g = group(`runner:${a0}>${runner}`, { kind: "command", title: `Agents run \`${a0}\` directly, which fails here; \`${runner} ${a0}\` works${eg(b)}.`, rule: `Run \`${a0}\` as \`${runner} ${a0}\`${eg(b)}.`, probe: [`${runner} ${a0}`], swap: { command: [a0, `${runner} ${a0}`], runner: true } });
+          } else if (kind === "path") {
+            const [from, to] = (movedPath(a, b) ?? ["", ""]).map((d) => `${d}/`);
+            g = group(`path:${from}>${to}`, { kind: "command", title: `Agents look for files under \`${from}\`, which fails here; they are under \`${to}\`${eg(b)}.`, rule: `Use paths under \`${to}\`, not \`${from}\`${eg(b)}.`, probe: [`${to}\`, not \`${from}`] });
           } else {
             g = group(`cmd:${join(a)}>${join(b)}`, { kind: "command", title: `Agents run \`${show(a)}\`, which fails here; \`${show(b)}\` works.`, rule: `Run \`${show(b)}\`, not \`${show(a)}\`.`, probe: [show(b)], swap: { command: [show(a), show(b)] } });
           }
@@ -321,7 +337,7 @@ function analyze(all: readonly Collected[], home: string): Group[] {
         let failedSeen = false;
         for (let j = i + 1; j < steps.length; j += 1) {
           const t = steps[j]!;
-          if (t.kind === "command" && t.failed === true) failedSeen = true;
+          if (t.kind === "command" && t.failed === true && !t.outEnv) failedSeen = true;
           else if (t.kind === "command" && t.failed === false && VERIFY.test(t.command ?? "")) break;
           if ((t.kind === "edit" || t.kind === "write") && t.files.includes(file)) {
             if (failedSeen) {
@@ -477,9 +493,10 @@ export function conflictsFor(swap: Swap | undefined, files: readonly Instruction
   if ("program" in swap) {
     const [bad, ok] = swap.program;
     const subs = [...new Set([...swap.subs, ...COMMON_SUBS])].map(esc).join("|");
-    find = new RegExp(`${BEFORE}${esc(bad)}(?=\\s+(?:${subs})(?![\\w-]))`, "g");
+    // `npm test` in code, or "use npm" in prose.
+    find = new RegExp(`${BEFORE}${esc(bad)}(?=\\s+(?:${subs})(?![\\w-]))|(\\b(?:use|using|with|via|prefer)\\s+)${esc(bad)}(?=\\s*(?:[.,;:)!]|$)|\\s+(?:to|for|in|here|when|and|or|as|on)\\b)`, "gi");
     good = new RegExp(`${BEFORE}${esc(ok)}(?![\\w-])`);
-    fix = (line) => line.replace(find, (_m, pre: string) => `${pre}${ok}`);
+    fix = (line) => line.replace(find, (_m, pre?: string, said?: string) => `${pre ?? said ?? ""}${ok}`);
   } else {
     const [bad, ok] = swap.command;
     // `uv run pytest` or `python -m pytest` already goes through a runner.

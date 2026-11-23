@@ -222,15 +222,15 @@ test("learn treats each compaction of one long conversation as a fresh start", a
   }
 });
 
-type Cmd = [command: string, failed: boolean];
+type Cmd = [command: string, failed: boolean, output?: string];
 /** A Claude Code transcript that runs these commands in order. */
 function claudeRun(cwd: string, startMs: number, cmds: readonly Cmd[]): string {
   let t = startMs;
   const at = (): string => new Date((t += 20_000)).toISOString();
   const lines: unknown[] = [{ type: "user", cwd, timestamp: at(), message: { role: "user", content: "go" } }];
-  cmds.forEach(([command, failed], i) => {
+  cmds.forEach(([command, failed, output], i) => {
     lines.push({ type: "assistant", cwd, timestamp: at(), message: { id: `m${i}`, usage: { input_tokens: 500, output_tokens: 50 }, content: [{ type: "tool_use", id: `t${i}`, name: "Bash", input: { command } }] } });
-    lines.push({ type: "user", cwd, timestamp: at(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: failed, content: failed ? "Exit code 1" : "ok" }] } });
+    lines.push({ type: "user", cwd, timestamp: at(), message: { role: "user", content: [{ type: "tool_result", tool_use_id: `t${i}`, is_error: failed, content: output ?? (failed ? "Exit code 1" : "ok") }] } });
   });
   return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
 }
@@ -238,9 +238,9 @@ function codexRun(cwd: string, startMs: number, cmds: readonly Cmd[]): string {
   let t = startMs;
   const at = (): string => new Date((t += 20_000)).toISOString();
   const lines: unknown[] = [{ timestamp: at(), type: "session_meta", payload: { cwd, timestamp: at() } }];
-  cmds.forEach(([cmd, failed], i) => {
+  cmds.forEach(([cmd, failed, output], i) => {
     lines.push({ timestamp: at(), type: "response_item", payload: { type: "function_call", name: "shell", call_id: `c${i}`, arguments: JSON.stringify({ command: ["bash", "-lc", cmd] }) } });
-    lines.push({ timestamp: at(), type: "response_item", payload: { type: "function_call_output", call_id: `c${i}`, output: JSON.stringify({ output: "", metadata: { exit_code: failed ? 1 : 0 } }) } });
+    lines.push({ timestamp: at(), type: "response_item", payload: { type: "function_call_output", call_id: `c${i}`, output: JSON.stringify({ output: output ?? "", metadata: { exit_code: failed ? 1 : 0 } }) } });
   });
   return lines.map((l) => JSON.stringify(l)).join("\n") + "\n";
 }
@@ -818,6 +818,72 @@ test("a file is fragile across sessions or after many tries, and the check sugge
     const many = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
     const frag = many.lessons.find((l) => l.kind === "fragile");
     assert.equal(frag?.rule, "After changing `src/parser.py`, run `pytest tests/test_parser.py` before moving on.", "not the formatter, not a test of another file");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("failures caused by the network, a rate limit or the sandbox never become lessons", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    const dns: Cmd = ["npm install", true, "npm ERR! getaddrinfo ENOTFOUND registry.npmjs.org"];
+    const limit: Cmd = ["gh pr list", true, "HTTP 429: API rate limit exceeded"];
+    const sandbox: Cmd = ["swift build", true, "sandbox-exec: sandbox_apply: Operation not permitted"];
+    await writeTree(home, {
+      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [dns, dns, sandbox, sandbox, ["npm install", true, "npm ERR! getaddrinfo ENOTFOUND"], ["pnpm install", false]]),
+      ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-fake.jsonl": codexRun(fx.root, T + 86_400_000, [dns, limit, limit, limit, sandbox]),
+    });
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(r.sessionsRead, 2);
+    assert.deepEqual(r.lessons.map((l) => l.title), []);
+
+    await writeTree(home, { ".claude/projects/-p/bbbb.jsonl": claudeRun(fx.root, T + 2 * 86_400_000, [["make test", true, "make: *** No rule to make target 'test'"], ["make test", true], ["make test", true]]) });
+    const real = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.deepEqual(real.lessons.map((l) => l.kind), [], "a real failure still needs two sessions");
+    await writeTree(home, { ".claude/projects/-p/cccc.jsonl": claudeRun(fx.root, T + 3 * 86_400_000, [["make test", true]]) });
+    assert.deepEqual((await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) })).lessons.map((l) => l.kind), ["failing"]);
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a file looked for in the wrong folder becomes a path rule; one try alone does not", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, { ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [["npx vitest run tests/date.test.ts", true, "No test files found"], ["npx vitest run src/date.test.ts", false]]) });
+    assert.deepEqual((await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) })).lessons, []);
+    await writeTree(home, { ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-fake.jsonl": codexRun(fx.root, T + 86_400_000, [["npx vitest run tests/money.test.ts", true], ["npx vitest run src/money.test.ts", false]]) });
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(r.lessons.length, 1, JSON.stringify(r.lessons));
+    assert.match(r.lessons[0]!.rule ?? "", /^Use paths under `src\/`, not `tests\/`/);
+    assert.equal(r.lessons[0]!.sessions, 2);
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a prose line that names the wrong package manager is corrected in place", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    await writeTree(home, {
+      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [["npm test", true], ["pnpm test", false]]),
+      ".claude/projects/-p/bbbb.jsonl": claudeRun(fx.root, T + 86_400_000, [["npm run build", true], ["pnpm run build", false]]),
+    });
+    const file = { relPath: "AGENTS.md", lines: ["# Project", "", "- Use npm to run scripts.", "- Never use npm for publishing.", "- Keep npm-shrinkwrap.json."] };
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0), files: [file], target: "AGENTS.md" });
+    assert.deepEqual(r.lessons[0]!.conflicts.map((c) => [c.line, c.replacement]), [[3, "- Use pnpm to run scripts."]]);
+    const change = lessonsChange(file, r.lessons);
+    assert.deepEqual(change.edits.map((e) => e.replacementLines), [["- Use pnpm to run scripts."]]);
+    assert.deepEqual(change.added, [], "the corrected line is the fix, not a second rule");
   } finally {
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
