@@ -31,7 +31,7 @@ const INSTALLS = new Set(["install", "i", "ci", "add", "remove", "rm", "uninstal
 const OTHER_DIR = /^(--prefix|-C|--dir|--cwd)(=|$)/;
 const PROTECTED = /^(main|master|trunk|production|prod|release)$/;
 const READERS = new Set(["cat", "less", "more", "head", "tail", "bat", "base64", "xxd", "od", "strings", "nl", "grep", "rg", "awk", "cp", "scp", "rsync", "tar", "zip", "gzip", "curl", "wget", "nc", "pbcopy", "open"]);
-const CREDENTIAL = /(^|\/|=@?|@)\.ssh(\/(id_[\w-]+|[\w.-]+\.pem))?\/?$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)$|\.aws\/credentials$|(^|\/)\.(netrc|pypirc|git-credentials)$|(~|\$HOME|\$\{HOME\})\/\.npmrc$|\.docker\/config\.json$|\.kube\/config$|Library\/Keychains(\/|$)|\.config\/gcloud(\/|$)|\.gnupg(\/|$)|wallet\.dat$/;
+const CREDENTIAL = /(^|\/|=@?|@)\.ssh(\/(id_[\w-]+|[\w.-]+\.pem))?\/?$|(^|\/)id_(rsa|ed25519|ecdsa|dsa)$|\.aws\/credentials$|(^|\/|=@?|@)\.aws\/?$|(^|\/)\.(netrc|pypirc|git-credentials)$|(~|\$HOME|\$\{HOME\})\/\.npmrc$|\.docker\/config\.json$|\.kube\/config$|Library\/Keychains(\/|$)|\.config\/gcloud(\/|$)|\.gnupg(\/|$)|wallet\.dat$/;
 const DOTENV = /(^|\/|=@?|@)\.env(\.(local|dev|development|prod|production|staging|test))?(\.local)?$/;
 const DATABASES = new Set(["psql", "mysql", "sqlite3", "mongosh", "mongo", "redis-cli"]);
 
@@ -197,6 +197,23 @@ function lessonHits(command: string, ctx: GuardContext): Hit[] {
   });
 }
 
+const GIT_VALUED = /^(-C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)$/;
+
+/** Each segment with the folder it runs in, following `cd` and `pushd`; a `cd` it cannot follow keeps the last folder. */
+function withDirs(segs: string[][], cwd: string, expand: (t: string) => string): [string[], string][] {
+  let dir = cwd;
+  return segs.map((seg) => {
+    const w = strip(seg);
+    const head = programName(w[0] ?? "");
+    if (head === "cd" || head === "pushd") {
+      const t = w.slice(1).find((a) => !a.startsWith("-"));
+      if (t === undefined) dir = path.resolve(dir, expand("~"));
+      else if (!t.includes("$") || /^(~|\$HOME|\$\{HOME\})(\/|$)/.test(t)) dir = path.resolve(dir, expand(t));
+    }
+    return [seg, dir];
+  });
+}
+
 function dangerHits(command: string, cwd: string, ctx: GuardContext): Hit[] {
   const text = noMessages(noHeredocBodies(command));
   const run = executable(command);
@@ -207,22 +224,23 @@ function dangerHits(command: string, cwd: string, ctx: GuardContext): Hit[] {
   const home = ctx.home ? path.resolve(ctx.home) : null;
   const expand = (t: string): string => t.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home ?? "~");
   const inCode = runs.flatMap((c) => [...c.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? ""));
-  for (const seg of [text, ...inCode].flatMap((t) => commandSegments(t))) {
+  for (const [seg, dir] of [text, ...inCode].flatMap((t) => withDirs(commandSegments(t), cwd, expand))) {
     const w = strip(seg);
     const head = programName(w[0] ?? "");
     const args = w.slice(1);
     if (head === "rm" && args.some((a) => /^-[a-zA-Z]*[rR]/.test(a) || a === "--recursive")) {
       const targets = args.filter((a) => !a.startsWith("-"));
       const wide = targets.some((t) => {
-        const abs = path.resolve(cwd, expand(t).replace(/\/\*$/, "") || "/");
+        const abs = path.resolve(dir, expand(t).replace(/(^|\/)\*$/, "$1") || ".");
         return abs === path.parse(abs).root || (home !== null && (abs === home || home.startsWith(abs + path.sep)));
       });
       if (wide) found.add("deletes the disk or home folder");
     } else if (head === "git") {
-      const sub = args.find((a) => !a.startsWith("-")) ?? "";
-      const after = args.slice(args.indexOf(sub) + 1);
+      const at = args.findIndex((a, i) => !a.startsWith("-") && !GIT_VALUED.test(args[i - 1] ?? ""));
+      const sub = at < 0 ? "" : args[at]!;
+      const after = at < 0 ? [] : args.slice(at + 1);
       if (sub === "push") {
-        const force = after.some((a) => a === "--force" || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a));
+        const force = after.some((a) => a === "--force" || /^--force-with-lease(=|$)/.test(a) || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a));
         const refs = after.filter((a) => !a.startsWith("-")).slice(1);
         const named = refs.map((r) => r.replace(/^\+/, "").split(":").pop()!.replace(/^refs\/heads\//, ""));
         const plus = refs.some((r) => r.startsWith("+") && PROTECTED.test(named[refs.indexOf(r)] ?? ""));
