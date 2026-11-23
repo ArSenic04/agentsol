@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { hookOutput, withGuardHook } from "../src/cli/guard.ts";
+import { hookOutput, installClaudeGuard, withGuardHook } from "../src/cli/guard.ts";
 import { evaluate, gitBranch, packageManagerFor, type GuardContext, type GuardLesson } from "../src/core/guard.ts";
 import { createAssistantService } from "../src/core/service/assistant.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
@@ -184,6 +184,23 @@ test("hook process: denies with lessons from the cache, fails open on anything u
     assert.deepEqual([hook(ev("npm install"), { AGENTSOL_GUARD: "off" }).stdout], [""], "AGENTSOL_GUARD=off turns it off");
     assert.ok(!existsSync(path.join(proj, "package-lock.json")) && readdirSync(proj).sort().join() === "package.json,pnpm-lock.yaml", "never writes project files");
 
+    const pad = "a".repeat(25_000);
+    assert.equal(JSON.parse(hook(ev(`npm install ${pad}`)).stdout).hookSpecificOutput.permissionDecision, "deny", "the first 20,000 characters are still checked");
+    for (const long of [`echo ${pad}`, `echo hi; echo ${pad}; rm -rf ~`]) {
+      const o = JSON.parse(hook(ev(long)).stdout).hookSpecificOutput;
+      assert.equal(o.permissionDecision, "ask", "padding never gets a command through unchecked");
+      assert.match(o.permissionDecisionReason, /too long to check/);
+    }
+
+    await writeFile(path.join(ws, "guard-lessons.json"), JSON.stringify({ version: 1, at: "2000-01-01T00:00:00.000Z", projects: [] }));
+    await chmod(ws, 0o500);
+    try {
+      const ro = hook(ev("npm install"));
+      assert.equal(JSON.parse(ro.stdout).hookSpecificOutput.permissionDecision, "deny", "a workspace that cannot take the refresh lock still gets the decision");
+    } finally {
+      await chmod(ws, 0o700);
+    }
+
     const times: number[] = [];
     for (let i = 0; i < 5; i++) { const s = performance.now(); hook(ev("npm install")); times.push(performance.now() - s); }
     times.sort((a, b) => a - b);
@@ -267,6 +284,27 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     const codex = spawnSync(process.execPath, [CLI, "connect", "codex", "--guard"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
     assert.match(codex.stdout, /~\/\.codex\/hooks\.json/);
     assert.ok(!existsSync(path.join(home, ".codex")), "codex setup is printed, never written");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a symlinked settings.json is written through to its target and the link stays", { skip: process.platform === "win32" }, async () => {
+  const home = await tempDir("guard-link");
+  try {
+    const real = path.join(home, "dotfiles", "claude-settings.json");
+    await writeTree(home, { "dotfiles/claude-settings.json": JSON.stringify({ model: "x" }) });
+    await mkdir(path.join(home, ".claude"));
+    const link = path.join(home, ".claude", "settings.json");
+    await symlink(real, link);
+    const r = installClaudeGuard(home, "'/usr/bin/node' '/opt/agentsol/build/cli/guard.js'");
+    assert.ok(r.ok && r.changed, JSON.stringify(r));
+    assert.ok(lstatSync(link).isSymbolicLink(), "the link is kept");
+    const written = JSON.parse(await readFile(real, "utf8"));
+    assert.equal(written.model, "x");
+    assert.equal(written.hooks.PreToolUse.length, 1);
+    assert.ok(r.ok && r.backup?.startsWith(`${real}.agentsol-backup-`), "the backup is of the real file");
+    assert.deepEqual(readdirSync(path.join(home, ".claude")), ["settings.json"], "no temp or backup left beside the link");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

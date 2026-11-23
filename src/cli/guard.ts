@@ -70,11 +70,21 @@ export function runHook(input: string, env: NodeJS.ProcessEnv, ws: Workspace, ho
   const client: HookClient = e.hook_event_name === "BeforeTool" ? "gemini" : e.turn_id !== undefined ? "codex" : "claude-code";
   if (e.tool_name !== "Bash" && e.tool_name !== "run_shell_command") return null;
   const command = e.tool_input?.command;
-  if (typeof command !== "string" || command.length === 0 || command.length > 20_000) return null;
+  if (typeof command !== "string" || command.length === 0) return null;
   const cwd = typeof e.cwd === "string" && path.isAbsolute(e.cwd) ? e.cwd : process.cwd();
   const cache = readCache(ws);
-  refreshInBackground(ws, cache);
-  return hookOutput(client, evaluate(command, cwd, contextFor(cwd, home, projectIn(cache, cwd)?.lessons ?? [])));
+  const result = evaluateHookCommand(command, cwd, contextFor(cwd, home, projectIn(cache, cwd)?.lessons ?? []));
+  try { refreshInBackground(ws, cache); } catch { /* a read-only or full workspace must not lose the decision */ }
+  return hookOutput(client, result);
+}
+
+const MAX_CHECKED = 20_000;
+/** Padding a command past the size limit must never get it through unchecked. */
+export function evaluateHookCommand(command: string, cwd: string, ctx: GuardContext): GuardResult {
+  if (command.length <= MAX_CHECKED) return evaluate(command, cwd, ctx);
+  const head = evaluate(command.slice(0, MAX_CHECKED), cwd, ctx);
+  if (head.decision !== "allow") return head;
+  return { decision: "ask", reason: `Agentsol guard: this command is ${command.length.toLocaleString("en-US")} characters, too long to check. Confirm this is intended.`, rules: ["danger"] };
 }
 
 /** Rebuilds the lesson cache from past sessions of every registered project. */
@@ -146,7 +156,8 @@ async function hookMain(ws: Workspace, home: string): Promise<number> {
 // ---------------------------------------------------------------------------------------
 // Setup: the command an app runs, and the settings entries that run it
 
-const shq = (s: string): string => (/^[\w./:=@%+,-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+// cmd.exe has no single quotes, and Windows paths cannot contain a double quote.
+const shq = (s: string): string => (/^[\w./:=@%+,-]+$/.test(s) ? s : process.platform === "win32" ? `"${s}"` : `'${s.replace(/'/g, "'\\''")}'`);
 /** Absolute node and script paths: npx would resolve the package (and maybe the network) before every command. */
 export function guardHookCommand(ws: Workspace): string {
   return `${ws.isDefault ? "" : `AGENTSOL_WORKSPACE=${shq(path.resolve(ws.dir))} `}${shq(process.execPath)} ${shq(SELF)}`;
@@ -192,14 +203,16 @@ export function installClaudeGuard(home: string, command: string | null): Instal
   let next: ReturnType<typeof withGuardHook>;
   try { next = withGuardHook(current, command); } catch (e) { return { ok: false, file, message: `${e instanceof Error ? e.message : "unexpected shape"}, so it was left as it is` }; }
   if (!next.changed) return { ok: true, file, changed: false, backup: null };
+  // A symlinked settings.json (dotfiles repos) is written through to its target so the link survives.
+  const target = existsSync(file) ? realpathSync(file) : file;
   let backup: string | null = null;
-  if (existsSync(file)) {
-    backup = `${file}.agentsol-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    copyFileSync(file, backup);
-  } else mkdirSync(path.dirname(file), { recursive: true });
-  const mode = existsSync(file) ? statSync(file).mode & 0o777 : 0o600;
-  writeFileSync(`${file}.agentsol-tmp`, `${JSON.stringify(next.settings, null, 2)}\n`, { mode });
-  renameSync(`${file}.agentsol-tmp`, file);
+  if (existsSync(target)) {
+    backup = `${target}.agentsol-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    copyFileSync(target, backup);
+  } else mkdirSync(path.dirname(target), { recursive: true });
+  const mode = existsSync(target) ? statSync(target).mode & 0o777 : 0o600;
+  writeFileSync(`${target}.agentsol-tmp`, `${JSON.stringify(next.settings, null, 2)}\n`, { mode });
+  renameSync(`${target}.agentsol-tmp`, target);
   return { ok: true, file, changed: true, backup };
 }
 
