@@ -851,6 +851,30 @@ test("failures caused by the network, a rate limit or the sandbox never become l
   }
 });
 
+test("permission errors without a sandbox are the project's problem: a wrong path still becomes a lesson", async () => {
+  const fx = await fixture({});
+  const home = await tempDir("home");
+  try {
+    const T = Date.parse("2026-11-01T10:00:00Z");
+    const wrong: Cmd = ["npx vitest run /tests/date.test.ts", true, "Error: EPERM: operation not permitted, open '/tests/date.test.ts'"];
+    const right: Cmd = ["npx vitest run src/date.test.ts", false];
+    const ro: Cmd = ["npx vitest run /tests/date.test.ts", true, "Error: EROFS: read-only file system, open '/tests/date.test.ts'"];
+    await writeTree(home, {
+      ".claude/projects/-p/aaaa.jsonl": claudeRun(fx.root, T, [wrong, right]),
+      ".claude/projects/-p/bbbb.jsonl": claudeRun(fx.root, T + 86_400_000, [ro, right]),
+    });
+    const r = await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) });
+    assert.equal(r.lessons.length, 1, JSON.stringify(r.lessons.map((l) => l.title)));
+    assert.match(r.lessons[0]!.rule ?? "", /src\//);
+    const boxed: Cmd[] = [["swift build", true, "error: Operation not permitted (seatbelt sandbox)"], ["swift build", true, "landlock: read-only file system"]];
+    await writeTree(home, { ".claude/projects/-p/cccc.jsonl": claudeRun(fx.root, T + 2 * 86_400_000, boxed), ".claude/projects/-p/dddd.jsonl": claudeRun(fx.root, T + 3 * 86_400_000, boxed) });
+    assert.equal((await learnLessons({ home, env: {} }, { root: fx.root, since: new Date(0) })).lessons.length, 1, "with sandbox wording it is still ignored");
+  } finally {
+    await fx.cleanup();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("a file looked for in the wrong folder becomes a path rule; one try alone does not", async () => {
   const fx = await fixture({});
   const home = await tempDir("home");

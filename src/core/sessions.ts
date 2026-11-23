@@ -104,12 +104,15 @@ const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 const lines = (s: string | null): string[] => (s ? s.split(/\r?\n/) : []);
 
-const ENVIRONMENT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|could not resolve (host|proxy)|temporary failure in name resolution|name or service not known|network is unreachable|connection (refused|reset|timed out)|rate limit|too many requests|\bhttp\S* 429\b|status( code)?:? 429\b|operation not permitted|sandbox_apply|(denied|blocked) by (the )?sandbox|read-only file system|ssl certificate problem|unable to get local issuer certificate/i;
+const ENVIRONMENT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH)\b|could not resolve (host|proxy)|temporary failure in name resolution|name or service not known|network is unreachable|connection (refused|reset|timed out)|rate limit|too many requests|\bhttp\S* 429\b|status( code)?:? 429\b|sandbox_apply|(denied|blocked) by (the )?sandbox|ssl certificate problem|unable to get local issuer certificate/i;
+// EPERM and EROFS also come from a wrong path, so they count only when the output names a sandbox.
+const PERMISSION = /operation not permitted|read-only file system|\b(EPERM|EROFS)\b/i;
+const SANDBOX = /sandbox|seatbelt|landlock/i;
 function scanOutput(step: Step, text: string): void {
   const t = text.length > MAX_SCAN_CHARS ? text.slice(0, MAX_SCAN_CHARS) : text;
   for (const k of secretKinds(t)) if (!step.outSecrets.includes(k)) step.outSecrets.push(k);
   if (INJECTION.test(t)) step.outInjection = true;
-  if (ENVIRONMENT.test(t)) step.outEnv = true;
+  if (ENVIRONMENT.test(t) || (PERMISSION.test(t) && SANDBOX.test(t))) step.outEnv = true;
 }
 
 function textOf(content: unknown): string {
