@@ -10,7 +10,7 @@ Agentsol was run against real public projects to find out whether its findings a
 | `inspect` | 1,567 public skills and MCP servers from 8 collections | Danger verdicts 36 → 22 after fixes. 18 of the 22 are an offensive-security collection that really does contain persistence, exfiltration and reverse-shell payloads. |
 | `learn` | The real Claude Code history of building Agentsol (1 conversation, 5h 25m, 123M tokens, 20 compactions) | 0 lessons, which hand review confirmed is correct: every failure there happened once. Synthetic histories (below) show what it reports when mistakes repeat. |
 | `learn` eval | 35 labelled synthetic histories (Claude Code and Codex), 19 dev and 16 held out | Held out: 100% precision, 89% recall, 89% fix-correct, 0 secret leaks. Dev: 100% on all three. |
-| `guard` | 1,175 real shell commands an agent ran while building Agentsol (an npm project) | 1,167 allowed, 0 blocked, 8 asked. All 8 asks were false alarms: commands that wrote test fixtures or edited source containing `curl … \| sh` or AI-settings paths as text. |
+| `guard` | 1,178 real shell commands an agent ran while building Agentsol (an npm project) | 1,178 allowed, 0 blocked, 0 asked. The 8 false alarms of the first replay (risky text in echo, printf, heredoc bodies and data-only `python -c` / `node -e`) are gone; real download-and-run, `sh -c 'rm -rf ~'` and settings rewrites still ask. |
 
 ## `check`: real problems found in public repos
 
@@ -128,10 +128,11 @@ What `learn` reports when mistakes do repeat (synthetic project: AGENTS.md says 
 
 ## `guard`
 
-The guard runs the same rules as the `command_check` MCP tool on every shell command before the agent runs it. Measured on every shell command from the transcript of building Agentsol (1,175 commands in an npm project, where the right package manager is the one used):
+The guard runs the same rules as the `command_check` MCP tool on every shell command before the agent runs it. Measured on every shell command from the transcript of building Agentsol (1,178 commands in an npm project, where the right package manager is the one used):
 
-- **0 blocked.** No command was wrongly stopped.
-- **8 asked (0.7%), all false alarms.** Each wrote a test fixture or edited source that contains a dangerous pattern as text (a skill fixture with `curl … | sh`, a fake home's `.claude/settings.json`, a Python edit of a file that names those paths). An ask costs one confirmation, not a failed step, but these are the next thing to fix.
+- **0 blocked, 0 asked.** No command was wrongly stopped or questioned.
+- The first replay asked 8 times, all false alarms: `curl … | sh` or AI-settings paths inside echo and printf text, heredoc bodies written to files, a quoted list in a `for` loop, `2>&1` followed by an `ls` of a settings file, writes into a `mktemp` folder, and `python -c` / `node -e` code that only writes data. The guard now treats quoted arguments and heredoc bodies as text unless a shell runs them (`bash -c`, `eval`, `$(…)`, `bash <<EOF`), checks interpreter code only when it starts programs (`os.system`, `subprocess`, `child_process`), and counts a settings write only when the redirect, `tee`, `cp` or `mv` target is the settings file outside a temp folder.
+- Still asked, with tests: `curl … | sh`, `bash -c "curl … | sh"`, `eval "$(curl …)"`, `bash <(curl …)`, `sh -c 'rm -rf ~'`, and `python -c` running `curl … | sh` through `os.system`.
 - About 0.1 s per command; any error or a 2-second timeout lets the command run.
 
 ## Example `inspect` output
