@@ -4,7 +4,7 @@
 
 <h1 align="center">Agentsol</h1>
 
-<h3 align="center">Your AI agents stop making the same mistake twice.</h3>
+<h3 align="center">Your AI agents forget. Agentsol remembers.</h3>
 
 <p align="center">
   Agentsol <b>learns</b> what went wrong in your past agent sessions, <b>guards</b> each command before an agent runs it,<br>

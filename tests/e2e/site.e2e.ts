@@ -54,7 +54,7 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   const { page, problems } = await openPage();
   await page.goto(staticSrv.url);
   await page.getByRole("heading", { level: 1 }).waitFor();
-  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /the same mistake twice/);
+  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Your AI agents forget\. Agentsol remembers\./);
   assert.ok(await page.getByText(/Free MCP server/).first().isVisible());
   await page.locator(".excerpt").waitFor();
   assert.match(await page.locator(".excerpt").innerText(), /prewritten by the demo script/);
@@ -407,7 +407,7 @@ test("hero session: decorative, labelled for screen readers, honest about suppor
   assert.ok(motion.length >= 10 && motion.every((n) => n === "1"), `session lines animate once (${motion.join(",")})`);
   const brand = await page.locator(".wordmark").innerText();
   assert.equal(brand.trim(), "Agentsol");
-  assert.equal(await page.title(), "Agentsol: review your AI agents' rules, work and setup");
+  assert.equal(await page.title(), "Agentsol: your AI agents forget, Agentsol remembers");
   const text = await page.locator("body").innerText();
   assert.ok(!/AgentWeave|Agentlore/i.test(text), "no old brand on the landing page");
   assert.equal(await page.locator(".wordmark svg").getAttribute("aria-hidden"), "true", "the logo is decorative next to the visible name");

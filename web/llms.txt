@@ -1,6 +1,6 @@
 # Agentsol
 
-> Agentsol is a free, MIT-licensed MCP server and CLI (npm package `agentsol`, early alpha) that reviews AI coding agents' work: the instruction files they follow (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md and SKILL.md), what they did in recent Claude Code and Codex sessions, and how the AI apps on the machine are set up. It runs locally, uses the person's own assistant (no API key, no hosted service), cites exact lines for every finding, and only proposes diffs. A person approves and applies changes in their own terminal; there is no MCP tool for approval.
+> Agentsol is a free, MIT-licensed MCP server and CLI (npm package `agentsol`, early alpha; MCP Registry name `io.github.ArSenic04/agentsol`) that stops AI coding agents repeating mistakes. It learns what went wrong in past Claude Code and Codex sessions, guards each shell command before the agent runs it (a pre-command hook), and checks the instruction files agents follow (AGENTS.md, AGENTS.override.md, CLAUDE.md, CLAUDE.local.md and SKILL.md) and the skills and MCP servers they rely on. It also reviews what agents did in each session and how the AI apps on the machine are set up. It runs locally, uses the person's own assistant (no API key, no hosted service), cites exact lines for every finding, and only proposes diffs. A person approves and applies changes in their own terminal; there is no MCP tool for approval.
 
 ## Install (any MCP client)
 
@@ -12,6 +12,8 @@
 - Web chats without MCP: `npx -y agentsol@alpha prompt` prints one masked prompt to paste.
 - Sessions: `npx -y agentsol@alpha sessions` and `npx -y agentsol@alpha session <id> --timeline`
 - Setup audit: `npx -y agentsol@alpha doctor`
+- Guard (a person runs it, with consent): `agentsol connect claude-code --guard` after `npm i -g agentsol@alpha` (asks before changing settings); `agentsol connect --guard` prints the hook config for Codex and Gemini CLI to paste. Test a command without running it: `agentsol guard --test "npm install"`. Pause with `AGENTSOL_GUARD=off`.
+- CI: `uses: ArSenic04/agentsol@main` in a pull-request workflow uploads findings to GitHub code scanning (SARIF); locally `check --sarif`.
 - Requires Node.js 24 or newer.
 
 ## MCP prompts and resources
