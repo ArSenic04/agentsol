@@ -140,7 +140,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
             h("li", {}, h("strong", {}, "Codex:"), " blocks; risky commands are left to Codex's own approval"),
             h("li", {}, h("strong", {}, "Gemini CLI:"), " blocks, and warns on risky commands")),
           h("p", { class: "muted small" }, "Claude Code's settings change only after you say yes, with a backup. Remove it with ", h("code", {}, "--remove"), ", pause it with ", h("code", {}, "AGENTSOL_GUARD=off"), ", and re-run connect after a Node upgrade."))),
-      h("p", { class: "muted small" }, "Replayed on 1,178 real agent commands: 0 blocked and 0 asked, while real download-and-run and home-folder deletes still ask. Lessons come only from projects you registered and refresh every 30 minutes. Guard needs 0.2.0-alpha.5 or later.")),
+      h("p", { class: "muted small" }, "Replayed on 1,178 real agent commands: 0 blocked and 0 asked, while real download-and-run and home-folder deletes still ask. Lessons come only from projects you registered and refresh every 30 minutes. Guard needs 0.2.0-alpha.6 or later.")),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "why" } },
       head("The problem", "why", "Instruction files multiply quietly", "A root AGENTS.md. A CLAUDE.md that imports it. A package folder with its own rules. Skills whose frontmatter has to be just right. Every client loads a different subset, and nobody reads them side by side."),
@@ -211,7 +211,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
       startShowcase(),
       h("p", { class: "muted small" }, "Prefer to connect by hand, or use Cursor, Claude Desktop or Windsurf? Pick your app and paste one line:"),
       installPicker(),
-      h("p", { class: "muted small" }, "In CI: add ", h("code", {}, "uses: ArSenic04/agentsol@main"), " to a pull-request workflow and findings show up in code scanning (needs 0.2.0-alpha.5 or later)."),
+      h("p", { class: "muted small" }, "In CI: add ", h("code", {}, "uses: ArSenic04/agentsol@main"), " to a pull-request workflow and findings show up in code scanning (needs 0.2.0-alpha.6 or later)."),
       h("p", { class: "muted small" }, "Full steps, the Agent Skill and the review commands are on the ", h("a", { href: route("#/setup") }, "Install page"), ".")),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "zero" } },

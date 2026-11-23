@@ -1,6 +1,6 @@
 {
   "name": "agentsol",
-  "version": "0.2.0-alpha.5",
+  "version": "0.2.0-alpha.6",
   "private": true,
   "description": "Local-first engine and MCP server for auditing AI agent instruction files (AGENTS.md, CLAUDE.md, SKILL.md) with your own assistant, with human-only approval before any file change.",
   "mcpName": "io.github.ArSenic04/agentsol",
