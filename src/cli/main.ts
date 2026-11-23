@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { detectAgentEnvironment } from "../core/agentEnv.ts";
 import type { ProjectFreshness } from "../core/freshness.ts";
 import { runDoctor } from "./doctor.ts";
+import { guardCli, guardHookCommand, guardSnippets, installClaudeGuard, runsFromNpxCache } from "./guard.ts";
 import { sanitizeForTerminal } from "../core/display.ts";
 import { STRUCTURAL_CHECKS } from "../core/checks.ts";
 import { handoffPrompt } from "../core/handoff.ts";
@@ -45,6 +46,11 @@ Start here:
                                         (asks first; --yes connects without asking), and show what to fix first
   check [path] [--strict] [--json]      register the folder (default: this one), scan it and show cited findings
   connect [client]                      print MCP setup for claude-code, codex, gemini, vscode, cursor, claude-desktop, windsurf
+  connect claude-code --guard [--remove]
+                                        stop agents before they run a wrong or dangerous shell command: adds the
+                                        guard hook to ~/.claude/settings.json after asking (backup kept); --remove
+                                        takes it out. With codex or gemini it prints the hook to add by hand
+  guard --test "<command>" [--cwd dir]  what the guard would tell an agent about a command, without running it
   prompt [path]                         print one masked prompt to paste into any chat AI
   inspect <folder|file> [--json]        before you install a skill or MCP server: scan its files or its tool
                                         list (tools/list JSON) for hidden instructions, credential theft and more
@@ -75,7 +81,7 @@ Commands (human-run, local only):
   log [entityId]                        show the audit log (who approved, applied or rejected what)
 `;
 
-const COMMANDS = ["start", "check", "audit", "log", "connect", "prompt", "inspect", "learn", "sessions", "session", "doctor", "project", "projects", "status", "freshness", "scan", "sources", "findings", "proposals", "review", "approve", "reject", "apply", "reconcile"];
+const COMMANDS = ["start", "check", "guard", "audit", "log", "connect", "prompt", "inspect", "learn", "sessions", "session", "doctor", "project", "projects", "status", "freshness", "scan", "sources", "findings", "proposals", "review", "approve", "reject", "apply", "reconcile"];
 const editDistance = (a: string, b: string): number => {
   let prev = [...Array(b.length + 1).keys()];
   for (let i = 1; i <= a.length; i++) {
@@ -431,6 +437,47 @@ function connect(t: Term, ws: { dir: string; isDefault: boolean }, which: string
   raw();
   raw(render(t, ["  ", ["sun", "→ "], "Then ask: ", ["sun", "“Use agentsol to audit this project.”"], ["muted", " Claude Code also lists it as "], ["bold", "/mcp__agentsol__audit"], ["muted", "."]]));
   raw(render(t, ["  ", ["muted", `Agentsol never edits your assistant's config files. ${CMD} start can run the commands above for you, after asking. Desktop apps that cannot find npx need its full path (which npx).`]]));
+  raw();
+  return 0;
+}
+
+/** Prints the guard hook for an app; for Claude Code, adds or removes it after the person agrees. */
+async function guardConnect(t: Term, ws: { dir: string; isDefault: boolean }, which: string | undefined, args: readonly string[]): Promise<number> {
+  const remove = args.includes("--remove");
+  const command = guardHookCommand(ws);
+  const all = guardSnippets(command);
+  const chosen = which ? all.filter((s) => s.id === which) : all;
+  if (chosen.length === 0) return fail(`the guard hook is for ${all.map((s) => s.id).join(", ")}; "${which}" has no shell-command hook`, 2);
+  raw();
+  raw(render(t, ["  ", ["agent", "◉ "], ["bold", "Agentsol guard"], ["muted", "  · checks each shell command before it runs · local, no network"]]));
+  raw(render(t, ["  ", ["muted", "Blocks the wrong package manager and commands past sessions show fail here (with the fix); asks before curl | sh, rm -rf ~, force-push to main, reading keys or .env."]]));
+  for (const s of chosen) {
+    if (s.id === "claude-code" && which === "claude-code") continue;
+    raw();
+    raw(`  ${heading(t, s.name, [["muted", `${remove ? "remove the agentsol entry from" : "add to"} ${s.file}:`]])}`);
+    if (!remove) for (const l of s.json.split("\n")) raw(render(t, ["    ", ["agent", l]]));
+    if (s.note) raw(render(t, ["    ", ["muted", s.note]]));
+  }
+  if (runsFromNpxCache()) raw(render(t, ["\n  ", ["warn", "▲ "], "This agentsol runs from npx's cache, which can be cleaned. Install it first (npm i -g agentsol@alpha), then run this again so the hook points at the installed copy."]));
+  if (which !== "claude-code") { raw(); return 0; }
+  const file = path.join(homedir(), ".claude", "settings.json");
+  const agent = detectAgentEnvironment(process.env);
+  raw();
+  if (agent || !(args.includes("--yes") || isInteractive())) {
+    raw(render(t, ["  ", ["muted", agent ? `${agent.agent} runs this terminal, so ${tilde(file)} was not changed. Run this yourself in a normal terminal, or add:` : `Not an interactive terminal, so ${tilde(file)} was not changed. Add this yourself:`]]));
+    if (!remove) for (const l of all[0]!.json.split("\n")) raw(render(t, ["    ", ["agent", l]]));
+    raw();
+    return 0;
+  }
+  if (!args.includes("--yes")) {
+    const a = (await ask(render(t, ["  ", ["agent", "? "], remove ? `Remove the agentsol guard hook from ${tilde(file)}?` : `Add the agentsol guard hook to ${tilde(file)}?`, ["muted", " Other settings and hooks stay; a backup is kept."], " [y/N] "]))).trim().toLowerCase();
+    if (a !== "y" && a !== "yes") { raw(render(t, ["  ", ["muted", "Nothing was changed."]])); raw(); return 0; }
+  }
+  const r = installClaudeGuard(homedir(), remove ? null : command);
+  if (!r.ok) return fail(`${tilde(r.file)} was not changed: ${r.message}`, 1);
+  if (!r.changed) raw(render(t, ["  ", ["ok", "✓ "], remove ? "The guard hook was not installed; nothing to remove." : "The guard hook is already installed; nothing changed."]));
+  else raw(render(t, ["  ", ["ok", "✓ "], remove ? "Removed the guard hook" : "Added the guard hook", ["muted", ` · backup: ${r.backup ? tilde(r.backup) : "none (new file)"}`]]));
+  if (r.changed && !remove) raw(render(t, ["  ", ["muted", `Takes effect in new Claude Code sessions. Try it: ${CMD} guard --test "npm install"   Turn it off: ${CMD} connect claude-code --guard --remove`]]));
   raw();
   return 0;
 }
@@ -834,7 +881,8 @@ async function run(argv: string[]): Promise<number> {
     const near = COMMANDS.map((c) => [c, editDistance(command, c)] as const).filter(([, d]) => d <= 2).sort((a, b) => a[1] - b[1])[0]?.[0];
     return fail(`unknown command "${command}".${near ? ` Did you mean "${near}"?` : ""} Run \`${CMD} help\` to see every command.`, 2);
   }
-  if (command === "connect") return connect(term, ws, args[0]);
+  if (command === "guard") return guardCli(args, ws);
+  if (command === "connect") return args.includes("--guard") ? guardConnect(term, ws, positional(args, [])[0], args) : connect(term, ws, args[0]);
   if (command === "inspect") return inspectCmd(term, args[0], json);
   if (command === "doctor") {
     // src/cli/main.ts in a checkout, build/cli/main.js in an installed package; both sit two levels below the root.
