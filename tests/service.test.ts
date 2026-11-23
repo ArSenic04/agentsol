@@ -88,7 +88,7 @@ test("assistant service surface has no approve, reject, apply, register or write
   try {
     const svc = service(fx);
     const keys = Object.keys(svc).sort();
-    assert.deepEqual(keys, ["briefing", "commandCheck", "freshness", "gradeSession", "lessons", "listFindings", "listProjects", "listProposals", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "sessionReview", "sessionsList", "setupAudit", "status", "submitFindings"]);
+    assert.deepEqual(keys, ["briefing", "commandCheck", "freshness", "gradeSession", "guardLessons", "lessons", "listFindings", "listProjects", "listProposals", "listSources", "projectStatus", "proposalStatus", "proposeChange", "readSource", "resolveScope", "runChecks", "scan", "sessionReview", "sessionsList", "setupAudit", "status", "submitFindings"]);
     assert.ok(Object.isFrozen(svc));
     assert.ok(!keys.some((k) => /approv|apply|reject|register|addProject|write|delete|reconcile/i.test(k)));
   } finally {

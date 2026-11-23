@@ -34,6 +34,7 @@ import { fail, guarded, guardedAsync, publicText, type InternalErrorSink, type S
 import { projectStatus, workspaceStatus, type ProjectStatus, type WorkspaceStatus } from "./status.ts";
 import { ok } from "../result.ts";
 import { codexFileIn, commandAdvice, learnLessons, type CommandAdvice, LESSON_CAVEATS, LESSONS_HEADING, LESSONS_INTRO, lessonsChange, readsFile, type InstructionFile, type LessonsReport } from "../learn.ts";
+import { evaluate, gitBranch, packageManagerFor, type GuardLesson } from "../guard.ts";
 import { checkFreshness, FRESHNESS_CAVEATS, type ProjectFreshness, type SourceFreshness } from "../freshness.ts";
 
 export const DISCLOSURE =
@@ -537,12 +538,31 @@ export function createAssistantService(store: WorkspaceStore, opts: AssistantSer
         if (!r.ok) return r;
         const l = await cachedLessons(r.value, list);
         // `instead` is the agent's own command with one word swapped: masking its paths would make it unrunnable.
-        const advice = commandAdvice(a.value.command, l.lessons).map((x) => ({ ...scrub({ ...x, instead: null }), instead: x.instead === null ? null : sanitizeForTerminal(x.instead) }));
+        const lessonAdvice = commandAdvice(a.value.command, l.lessons);
+        // The same package-manager and danger rules the guard hook applies, so both give one answer.
+        const cwd = a.value.path ?? r.value.root;
+        const g = evaluate(a.value.command, cwd, { packageManager: packageManagerFor(cwd, machine.home), branch: gitBranch(cwd), home: machine.home });
+        if (g.decision !== "allow" && !(g.fix && lessonAdvice.some((x) => x.instead === g.fix))) lessonAdvice.push({ lessonId: `guard:${g.rules.join("+")}`, verdict: g.decision === "deny" ? "change" : "ask", reason: g.fix ? g.reason.replace(` Run instead: ${g.fix}`, "") : g.reason, instead: g.fix ?? null });
+        const advice = lessonAdvice.map((x) => ({ ...scrub({ ...x, instead: null }), instead: x.instead === null ? null : sanitizeForTerminal(x.instead) }));
         const verdict = advice.some((x) => x.verdict === "ask") ? "ask" : advice.length ? "change" : "ok";
         const text = advice.length === 0
           ? `Nothing in ${l.sessionsRead} past session${l.sessionsRead === 1 ? "" : "s"} here says this command fails. Go ahead.`
           : advice.map((x) => (x.instead ? `${x.reason} Run instead: ${x.instead}` : x.reason)).join("\n");
         return ok({ verdict, advice, text, sessionsRead: l.sessionsRead });
+      }),
+
+    /** Lessons with a command to match, per registered project, for the guard hook's cache. Local paths, not for agents. */
+    guardLessons: (): Promise<ServiceResult<{ projects: { root: string; projectId: string; sessionsRead: number; lessons: GuardLesson[] }[] }>> =>
+      guardedAsync("guard_lessons", sink, async () => {
+        const list = roots();
+        const since = new Date(Date.now() - 180 * 86_400_000);
+        const projects = [];
+        for (const r of list) {
+          const l = await lessonsFor(r, list, since);
+          recent.set(r.projectId, { at: Date.now(), value: l });
+          projects.push({ root: r.root, projectId: r.projectId, sessionsRead: l.sessionsRead, lessons: l.lessons.filter((x) => x.match || (x.kind === "correction" && x.rule)).map(({ id, kind, rule, title, times, sessions, match }) => ({ id, kind, rule, title, times, sessions, match })) });
+        }
+        return ok({ projects });
       }),
 
     /** A short briefing for an agent starting work in a project: rules from repeated mistakes, outdated instruction lines, and what to ask about. Read-only. */

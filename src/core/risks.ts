@@ -103,6 +103,10 @@ const SCRIPT_RISKS: readonly Rule[] = [
   { re: /^\s*sudo\b/, what: "asks for administrator rights (sudo)", severity: "low", scriptsOnly: true },
 ];
 
+const COMMAND_RISKS = SCRIPT_RISKS.filter((r) => r.severity === "high" && !r.what.startsWith("reads credential") && !r.what.startsWith("hides data"));
+/** The high-risk script patterns a single shell command can show: run downloaded code, persistence, settings rewrites, permissions off, disk wipes. */
+export const commandRisks = (command: string): string[] => COMMAND_RISKS.filter((r) => r.re.test(command)).map((r) => r.what);
+
 // Lines that describe, test for or block a risky pattern (security hooks, docs, detection rules) rather than doing it.
 const DESCRIBING = /(==|!=|=~)\s*["*]|\bin\s*[(\[]\s*["']|^\s*[A-Z][A-Z0-9_]+\s*=\s*[(\[{]\s*["']|\bgrep\s+-[a-zA-Z]*[qEeiw]|\bcase\s|re\.(search|match|compile|findall)\(|\.(test|match|includes)\(|RegExp\(|\\[sbdw][+*]?|\bpatterns?\b|\b(check(s|ing)? for|verify|detect(s|ed|ing)?|block(s|ed|ing)?|flag(s|ged)?|matches|dangerous|forbidden|e\.g\.|such as|for example|not recommended|analy[sz]e)\b|❌|"prompt"\s*:/i;
 

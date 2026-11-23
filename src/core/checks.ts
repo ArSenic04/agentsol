@@ -3,6 +3,7 @@ import path from "node:path";
 import { findClaudeImports } from "./claudeImports.ts";
 import { FORMAT_DOCS, fileDirOf, isSameOrBelow, scopeDirOf, type SourceFormat } from "./formats.ts";
 import { readFrontmatter } from "./frontmatter.ts";
+import { LOCKFILES, type PackageManager } from "./guard.ts";
 import { sha256Hex } from "./hash.ts";
 import { COMMON_SUBS, conflictsFor } from "./learn.ts";
 import { findingIdFromDigest, type SourceId, type VersionId } from "./ids.ts";
@@ -265,8 +266,6 @@ function duplicateChecks(sources: readonly CheckSource[]): StructuralFinding[] {
   return out;
 }
 
-type PackageManager = "npm" | "pnpm" | "yarn" | "bun";
-const LOCKFILES: readonly [string, PackageManager][] = [["pnpm-lock.yaml", "pnpm"], ["yarn.lock", "yarn"], ["bun.lock", "bun"], ["bun.lockb", "bun"], ["package-lock.json", "npm"]];
 
 /** The one package manager a folder's lockfile or `packageManager` field names; null when there is none or more than one. */
 async function packageManagerIn(dir: string): Promise<{ pm: PackageManager; why: string } | null> {
