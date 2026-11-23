@@ -21,6 +21,8 @@ const SESSION: readonly (readonly [Kind, string, string?])[] = [
   ["poss", "Possible: root says npm, services/api says pnpm (both lines quoted)"],
   ["call", "change_propose", "AGENTS.md:3"],
   ["ok", "Diff stored. No file was changed."],
+  ["call", "Bash", "npm ci"],
+  ["warn", "Blocked by agentsol guard: this repo uses pnpm → pnpm install --frozen-lockfile"],
   ["wait", "Your turn: npx -y agentsol@alpha review <proposalId>"],
 ];
 
@@ -36,7 +38,7 @@ export function heroDiagram(): HTMLElement {
       h("div", { class: "term-bar" }, h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-title" }, "your assistant + agentsol mcp")),
       h("ol", { class: "term-body" }, ...SESSION.map(line))),
     h("figcaption", { class: "legend" },
-      h("span", { class: "sr-only" }, "Illustration of an assistant session: your assistant scans the project through Agentsol, lists findings such as a missing import and a masked secret, quotes two conflicting lines as a possible issue, and stores a proposed diff. The change waits for you to approve in your own terminal. "),
+      h("span", { class: "sr-only" }, "Illustration of an assistant session: your assistant scans the project through Agentsol, lists findings such as a missing import and a masked secret, quotes two conflicting lines as a possible issue, and stores a proposed diff. Agentsol guard then blocks an npm command in this pnpm repo and names the right one. The change waits for you to approve in your own terminal. "),
       h("span", { class: "legend-item" }, h("span", { class: "swatch", attrs: { "aria-hidden": "true" } }), "Illustrative session: real tool names and synthetic-demo results, exercised by automated tests today"),
       h("span", { class: "legend-item" }, h("span", { class: "swatch swatch-dashed", attrs: { "aria-hidden": "true" } }), "Assistant apps connect through their standard MCP config and are not yet validated")));
 }

@@ -4,11 +4,11 @@
 
 <h1 align="center">Agentsol</h1>
 
-<h3 align="center">Your AI agents do the work. Agentsol checks it.</h3>
+<h3 align="center">Your AI agents stop making the same mistake twice.</h3>
 
 <p align="center">
-  An agent that reviews agent work: the <b>rules</b> your coding agents follow, <b>what they did</b> in each session,<br>
-  and <b>how your AI apps are set up</b>. It runs on your machine, uses the assistant you already have, and every fix waits for you.
+  Agentsol <b>learns</b> what went wrong in your past agent sessions, <b>guards</b> each command before an agent runs it,<br>
+  and <b>checks</b> the instructions, skills and MCP servers your agents rely on. Local, no account, and every file change waits for you.
 </p>
 
 <p align="center">
@@ -33,99 +33,97 @@
 
 ---
 
-## Why
-
-Agents forget everything between sessions. They run `npm` in a `pnpm` repo again, break the same file again, and you type the same correction again. Meanwhile the instruction files that should prevent this multiply quietly: a root `AGENTS.md`, a `CLAUDE.md` that imports it, a package folder with its own rules, skills whose frontmatter has to be just right. Nobody reads them side by side.
-
-Agentsol reads all of it for you, from your own machine:
-
-|  |  |
-|---|---|
-| **Learns from past sessions** | Finds the mistakes your agents keep repeating, what they cost in time and tokens, and the instruction line that caused them. |
-| **Audits instruction files** | Drift between files, broken imports, invalid skills, secrets, unsafe or injected rules. Every finding cites a line. |
-| **Reviews what agents did** | Destructive commands, skipped hooks, weakened tests, unverified edits, insecure code, in each Claude Code and Codex session. |
-| **Checks your AI setup** | Keys in plain text, unpinned MCP servers, settings that let agents act without asking, across seven apps. |
-| **Inspects before you install** | A verdict on any skill or MCP server: credential theft, data sent out, hidden instructions, tool poisoning. |
-
-It never changes a file on its own. Your assistant can read and propose; only you can approve and apply, from a terminal you control.
-
 ## Quick start
 
 ```sh
 cd your-project
-npx -y agentsol@alpha start
+npx -y agentsol@alpha start                                  # scan, connect your apps, show what past mistakes cost
+npm i -g agentsol@alpha && agentsol connect claude-code --guard   # block known-wrong commands before they run
 ```
 
-One command: registers and scans this folder, connects the AI apps you have (it asks first), shows what past sessions cost, and what to fix first. Nothing is installed globally. No account, no API key, no hosted service. Everything runs offline on your machine, and `inspect` only reads a skill or server: it never runs it.
+`start` registers and scans the folder, connects the AI apps you have (it asks first), and shows what to fix first. The guard needs an installed copy because the hook must not depend on npx's cache. No account, no API key, no hosted service; everything runs on your machine.
 
-Or add the MCP server to your app yourself:
+## How it works
 
-| App | Run once |
-|---|---|
-| Claude Code (plugin: server + skill) | `claude plugin marketplace add ArSenic04/agentsol` then `claude plugin install agentsol@agentsol` |
-| Claude Code | `claude mcp add agentsol -s user -- npx -y -p agentsol@alpha agentsol-mcp` |
-| Codex | `codex mcp add agentsol -- npx -y -p agentsol@alpha agentsol-mcp` |
-| Gemini CLI | `gemini mcp add -s user agentsol npx -y -p agentsol@alpha agentsol-mcp` |
-| VS Code | `code --add-mcp '{"name":"agentsol","command":"npx","args":["-y","-p","agentsol@alpha","agentsol-mcp"]}'` |
-| Cursor, Claude Desktop, Windsurf | `npx -y agentsol@alpha connect` prints the JSON for each |
+Agents forget everything between sessions. They run `npm` in a `pnpm` repo again, look for tests in the wrong folder again, break the same file again, and you type the same correction again. Agentsol closes that loop in three steps:
+
+| Step | Command | What happens |
+|---|---|---|
+| **1. Learn** | `learn` | Reads your Claude Code and Codex transcripts for this folder and turns repeated mistakes into lessons, with the time and tokens they cost and the instruction line that caused them. |
+| **2. Guard** | `connect claude-code --guard` | A pre-command hook: a command known to fail here is blocked and the agent is told the one that works; a dangerous one waits for you. |
+| **3. Check** | `check` · `inspect` | Instruction files that are broken, unread or contradict the project, and third-party skills or MCP servers that steal credentials, send data out or hide instructions. |
+
+Every fix is a diff you approve and apply in your own terminal. Agentsol never edits a project file on its own.
 
 <p align="center">
   <img src="docs/images/cli-start.png" alt="agentsol start in a terminal" width="760">
 </p>
 
-## What it does
-
-### `learn` · your agent stops making the same mistake twice
-
-Reads the Claude Code and Codex transcripts on your machine for this folder (last 180 days) and turns repeats into lessons: **commands** that fail here and the one that works, things **you said** in two or more sessions, **fragile** files agents break and re-fix, and commands that are **failing** everywhere. When your AGENTS.md or CLAUDE.md is the cause, it shows that line and its corrected version.
-
-<p align="center">
-  <img src="docs/images/cli-learn.png" alt="agentsol learn: time and tokens lost, three lessons, one wrong instruction line with its fix" width="760">
-</p>
+## Learn · the mistakes your agents keep repeating
 
 ```sh
 npx -y agentsol@alpha learn              # what keeps going wrong, with the cost
 npx -y agentsol@alpha learn --propose    # one diff per instruction file, for you to approve
 ```
 
-Agents can use the lessons themselves: `project_briefing` gives an agent the rules for this folder when it starts, and `command_check` warns it before it runs a command that failed here before (`npm test` → `pnpm test`).
+It finds **commands** that fail here and the one that works, files agents look for in the **wrong folder** ("use paths under `src/`, not `tests/`"), things **you said** in two or more sessions, **fragile** files agents break and re-fix, and commands that **fail** everywhere. When AGENTS.md or CLAUDE.md is the cause, it shows that line and corrects it in place. It ignores failures the project can't fix (network or DNS errors, rate limits, sandbox denials), retries that pass, test-first red → green runs, and sessions in other folders. A long conversation counts each compaction as a fresh start, because that is when the agent forgets.
 
-### `check` · a report you can act on
+<p align="center">
+  <img src="docs/images/cli-learn.png" alt="agentsol learn: time and tokens lost, three lessons, one wrong instruction line with its fix" width="760">
+</p>
 
-Reads only instruction files (AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md, SKILL.md), masks secret-like text before anything else sees it, and prints every finding with the exact line.
+**Measured:** `npm run eval:learn` replays 35 labelled agent histories in Claude Code and Codex formats. On the 16 held out from tuning, 100% of reported lessons were right and 89% of expected lessons were found; no planted secret ever reached the output. The histories are synthetic and were written alongside the tuning, so treat this as a regression bar, not proof on your history. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
+
+## Guard · stop wrong commands before they run
+
+```sh
+agentsol connect claude-code --guard            # shows the hook, asks, then adds it (backup kept)
+agentsol guard --test "npm install"             # what the agent would be told, without running anything
+agentsol connect claude-code --guard --remove   # undo
+```
+
+| The agent runs | Guard |
+|---|---|
+| A package manager the project doesn't use (`npm ci` with `pnpm-lock.yaml`) | **Blocks**, and tells the agent `pnpm install --frozen-lockfile` |
+| A command that failed in past sessions here | **Blocks** with the version that worked, or asks you when nothing did |
+| `curl … \| sh`, `rm -rf ~`, force-push to main, `reset --hard`, reading `.env` or SSH keys, rewriting AI app settings, `DROP TABLE` | **Asks you** first |
+| Anything else | Runs, silently |
+
+| App | Support |
+|---|---|
+| Claude Code | Block and ask; installed for you after you agree |
+| Codex | Block only (Codex does not support ask yet); `connect codex --guard` prints the `~/.codex/hooks.json` entry |
+| Gemini CLI | Block, and a warning instead of ask; `connect gemini --guard` prints the `BeforeTool` entry |
+
+It is local and fast (about 0.1 s per command), and fails open: any error or a 2-second timeout lets the command run. Lessons come from registered projects and refresh in the background at most every 30 minutes. `AGENTSOL_GUARD=off` turns it off. The hook stores absolute paths, so run `connect … --guard` again after upgrading Node or reinstalling.
+
+## Check · instructions your agents actually read
+
+```sh
+npx -y agentsol@alpha check     # every finding with its file and line; --strict exits 1 on errors
+```
+
+Reads AGENTS.md, AGENTS.override.md, CLAUDE.md, .claude/CLAUDE.md and SKILL.md, masks secret-like text first, and reports: nested AGENTS.md files Claude Code never reads, skills that can't load, files over Codex's 32 KiB budget, commands for the wrong package manager, rules that contradict each other, leaked secrets, and unsafe or injected instructions. On 32 public repos every remaining error and warning was confirmed by hand.
 
 <p align="center">
   <img src="docs/images/cli-check.png" alt="agentsol check: findings with severity, check id, file and line" width="760">
 </p>
 
-### `sessions` · what did your agents actually do?
-
-Flags risky steps in your recent agent sessions: destructive commands, secrets exposed to the model, skipped hooks, weakened tests, edits never verified, retry loops, prompt injection in tool output, and insecure code the agent added (14 checks, A01–A14). Your assistant can then grade a session on safety, instructions, verification, efficiency and scope.
-
-<p align="center">
-  <img src="docs/images/cli-sessions.png" alt="agentsol sessions: recent sessions with flagged steps" width="760">
-</p>
-
-### `doctor` · is your AI setup safe?
-
-Reads the settings of Claude Code, Claude Desktop, Codex, Cursor, VS Code, Windsurf and Gemini CLI: plaintext secrets in MCP config, unpinned or missing servers, shell-wrapped launches, settings that let assistants act without asking, hooks, and how many tokens your global instructions add to every session (10 checks, C01–C10). It only reads and never prints a secret value.
-
-### `inspect` · is this skill or MCP server safe?
+## Inspect · before you install a skill or MCP server
 
 ```sh
 npx -y agentsol@alpha inspect ./some-skill        # a skill or server folder
 npx -y agentsol@alpha inspect tools.json --json   # a server's tools/list result
 ```
 
-A verdict (danger, caution, clean) with every finding's file and line. It exits 1 on danger, so it works as a CI gate. On 91 public skills from three plugin marketplaces it reported no false danger.
+A verdict (danger, caution, clean) with every finding's file and line, from reading the files: it never runs them. It exits 1 on danger, so it works as a CI gate. On 1,567 public skills and servers it rated 22 as danger after hand review; most are an offensive-security collection with real payloads.
 
-### In the browser
+## Also included
 
-The [demo](https://arsenic04.github.io/agentsol-site/#/demo) shows real Agentsol output for a synthetic project: findings, cited evidence, the proposed diff and the load order.
-
-<p align="center">
-  <img src="docs/images/demo.png" alt="The web demo: a finding list and the cited evidence for the selected finding" width="760">
-</p>
+- **`sessions`**: risky steps in recent agent sessions: destructive commands, secrets exposed to the model, skipped hooks, weakened tests, unverified edits, insecure code (A01–A14).
+- **`doctor`**: your AI apps' settings: plaintext keys in MCP config, unpinned servers, settings that let agents act without asking (C01–C10).
+- **`log`**: who approved, applied or rejected each change.
+- **In the browser**: the [demo](https://arsenic04.github.io/agentsol-site/#/demo) shows real output for a synthetic project, and [Check](https://arsenic04.github.io/agentsol-site/#/check) and Inspect run entirely in your browser.
 
 ## Works with
 
@@ -133,38 +131,34 @@ The [demo](https://arsenic04.github.io/agentsol-site/#/demo) shows real Agentsol
   <img src="docs/images/clients.png" alt="Claude Code, Codex, Gemini CLI, Cursor, VS Code + Copilot, Claude Desktop, Windsurf, any MCP client" width="760">
 </p>
 
-```sh
-npx -y agentsol@alpha connect     # setup lines for each app
-npx -y agentsol@alpha prompt      # no MCP? one masked prompt to paste into any chat AI
-```
+| App | Add the MCP server, run once |
+|---|---|
+| Claude Code (plugin: server + skill) | `claude plugin marketplace add ArSenic04/agentsol` then `claude plugin install agentsol@agentsol` |
+| Claude Code | `claude mcp add agentsol -s user -- npx -y -p agentsol@alpha agentsol-mcp` |
+| Codex | `codex mcp add agentsol -- npx -y -p agentsol@alpha agentsol-mcp` |
+| Gemini CLI | `gemini mcp add -s user agentsol npx -y -p agentsol@alpha agentsol-mcp` |
+| VS Code | `code --add-mcp '{"name":"agentsol","command":"npx","args":["-y","-p","agentsol@alpha","agentsol-mcp"]}'` |
+| Cursor, Claude Desktop, Windsurf | `npx -y agentsol@alpha connect` prints the JSON for each |
+| No MCP | `npx -y agentsol@alpha prompt` prints one masked prompt to paste into any chat AI |
 
-The MCP server is `npx -y -p agentsol@alpha agentsol-mcp`. In clients that support MCP prompts you get `audit`, `fix`, `explain`, `review`, `setup` and `learn` (Claude Code lists them as `/mcp__agentsol__audit` and so on). In any client you can also just ask: "Use agentsol learn." Claude Desktop is not in the connector directory; add it through Settings → Developer → Edit Config (`connect claude-desktop` prints the config).
-
-### As a skill
-
-[`skills/agentsol/SKILL.md`](skills/agentsol/SKILL.md) tells your agent when to use Agentsol on its own: a briefing when it starts in a project, a check before build and test commands, lessons when a mistake repeats, and an inspect before installing anything. It uses the MCP tools when connected and falls back to `npx` otherwise. Copy the `skills/agentsol` folder into `.claude/skills/` in your project (or `~/.claude/skills/` for every project), or into your agent's skills folder.
-
-## How it fits in your agent loop
+Connected agents get `project_briefing` (the rules for this folder when they start) and `command_check` (the guard's answer for a command, before they run it), plus the prompts `audit`, `fix`, `explain`, `review`, `setup` and `learn` (in Claude Code: `/mcp__agentsol__learn` and so on). [`skills/agentsol/SKILL.md`](skills/agentsol/SKILL.md) tells an agent when to use them; copy it into `.claude/skills/` or your agent's skills folder.
 
 ```mermaid
 flowchart LR
-  A["Your agent<br/>Claude Code · Codex · Cursor · …"] -- "project_briefing<br/>command_check" --> S(("agentsol<br/>MCP"))
-  S -- reads --> T[("Session<br/>transcripts")]
-  S -- reads --> I["AGENTS.md · CLAUDE.md<br/>SKILL.md"]
-  A -- "findings_submit<br/>change_propose" --> S
-  S -- "a diff, nothing written" --> Y{"You, in a<br/>terminal"}
-  Y -- "approve + apply" --> I
+  T[("Past session<br/>transcripts")] -- learn --> L["Lessons"]
+  L --> G{"guard hook"}
+  A["Your agent"] -- "every shell command" --> G
+  G -- "allow · block with the fix · ask you" --> A
+  L -- "learn --propose" --> P["A diff to<br/>AGENTS.md · CLAUDE.md"]
+  P --> Y{"You, in a<br/>terminal"}
+  Y -- "approve + apply" --> I["Instruction files"]
 ```
-
-1. **Before work:** the agent asks for a briefing and checks commands before running them.
-2. **During review:** your assistant reads files through Agentsol, adds "possible" findings only by quoting exact lines, and proposes changes as diffs.
-3. **The human step:** you review, approve with a one-time code and apply, in your own terminal. A backup is kept.
 
 ## What it will never do
 
-- **Write without you.** There is no approve, apply, write or delete MCP tool. Approve, apply and reject refuse to run inside coding-agent terminals.
+- **Write without you.** There is no approve, apply, write or delete MCP tool, and approve, apply and reject refuse to run inside coding-agent terminals. The only file it changes outside your workspace is `~/.claude/settings.json`, for the guard, after you type yes, with a backup.
 - **Send your data anywhere.** No hosted service, analytics or telemetry. What MCP tools return goes to your assistant's provider, as with any tool you use with it.
-- **Show you a secret.** Secret-like text is masked before your assistant sees it (by pattern, so keep secrets out of instruction files anyway). Session and setup review return derived facts only, never transcript text or secret values.
+- **Show you a secret.** Secret-like text is masked before your assistant sees it (by pattern, so keep secrets out of instruction files anyway). Session review, learn and guard return derived facts only, never transcript text or secret values.
 - **Read what you did not register.** Only folders you add are visible. `CLAUDE.local.md`, `.env*`, keys, credentials, symlinks and hard-linked files are never read.
 
 > **Early alpha (0.2.0-alpha.4).** A person has not yet run approve and apply end to end through this CLI; those steps are covered by automated tests only. No real assistant app has been formally validated. Tested on macOS (arm64) with Node 24 and 26; Linux and Windows are untested. Try it on the synthetic demo first and keep your files in version control.
@@ -174,13 +168,14 @@ flowchart LR
 | Command | What it does |
 |---|---|
 | `start` | Register, scan, connect your apps, show session costs and what to fix first |
-| `check` | Scan this folder: every finding with its line. `--strict` exits 1 on errors (CI), `--json` |
 | `learn` | Lessons from past sessions. `--since 365d`, `--propose` |
+| `connect <app> --guard` · `guard --test "<cmd>"` | Install the pre-command guard (`--remove` to undo), or see its answer for a command |
+| `check` | Scan this folder: every finding with its line. `--strict` exits 1 on errors (CI), `--json` |
+| `inspect <path>` | Verdict on a skill or MCP server |
 | `sessions` · `session <id>` | What agents did, risky steps flagged. `--since 7d`, `--timeline` |
 | `doctor` | Preflight plus the AI-app settings audit. `--strict` |
-| `inspect <path>` | Verdict on a skill or MCP server |
 | `connect` · `prompt` | Set up an app, or a paste-in prompt for chat AIs |
-| `review` · `approve` · `apply` | The human step for a proposed change |
+| `review` · `approve` · `apply` · `log` | The human step for a proposed change, and its audit log |
 
 ---
 
@@ -275,7 +270,7 @@ Requirements: the installed package needs Node 24 or later. The source checkout 
 
 1. **Install from the lockfile.** `npm ci` (exact versions from `package-lock.json`; nothing global).
 2. **Preflight.** `npm run doctor`. It reports the Node version, whether the installed packages match the lockfile, whether this terminal is agent-driven (approve/apply refuse there), and with `-- --workspace <dir>` whether that folder is private. It reads only. `--json` for machine-readable output.
-3. **Tests.** `npm run check` (typecheck plus all tests; fixtures are synthetic temp folders).
+3. **Tests.** `npm run check` (typecheck plus all tests; fixtures are synthetic temp folders). `npm run eval:learn` scores `learn` on 35 labelled histories and fails below 90% precision or 80% recall.
 4. **Synthetic demo.** `npm run demo` creates `$TMPDIR/agentsol-demo` with a made-up project, drives the MCP server over stdio with the official SDK client (scan, read, a "possible" finding, one proposed edit), and prints the next commands. Run it again to see pending proposals; `-- --reset` recreates it (refuses while it holds proposals; add `--discard-proposals`); `-- --dir <empty folder>` puts it elsewhere.
 5. **Check the workspace.** `npm run cli -- --workspace "$TMPDIR/agentsol-demo/workspace" status`.
 6. **Review and decide, as a person.** `review <proposalId>`, then `approve <proposalId>` (type the one-time code), then `apply <proposalId>` (writes the demo file and keeps a backup).
@@ -346,7 +341,7 @@ npm run test:web                                    # build, then browser tests 
 <details>
 <summary><b>Version history and earlier names</b></summary>
 
-- `0.1.0-alpha.2` added `check`, `connect`, `prompt`, the default workspace and the MCP prompts. Session review, grading and the setup audit arrived with `0.2.0-alpha.0`; `learn` with `0.2.0-alpha.1`; `start` with `0.2.0-alpha.2`; field-evaluation fixes (fewer false alarms in `check` and `inspect`, compaction-aware `learn`) with `0.2.0-alpha.3`; check D16 (wrong package manager), wrapped commands, MCP Registry and Claude Code plugin packaging with `0.2.0-alpha.4`.
+- `0.1.0-alpha.2` added `check`, `connect`, `prompt`, the default workspace and the MCP prompts. Session review, grading and the setup audit arrived with `0.2.0-alpha.0`; `learn` with `0.2.0-alpha.1`; `start` with `0.2.0-alpha.2`; field-evaluation fixes (fewer false alarms in `check` and `inspect`, compaction-aware `learn`) with `0.2.0-alpha.3`; check D16 (wrong package manager), wrapped commands, MCP Registry and Claude Code plugin packaging with `0.2.0-alpha.4`. Not yet released: `guard`, the `learn` eval, and `learn` ignoring network, rate-limit and sandbox failures.
 - Earlier names were AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). `AGENTLORE_WORKSPACE`, then `AGENTWEAVE_WORKSPACE`, still work when `AGENTSOL_WORKSPACE` is not set. Existing workspaces need no migration.
 - Demos made earlier in `$TMPDIR/agentweave-demo` or `$TMPDIR/agentlore-demo` still work with `--workspace "$TMPDIR/agentweave-demo/workspace"`.
 </details>

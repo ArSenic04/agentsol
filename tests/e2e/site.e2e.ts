@@ -54,14 +54,15 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   const { page, problems } = await openPage();
   await page.goto(staticSrv.url);
   await page.getByRole("heading", { level: 1 }).waitFor();
-  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /Agentsol checks it/);
+  assert.match(await page.getByRole("heading", { level: 1 }).innerText(), /the same mistake twice/);
   assert.ok(await page.getByText(/Free MCP server/).first().isVisible());
   await page.locator(".excerpt").waitFor();
   assert.match(await page.locator(".excerpt").innerText(), /prewritten by the demo script/);
   const text = await page.locator("main").innerText();
   for (const banned of [/testimonial/i, /trusted by/i, /\d[\d,]* (users|developers|teams)/i, /sign up/i, /waitlist/i, /forever free/i, /guarantee(?!s? )/i]) assert.ok(!banned.test(text), `no ${banned}`);
   assert.ok(await page.locator("form, input[type=email]").count() === 0, "no signup or contact forms on the landing page");
-  assert.match(await page.locator("#learn").innerText(), /stops making the same mistake twice/);
+  assert.match(await page.locator("#learn").innerText(), /keep repeating/);
+  assert.match(await page.locator("#guardsec").innerText(), /before it runs/);
   assert.match(text, /What repeated mistakes cost[\s\S]*1 wrong instruction[\s\S]*AGENTS\.md line 7\s+now {3}− - Run `npm test`[\s\S]*fix {3}\+ - Run `pnpm test`[\s\S]*npx -y agentsol@alpha learn --propose/);
   assert.match(text, /Instructions that cause it/);
   const tracks = page.locator(".client-carousel .client-track");
