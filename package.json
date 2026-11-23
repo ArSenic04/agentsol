@@ -40,6 +40,7 @@
     "pack:check": "node scripts/packCheck.ts",
     "install:check": "node scripts/installCheck.ts",
     "load:test": "node scripts/loadTest.ts",
+    "eval:learn": "node scripts/evalLearn.ts",
     "release:check": "node scripts/releaseCheck.ts",
     "pages:export": "node scripts/exportPages.ts"
   },
