@@ -5,6 +5,8 @@
  * prompt-injected instruction file told it to. They are not authentication.
  */
 const MARKERS: readonly { name: string; matches: (v: string) => boolean; agent: string }[] = [
+  // Also set in a shell a person opens from Claude Code; refusing --yes there costs one re-run in a plain terminal.
+  { name: "CLAUDECODE", matches: (v) => v === "1", agent: "Claude Code" },
   { name: "CLAUDE_CODE_CHILD_SESSION", matches: (v) => v !== "", agent: "Claude Code" },
   { name: "CLAUDE_CODE_IS_COWORK", matches: (v) => v !== "", agent: "Claude Cowork" },
   { name: "CODEX_CI", matches: (v) => v !== "", agent: "Codex" },

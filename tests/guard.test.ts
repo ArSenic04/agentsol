@@ -261,8 +261,11 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     assert.equal(noTty.status, 0, noTty.stderr);
     assert.match(noTty.stdout, /Not an interactive terminal.*not changed/);
     assert.match(noTty.stdout, /"PreToolUse"/);
-    const agent = connect({ CLAUDE_CODE_CHILD_SESSION: "1" }, "--yes");
-    assert.match(agent.stdout, /Claude Code runs this terminal/);
+    for (const marker of ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]) {
+      const agent = connect({ [marker]: "1" }, "--yes");
+      assert.match(agent.stdout, /Claude Code runs this terminal/, marker);
+      assert.match(connect({ [marker]: "1" }, "--yes", "--remove").stdout, /Claude Code runs this terminal/, `${marker} remove`);
+    }
     assert.deepEqual(JSON.parse(await readFile(settings, "utf8")), original, "no consent, no change");
 
     const yes = connect({}, "--yes");

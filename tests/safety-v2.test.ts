@@ -173,7 +173,10 @@ test("proposals reject control characters in replacements and secrets in the rat
 
 test("agent environment markers and terminal sanitizing", () => {
   assert.equal(detectAgentEnvironment({}), null);
-  assert.equal(detectAgentEnvironment({ CLAUDECODE: "1" }), null, "CLAUDECODE alone is also set in IDE terminals used by people");
+  assert.equal(detectAgentEnvironment({ CLAUDECODE: "1" })?.agent, "Claude Code", "the Bash tool of Claude Code sets CLAUDECODE=1");
+  assert.equal(detectAgentEnvironment({ CLAUDECODE: "" }), null);
+  assert.equal(detectAgentEnvironment({ GEMINI_CLI: "1" })?.agent, "Gemini CLI");
+  assert.equal(detectAgentEnvironment({ CODEX_SANDBOX: "seatbelt" })?.agent, "Codex");
   assert.equal(detectAgentEnvironment({ CLAUDE_CODE_CHILD_SESSION: "1" })?.agent, "Claude Code");
   assert.equal(detectAgentEnvironment({ AI_AGENT: "false" }), null);
   assert.equal(sanitizeForTerminal("a\u001b[2Jb\tc\u2066"), "a\\u{1b}[2Jb\tc\\u{2066}");
