@@ -95,7 +95,7 @@ agentsol connect claude-code --guard --remove   # undo
 | Codex | Block only (Codex does not support ask yet); `connect codex --guard` prints the `~/.codex/hooks.json` entry |
 | Gemini CLI | Block, and a warning instead of ask; `connect gemini --guard` prints the `BeforeTool` entry |
 
-It is local and fast (about 0.1 s per command), and fails open: any error or a 2-second timeout lets the command run. Lessons come from registered projects and refresh in the background at most every 30 minutes. `AGENTSOL_GUARD=off` turns it off. The hook stores absolute paths, so run `connect … --guard` again after upgrading Node or reinstalling.
+It is local and fast (about 0.1 s per command), and fails open: any error or a 2-second timeout lets the command run. Lessons come from registered projects and refresh in the background at most every 30 minutes. `AGENTSOL_GUARD=off` turns it off. Commands longer than 20,000 characters are checked on their first 20,000 and then wait for you. The hook stores absolute paths, so run `connect … --guard` again after upgrading Node or reinstalling; `agentsol doctor` warns when those paths are gone. A symlinked `settings.json` is written through to its target. The guard hook has not been tested on Windows.
 
 ## Check · instructions your agents actually read
 
