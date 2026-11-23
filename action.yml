@@ -16,8 +16,8 @@ inputs:
     description: Upload findings to GitHub code scanning (needs `security-events write` permission).
     default: "true"
   version:
-    description: Agentsol version or npm dist-tag to run.
-    default: alpha
+    description: Agentsol version to run. The default is the exact release this action was tagged with, so a new npm publish never changes your CI.
+    default: "0.2.0-alpha.6"
 
 outputs:
   sarif-file:
@@ -46,7 +46,9 @@ runs:
         if [[ -f "$sarif" ]]; then echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"; fi
         exit "${status:-0}"
 
-    - if: always() && inputs.upload-sarif == 'true' && steps.check.outputs.sarif-file != ''
+    # Pull requests from forks get a read-only token, so code scanning upload would fail there.
+    - if: always() && inputs.upload-sarif == 'true' && steps.check.outputs.sarif-file != '' && github.event.pull_request.head.repo.fork != true
+      continue-on-error: true
       uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
       with:
         sarif_file: ${{ steps.check.outputs.sarif-file }}

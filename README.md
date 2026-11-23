@@ -126,7 +126,7 @@ jobs:
         with: { strict: "true" }
 ```
 
-Locally, `npx -y agentsol@alpha check --sarif-file agentsol.sarif` writes the same SARIF and keeps the normal report. The action needs `0.2.0-alpha.5` or later.
+The action pins an exact Agentsol version (set `version` to change it), so a new npm release never changes your CI. On pull requests from forks the token is read-only, so the upload is skipped and findings stay in the job log; an upload error never fails the job. Locally, `npx -y agentsol@alpha check --sarif-file agentsol.sarif` writes the same SARIF and keeps the normal report.
 
 ## Inspect · before you install a skill or MCP server
 

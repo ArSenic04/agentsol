@@ -23,6 +23,8 @@ test("one version everywhere: package.json, lockfile, CLI --version and the MCP 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, new RegExp(`^agentsol ${PRODUCT_VERSION.replace(/\./g, "\\.")} \\(early alpha`));
   assert.match(readFileSync(path.join(REPO, "src/mcp/server.ts"), "utf8"), /version: PRODUCT_VERSION/);
+  const action = readFileSync(path.join(REPO, "action.yml"), "utf8");
+  assert.equal(/\n  version:\n(?: {4}.*\n)*? {4}default: "([^"]+)"/.exec(action)?.[1], PRODUCT_VERSION, "the GitHub Action runs the exact release it ships with");
 });
 
 test("package metadata stays release-safe until a person decides", () => {
