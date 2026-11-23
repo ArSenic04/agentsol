@@ -60,3 +60,10 @@
 - Release file: `artifacts/release/agentsol-0.2.0-alpha.4.tgz`, 48 files, 144,698 bytes, sha256 e426f5b0277e14bd954c476f4a6e7fac537391466bb1483fdced012b0644b2cf, integrity sha512-PT0Sls/kwm5ipA11UGaC4oS4JzLU+aOFDbpm3l/sjfsoAS1q4lR1NzwScf9mFj+DgiAagK7NDAv39x6HQXFpfw==.
 - `release:check` READY: pack audit; sha512 equals npm pack; clean install + CLI + MCP 21/21 on Node 26.8.2 and 25.9.0; dry run tag alpha, public; tarball unchanged.
 - Next steps (a person): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.4.tgz --tag alpha --access public --registry https://registry.npmjs.org/`; `npm dist-tag add agentsol@0.2.0-alpha.4 latest`; then `mcp-publisher login github` and `mcp-publisher publish` in the repo.
+
+## Agentsol 0.2.0-alpha.5: prepared, NOT published (Nov 23, 2026)
+- Supersedes the unpublished alpha.4 (tarball kept unchanged). Publish alpha.5.
+- New: `agentsol guard`, a pre-command hook (Claude Code block + ask, Codex block, Gemini CLI block + warning) that blocks the wrong package manager and commands past sessions show fail, and asks before dangerous ones; replay on 1,178 real agent commands: 0 blocked, 0 asked. `check --sarif` / `--sarif-file` and a GitHub Action (`action.yml`). `npm run eval:learn`: 35 labelled histories; held-out precision 100%, recall 89%, no leaks. `learn` ignores network, rate-limit and sandbox failures and learns wrong-folder paths.
+- Release file: `artifacts/release/agentsol-0.2.0-alpha.5.tgz`, 51 files, 160,158 bytes, sha256 d1f34577f39da28f3f2672a78317c0b4c1ae7fdbf3cf0b3bec1484036591cc66, integrity sha512-WbmoVltHXxMGqlqntWfbxiTu8LRr2TCxYcFRykqZt4N5xqoqQfhNAl/wsIQkucTnbzVMOXXouoInRYjMJCmAxQ==.
+- `release:check` READY on Node 26.8.2 and 25.9.0 (21/21 each, dry run tag alpha, public, tarball unchanged). Also verified from the installed tarball: `guard --test`, hook-mode JSON, and `check --sarif`.
+- Next steps (a person): `npm publish ./artifacts/release/agentsol-0.2.0-alpha.5.tgz --tag alpha --access public --registry https://registry.npmjs.org/`; `npm dist-tag add agentsol@0.2.0-alpha.5 latest`; `mcp-publisher login github` then `mcp-publisher publish`.

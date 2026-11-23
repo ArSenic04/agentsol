@@ -126,7 +126,7 @@ jobs:
         with: { strict: "true" }
 ```
 
-Locally, `npx -y agentsol@alpha check --sarif-file agentsol.sarif` writes the same SARIF and keeps the normal report. The action needs the next published alpha; `0.2.0-alpha.4` has no `--sarif`.
+Locally, `npx -y agentsol@alpha check --sarif-file agentsol.sarif` writes the same SARIF and keeps the normal report. The action needs `0.2.0-alpha.5` or later.
 
 ## Inspect · before you install a skill or MCP server
 
@@ -180,7 +180,7 @@ flowchart LR
 - **Show you a secret.** Secret-like text is masked before your assistant sees it (by pattern, so keep secrets out of instruction files anyway). Session review, learn and guard return derived facts only, never transcript text or secret values.
 - **Read what you did not register.** Only folders you add are visible. `CLAUDE.local.md`, `.env*`, keys, credentials, symlinks and hard-linked files are never read.
 
-> **Early alpha (0.2.0-alpha.4).** A person has not yet run approve and apply end to end through this CLI; those steps are covered by automated tests only. No real assistant app has been formally validated. Tested on macOS (arm64) with Node 24 and 26; Linux and Windows are untested. Try it on the synthetic demo first and keep your files in version control.
+> **Early alpha (0.2.0-alpha.5).** A person has not yet run approve and apply end to end through this CLI; those steps are covered by automated tests only. No real assistant app has been formally validated. Tested on macOS (arm64) with Node 24 and 26; Linux and Windows are untested. Try it on the synthetic demo first and keep your files in version control.
 
 ## All commands
 
@@ -360,7 +360,7 @@ npm run test:web                                    # build, then browser tests 
 <details>
 <summary><b>Version history and earlier names</b></summary>
 
-- `0.1.0-alpha.2` added `check`, `connect`, `prompt`, the default workspace and the MCP prompts. Session review, grading and the setup audit arrived with `0.2.0-alpha.0`; `learn` with `0.2.0-alpha.1`; `start` with `0.2.0-alpha.2`; field-evaluation fixes (fewer false alarms in `check` and `inspect`, compaction-aware `learn`) with `0.2.0-alpha.3`; check D16 (wrong package manager), wrapped commands, MCP Registry and Claude Code plugin packaging with `0.2.0-alpha.4`. Not yet released: `guard`, the `learn` eval, and `learn` ignoring network, rate-limit and sandbox failures.
+- `0.1.0-alpha.2` added `check`, `connect`, `prompt`, the default workspace and the MCP prompts. Session review, grading and the setup audit arrived with `0.2.0-alpha.0`; `learn` with `0.2.0-alpha.1`; `start` with `0.2.0-alpha.2`; field-evaluation fixes (fewer false alarms in `check` and `inspect`, compaction-aware `learn`) with `0.2.0-alpha.3`; check D16 (wrong package manager), wrapped commands, MCP Registry and Claude Code plugin packaging with `0.2.0-alpha.4`. `guard`, `check --sarif` with the GitHub Action, the `learn` eval, and `learn` ignoring network, rate-limit and sandbox failures with `0.2.0-alpha.5`.
 - Earlier names were AgentWeave, then Agentlore (both Nov 2026; the npm name `agentlore` was refused as too similar to an existing package). `AGENTLORE_WORKSPACE`, then `AGENTWEAVE_WORKSPACE`, still work when `AGENTSOL_WORKSPACE` is not set. Existing workspaces need no migration.
 - Demos made earlier in `$TMPDIR/agentweave-demo` or `$TMPDIR/agentlore-demo` still work with `--workspace "$TMPDIR/agentweave-demo/workspace"`.
 </details>
