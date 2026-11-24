@@ -385,7 +385,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     const now = JSON.parse(await readFile(settings, "utf8"));
     assert.deepEqual(now.permissions, original.permissions);
     assert.equal(now.hooks.PreToolUse.length, 2);
-    assert.match(now.hooks.PreToolUse[1].command ?? now.hooks.PreToolUse[1].hooks[0].command, /guard\.ts'?$/);
+    assert.match(now.hooks.PreToolUse[1].command ?? now.hooks.PreToolUse[1].hooks[0].command, /guard\.ts['"]?$/);
     assert.equal(backups().length, 1);
     assert.deepEqual(JSON.parse(await readFile(path.join(home, ".claude", backups()[0]!), "utf8")), original);
 
