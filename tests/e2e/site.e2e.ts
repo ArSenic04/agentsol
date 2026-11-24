@@ -400,11 +400,11 @@ test("hero session: decorative, labelled for screen readers, honest about suppor
   assert.equal(await art.locator(".term [tabindex], .term a, .term button").count(), 0, "the session adds no focus stops");
   const caption = await art.locator("figcaption").innerText();
   assert.match(caption, /Illustrative session/);
-  assert.match(caption, /exercised by automated tests today/);
-  assert.match(caption, /not yet validated/);
+  assert.match(caption, /real hook output/);
+  assert.match(caption, /not yet run live/);
   assert.match(await art.locator(".sr-only").textContent() ?? "", /waits for you to approve/);
   const motion = await page.evaluate(() => [...document.querySelectorAll(".term-line")].map((el) => getComputedStyle(el).animationIterationCount));
-  assert.ok(motion.length >= 10 && motion.every((n) => n === "1"), `session lines animate once (${motion.join(",")})`);
+  assert.ok(motion.length >= 9 && motion.every((n) => n === "1"), `session lines animate once (${motion.join(",")})`);
   const brand = await page.locator(".wordmark").innerText();
   assert.equal(brand.trim(), "Agentsol");
   assert.equal(await page.title(), "Agentsol: your AI agents forget, Agentsol remembers");

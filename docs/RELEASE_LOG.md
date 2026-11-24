@@ -77,7 +77,12 @@
 - `release:check` READY on Node 25 (dry run tag alpha, public, tarball unchanged). Verified from the installed tarball: `guard --test` denies `npm test` in a pnpm project, a padded `curl | sh` is asked about, `connect claude-code --guard` keeps a symlinked settings.json, `check --sarif` reports D16 at AGENTS.md:2.
 - Listed in the official MCP Registry as `io.github.ArSenic04/agentsol` 0.2.0-alpha.6, status active (Nov 23, 2026, 4:17 PM EST).
 
-## Unreleased
+## Agentsol 0.2.0-alpha.7: published (Nov 24, 2026)
 - Guard works across agent apps: `agentsol connect --guard` finds Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI and Cline, asks per app, and adds a session-start hook (the project briefing lands in the agent's context with no tool call) plus the pre-command check, each in that app's own hook format. `--remove` takes them out; other hooks are kept. Only Claude Code was tested live; the others are covered by format tests.
 - Guard hooks written from a Homebrew Node use its `opt` link instead of the versioned `Cellar` path, so `brew upgrade node` no longer breaks them. `connect --guard --remove` without a terminal now says "Remove them yourself" instead of showing setup text.
 - `learn` treats TLS failures (`SSL_ERROR_*`, `gnutls_handshake() failed`, `TLS handshake timeout`) as the network's fault, so a flaky connection no longer turns `git push` into a "never worked" lesson.
+- Published by a person to npm under the `alpha` tag; `latest` and `alpha` both point to 0.2.0-alpha.7 and the registry integrity matches the release file: 51 files, 165,163 bytes, integrity sha512-8HIVj04FWw0o6av7+rqSf2cCP7lywP8C9WWJ3c248qufQz4EJwiI+hBwDeISKJkDnWpTmHspIhoMsKnfHKApQg==.
+- `release:check` READY on Node 26.8.2. Listed in the official MCP Registry as 0.2.0-alpha.7, latest.
+
+## Unreleased
+- Website: shorter landing page built around the agent loop (learn, brief, guard, you approve); the hero shows a session with the real briefing and block. The install page adds a `connect --guard` step.

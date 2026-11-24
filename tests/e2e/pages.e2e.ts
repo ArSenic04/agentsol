@@ -83,6 +83,6 @@ test("pages export copy button copies the exact command", async () => {
   const step1 = page.locator(".setup-step").first();
   await step1.getByRole("button", { name: "Copy" }).click();
   await step1.getByText("Copied").waitFor();
-  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "cd your-project\nnpx -y agentsol@alpha start");
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "npm i -g agentsol@alpha\ncd your-project\nagentsol start");
   await ctx.close();
 });

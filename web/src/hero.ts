@@ -1,30 +1,24 @@
 import { h } from "./dom.ts";
 
 /**
- * The hero: an agent session replayed as text. Tool names are Agentsol's real MCP tools and
- * the results are what the core reports on the synthetic demo project; the session itself is
- * illustrative, not a recording of an assistant app. Lines fade in once; reduced motion shows
- * them all at once.
+ * The hero: an agent session replayed as text. The briefing and the block are what the guard hook
+ * returns for this case; the session itself is illustrative, not a recording of an assistant app.
+ * Lines fade in once; reduced motion shows them all at once.
  */
 type Kind = "user" | "call" | "ok" | "warn" | "poss" | "wait";
 const ICON: Record<Kind, string> = { user: "›", call: "⏺", ok: "✓", warn: "!", poss: "?", wait: "⏸" };
 
 const SESSION: readonly (readonly [Kind, string, string?])[] = [
-  ["user", "Audit the agent instructions in this repo."],
-  ["call", "sources_scan", "paper-lantern-demo"],
-  ["ok", "5 instruction files read · CLAUDE.local.md and .env.local skipped"],
-  ["call", "findings_list"],
-  ["warn", "CLAUDE.md:4  @docs/style-guide.md does not exist"],
-  ["warn", "AGENTS.md:5  secret-like text, masked before I saw it"],
-  ["warn", "skills/changelog/SKILL.md  description is missing"],
-  ["call", "source_read", "AGENTS.md, services/api/AGENTS.md"],
-  ["poss", "Possible: root says npm, services/api says pnpm (both lines quoted)"],
-  ["call", "change_propose", "AGENTS.md:3"],
-  ["ok", "Diff stored. No file was changed."],
-  ["call", "Bash", "npm ci"],
-  ["warn", "Blocked by agentsol guard: this repo uses pnpm → pnpm install --frozen-lockfile"],
-  ["wait", "Your turn: npx -y agentsol@alpha review <proposalId>"],
-];
+  ["ok", "Session start · agentsol briefing added", "use pnpm, not npm: npm failed here 3×"],
+  ["user", "Fix the failing date test, then run the tests."],
+  ["call", "Edit", "src/date.ts"],
+  ["call", "Bash", "npm test"],
+  ["warn", "Blocked by agentsol guard: npm failed here 3 times, pnpm worked → pnpm test"],
+  ["call", "Bash", "pnpm test"],
+  ["ok", "42 tests passed"],
+  ["poss", "AGENTS.md:3 still says npm test · fix proposed as a diff, not applied"],
+  ["wait", "Your turn: agentsol review <proposalId>"],
+]
 
 function line([kind, text, arg]: readonly [Kind, string, string?]): HTMLElement {
   return h("li", { class: `term-line t-${kind}` },
@@ -35,109 +29,18 @@ function line([kind, text, arg]: readonly [Kind, string, string?]): HTMLElement 
 export function heroDiagram(): HTMLElement {
   return h("figure", { class: "hero-art" },
     h("div", { class: "term", attrs: { "aria-hidden": "true" } },
-      h("div", { class: "term-bar" }, h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-title" }, "your assistant + agentsol mcp")),
+      h("div", { class: "term-bar" }, h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-title" }, "your agent + agentsol")),
       h("ol", { class: "term-body" }, ...SESSION.map(line))),
     h("figcaption", { class: "legend" },
-      h("span", { class: "sr-only" }, "Illustration of an assistant session: your assistant scans the project through Agentsol, lists findings such as a missing import and a masked secret, quotes two conflicting lines as a possible issue, and stores a proposed diff. Agentsol guard then blocks an npm command in this pnpm repo and names the right one. The change waits for you to approve in your own terminal. "),
-      h("span", { class: "legend-item" }, h("span", { class: "swatch", attrs: { "aria-hidden": "true" } }), "Illustrative session: real tool names and synthetic-demo results, exercised by automated tests today"),
-      h("span", { class: "legend-item" }, h("span", { class: "swatch swatch-dashed", attrs: { "aria-hidden": "true" } }), "Assistant apps connect through their standard MCP config and are not yet validated")));
+      h("span", { class: "sr-only" }, "Illustration of an agent session: at session start Agentsol adds the project's lessons, the agent's npm test is blocked with the command that works, the agent runs pnpm test and the tests pass, and the fix to the out-of-date instruction line waits for you to approve. "),
+      h("span", { class: "legend-item" }, h("span", { class: "swatch", attrs: { "aria-hidden": "true" } }), "Illustrative session: the briefing and the block are Agentsol\u2019s real hook output"),
+      h("span", { class: "legend-item" }, h("span", { class: "swatch swatch-dashed", attrs: { "aria-hidden": "true" } }), "Ran live in Claude Code; the other apps\u2019 hook formats are tested, not yet run live")));
 }
 
 type C = "sun" | "agent" | "ok" | "bad" | "warn" | "info" | "muted" | "bold" | "";
 type Run = readonly [C, string];
 
-const BANNER = [
-  " █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗ ██████╗ ██╗     ",
-  "██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝██╔═══██╗██║     ",
-  "███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗██║   ██║██║     ",
-  "██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║██║   ██║██║     ",
-  "██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║╚██████╔╝███████╗",
-  "╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝ ╚═════╝ ╚══════╝",
-];
-
-const NEXT_W = 62;
-const boxRow = (runs: readonly Run[]): Run[] => {
-  const len = runs.reduce((n, [, t]) => n + [...t].length, 0);
-  return [["agent", "│ "], ...runs, ["", " ".repeat(Math.max(0, NEXT_W - len))], ["agent", " │"]];
-};
-
-/** `agentsol check` on a synthetic project, transcribed from a truecolor terminal. */
-const REPORT: readonly (readonly Run[])[] = [
-  [["agent", "◉ "], ["bold", "agentsol check"], ["muted", "  ~/code/my-app"]],
-  [["agent", "✓ "], ["", "Registered "], ["bold", "my-app"], ["muted", " in ~/.agentsol"]],
-  [["agent", "✓ "], ["", "Read 4 instruction files"], ["muted", " in 13 ms · nothing in your project was changed"]],
-  [],
-  [["sun", "◆ "], ["bold", "Findings"], ["", "  "], ["bad", "2 errors"], ["muted", " · "], ["warn", "2 warnings"], ["muted", " · "], ["info", "3 notes"]],
-  [],
-  [["bad", "  ✗ error  "], ["bold", "D02"], ["agent", "  skills/changelog/SKILL.md:2"], ["muted", "  fact"]],
-  [["", "    Skill name `Changelog` must use lowercase letters, digits and single hyphens."]],
-  [["muted", "       2 │ "], ["", "name: Changelog"]],
-  [],
-  [["warn", "  ▲ warn   "], ["bold", "D12"], ["agent", "  AGENTS.md:5"], ["muted", "  fact"]],
-  [["", "    1 line contains secret-like text. Every assistant that reads this file sees it."]],
-  [["muted", "       5 │ "], ["", "- token = [REDACTED:assignment]"]],
-  [],
-  [["warn", "  ▲ warn   "], ["bold", "D09"], ["agent", "  CLAUDE.md:3"], ["muted", "  fact"]],
-  [["", "    Import `@docs/style-guide.md` points to `docs/style-guide.md`, which does not exist."]],
-  [["muted", "       3 │ "], ["", "@docs/style-guide.md"]],
-  [],
-  [["agent", "╭─ "], ["bold", "Next"], ["agent", ` ${"─".repeat(NEXT_W - 5)}╮`]],
-  boxRow([["agent", "1 "], ["", "Let your AI go deeper:  "], ["bold", "npx -y agentsol@alpha connect"]]),
-  boxRow([["", "    then ask it: "], ["sun", "“Use agentsol to audit this project.”"]]),
-  boxRow([["agent", "2 "], ["", "Any chat AI, no setup:  "], ["bold", "npx -y agentsol@alpha prompt"]]),
-  [["agent", `╰${"─".repeat(NEXT_W + 2)}╯`]],
-];
-
 const runs = (row: readonly Run[]): HTMLElement => h("span", { class: "cli-line" }, ...row.map(([c, t]) => (c ? h("span", { class: `c-${c}` }, t) : t)), "\n");
-const bannerRow = (row: string): HTMLElement => h("span", { class: "cli-line" }, ...row.split(/(█+)/).filter(Boolean).map((part) => (part.startsWith("█") ? part : h("span", { class: "cb-sh" }, part))), "\n");
-
-/** The terminal UI, as text. Scrolls sideways on narrow screens instead of wrapping. */
-export function cliShowcase(): HTMLElement {
-  return h("figure", { class: "cli-art" },
-    h("div", { class: "term" },
-      h("div", { class: "term-bar" }, h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-title" }, "~/code/my-app — npx -y agentsol@alpha check")),
-      h("pre", { class: "cli", attrs: { tabindex: "0", role: "region", "aria-label": "Example agentsol check report in a terminal" } },
-        h("span", { class: "cli-banner", attrs: { "aria-hidden": "true" } }, ...BANNER.map(bannerRow)),
-        ...REPORT.map(runs))),
-    h("figcaption", { class: "legend" }, h("span", { class: "legend-item" }, "Transcribed from a real run on a synthetic project. Colors follow your terminal; NO_COLOR and pipes get plain text.")));
-}
-
-/** `agentsol sessions` and `agentsol session <id>` on a synthetic transcript, transcribed from a real run. */
-const SESSIONS: readonly (readonly Run[])[] = [
-  [["agent", "◉ "], ["bold", "agentsol sessions"], ["muted", "  since 11/06/2026 · Claude Code and Codex"]],
-  [],
-  [["bad", "  ✗ risky   "], ["bold", "claude-531fdff16bae  "], ["muted", "Claude 2h ago  "], ["", "my-app"], ["muted", "    41 steps · 6 edited · 182k tok"]],
-  [["warn", "  ▲ review  "], ["bold", "codex-9e04c2a1b7d3   "], ["muted", "Codex  1d ago  "], ["", "my-app"], ["muted", "    17 steps · 2 edited · 64k tok"]],
-  [["ok", "  ✓ clean   "], ["bold", "claude-27b8e0f4c91a  "], ["muted", "Claude 3d ago  "], ["", "docs-site"], ["muted", " 12 steps · 1 edited · 31k tok"]],
-  [],
-  [["agent", "◉ "], ["bold", "session claude-531fdff16bae"], ["bad", "  ✗ risky"], ["muted", "  Claude Code"]],
-  [],
-  [["sun", "◆ "], ["bold", "Findings"], ["", "  "], ["bad", "1 error"], ["muted", " · "], ["warn", "2 warnings"], ["muted", " · "], ["info", "1 note"]],
-  [],
-  [["bad", "  ✗ error  "], ["bold", "A01"], ["", "  Destructive command"], ["muted", "  · step 38"]],
-  [["", "    Recursively deleted your home folder."]],
-  [["agent", "    rm -rf ~"]],
-  [],
-  [["warn", "  ▲ warn   "], ["bold", "A05"], ["", "  Safety check bypassed"], ["muted", "  · step 31"]],
-  [["", "    Committed with --no-verify, skipping the repository's commit hooks."]],
-  [["agent", "    git commit --no-verify -m wip"]],
-  [],
-  [["warn", "  ▲ warn   "], ["bold", "A06"], ["", "  Tests weakened or removed"], ["muted", "  · step 24"]],
-  [["", "    Added 1 skipped or focused test, so part of the test suite no longer runs."]],
-  [],
-  [["info", "  ● note   "], ["bold", "A12"], ["", "  Edits never verified"], ["muted", "  · step 40"]],
-  [["", "    Code changed after the last test, build or lint run."]],
-  [],
-  [["muted", "  Read from the transcript on this machine. Nothing was changed, and nothing was sent anywhere."]],
-];
-
-export function sessionShowcase(): HTMLElement {
-  return h("figure", { class: "cli-art" },
-    h("div", { class: "term" },
-      h("div", { class: "term-bar" }, h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-dot" }), h("span", { class: "term-title" }, "~/code/my-app — npx -y agentsol@alpha sessions")),
-      h("pre", { class: "cli", attrs: { tabindex: "0", role: "region", "aria-label": "Example agentsol sessions and session report in a terminal" } }, ...SESSIONS.map(runs))),
-    h("figcaption", { class: "legend" }, h("span", { class: "legend-item" }, "Synthetic transcripts. Check ids, wording and layout are the CLI's own; the session list is illustrative.")));
-}
 
 const BOX = 62;
 const ltop = (title: string): Run[] => [["", "  ╭─ "], ["bold", title], ["", ` ${"─".repeat(BOX - title.length - 3)}╮`]];
