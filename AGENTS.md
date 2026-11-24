@@ -2,7 +2,7 @@
 
 Read this first; it is meant to replace exploring the repo. Owner: ArSenic04. Public repo github.com/ArSenic04/agentsol (MIT), `main` only.
 npm package `agentsol` (current `0.2.0-alpha.7`, tags `alpha` and `latest`), MCP Registry name `io.github.ArSenic04/agentsol`.
-Website: https://arsenic04.github.io/agentsol/ (built from `web/` in this repo). The old `agentsol-site` repo only redirects there; never deploy to it.
+Website: https://arsenic04.github.io/agentsol/ (built from `web/` in this repo). There is no separate site repo; the old `agentsol-site` repo and its `/agentsol-site/` URLs are gone. Never recreate them.
 
 ## What Agentsol is
 A local tool (no server, account or API key) that stops AI coding agents repeating mistakes:
