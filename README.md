@@ -24,6 +24,7 @@
   <a href="https://arsenic04.github.io/agentsol/">Website</a> ·
   <a href="https://arsenic04.github.io/agentsol/#/demo">Live demo</a> ·
   <a href="https://arsenic04.github.io/agentsol/#/check">Check in your browser</a> ·
+  <a href="https://github.com/marketplace/actions/agentsol-guard">GitHub Action</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#the-details">Docs</a>
 </p>
