@@ -1,4 +1,4 @@
-name: Agentsol check
+name: Agentsol Guard
 description: Lint AGENTS.md, CLAUDE.md and SKILL.md on every pull request, with findings in code scanning. Offline, no account.
 author: ArSenic04
 branding:
