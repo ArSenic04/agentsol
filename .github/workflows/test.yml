@@ -81,4 +81,6 @@ jobs:
       - shell: bash
         env:
           SARIF: ${{ steps.agentsol.outputs.sarif-file }}
-        run: test -s "$SARIF" && grep -q '"version": "2.1.0"' "$SARIF"
+        run: |
+          test -s "$SARIF"
+          grep -q '"version": "2.1.0"' "$SARIF"
