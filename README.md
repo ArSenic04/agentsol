@@ -135,7 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: ArSenic04/agentsol@main
+      - uses: ArSenic04/agentsol@v0.2.0-alpha.8
         with: { strict: "true" }
 ```
 

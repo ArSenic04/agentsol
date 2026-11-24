@@ -98,11 +98,12 @@ Interfaces: the CLI (`agentsol`), the MCP server (`agentsol-mcp`, stdio), hooks 
 - Website deploy: automatic. Pushing to `main` with changes in `web/`, `src/`, `scripts/` or package files runs `.github/workflows/pages.yml` (`npm ci`, then `node scripts/exportPages.ts --out _site`, then GitHub Pages). Verify with `gh run list -w pages.yml -L1` and fetch `https://arsenic04.github.io/agentsol/js/landing.js` (pages render client-side, so grep the JS, not the HTML). External URLs in the site must pass the allowlist in `tests/web/build.test.ts`.
 
 ## Release (the person publishes)
-1. Bump the version everywhere: `package.json`, `package-lock.json` (top two entries), `server.json` (both places), `src/core/version.ts` `PRODUCT_VERSION`, the `action.yml` `version` default, the version in `README.md`. `tests/version.test.ts` checks they agree.
+1. Bump the version everywhere: `package.json`, `package-lock.json` (top two entries), `server.json` (both places), `src/core/version.ts` `PRODUCT_VERSION`, the `action.yml` `version` default, the version in `README.md`, and the Action tag `ArSenic04/agentsol@v<ver>` in `README.md`, `web/src/landing.ts` and `web/llms.txt`. `tests/version.test.ts` checks they agree.
 2. Add a dated entry to `docs/RELEASE_LOG.md`.
 3. `npm run -s check && npm run -s test:web && npm run -s release:check`. It must print READY. It writes `artifacts/release/agentsol-<ver>.tgz` plus `.release.json` and never overwrites. Delete an unpublished tarball you created before re-running.
 4. Commit and push. Then give the person: `npm publish ./artifacts/release/agentsol-<ver>.tgz --tag alpha --access public --registry https://registry.npmjs.org/`, then `npm dist-tag add agentsol@<ver> latest`, then `mcp-publisher login github` and `mcp-publisher publish` (only after npm has the version, or the registry returns 400).
-5. Verify: `npm view agentsol dist-tags`, the integrity matches `.release.json`, and the MCP Registry shows the version as latest. Record it in the release log.
+5. After npm has it: create the GitHub release `v<ver>` on that commit (`gh release create v<ver> --prerelease --target <sha>`). The person ticks "Publish this Action to the GitHub Marketplace" by editing the release in the web UI (needs 2FA).
+6. Verify: `npm view agentsol dist-tags`, the integrity matches `.release.json`, and the MCP Registry shows the version as latest. Record it in the release log.
 
 ## Known gotchas
 - `npm run -s` passes `loglevel=silent` to child npm processes; scripts that parse npm output must pass `--loglevel notice`.
