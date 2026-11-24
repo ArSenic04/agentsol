@@ -90,3 +90,6 @@
 - The website is built and deployed from this repository (`.github/workflows/pages.yml`) at https://arsenic04.github.io/agentsol/; the separate site repository is retired.
 - `SECURITY.md` (private reporting), repo guide in `AGENTS.md` with `CLAUDE.md` importing it, README session GIF and tests badge.
 - Website: shorter landing page built around the agent loop (learn, brief, guard, you approve); the hero shows a session with the real briefing and block. The install page adds a `connect --guard` step.
+
+## Unreleased
+- GitHub Action installs the exact Agentsol version into its own folder instead of using npx, which could run another copy (a global install or a checked-out repository named agentsol). CI now runs the Action itself on Linux and Windows.

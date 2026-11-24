@@ -42,7 +42,10 @@ runs:
         sarif="$RUNNER_TEMP/agentsol.sarif"
         strict=()
         if [[ "$AGENTSOL_STRICT" == "true" ]]; then strict=(--strict); fi
-        npx -y "agentsol@$AGENTSOL_VERSION" --workspace "$RUNNER_TEMP/agentsol-workspace" check "${strict[@]}" --sarif-file "$sarif" "$AGENTSOL_PATH" || status=$?
+        # Installed into its own folder: npx could pick up another copy (the checked-out repo, a global install).
+        cli="$RUNNER_TEMP/agentsol-cli"
+        npm install --prefix "$cli" --no-save --no-audit --no-fund --ignore-scripts --loglevel error "agentsol@$AGENTSOL_VERSION"
+        node "$cli/node_modules/agentsol/bin/agentsol.mjs" --workspace "$RUNNER_TEMP/agentsol-workspace" check "${strict[@]}" --sarif-file "$sarif" "$AGENTSOL_PATH" || status=$?
         if [[ -f "$sarif" ]]; then echo "sarif-file=$sarif" >> "$GITHUB_OUTPUT"; fi
         exit "${status:-0}"
 
