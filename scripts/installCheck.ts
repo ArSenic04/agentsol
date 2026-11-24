@@ -35,6 +35,10 @@ const TARBALL = ((): string => {
   return path.join(REPO, "artifacts", "pack", tarballs[0] ?? "");
 })();
 const NODE = path.resolve(argValue("--node") ?? process.execPath);
+/** npm through node: on Windows npm is npm.cmd, which spawnSync cannot run without a shell. */
+const NPM_CLI = /\.c?js$/.test(process.env.npm_execpath ?? "") ? process.env.npm_execpath! : null;
+const npmSpawn = (args: string[], opts: { cwd?: string; encoding: "utf8" }) =>
+  NPM_CLI ? spawnSync(process.execPath, [NPM_CLI, ...args], opts) : spawnSync("npm", args, { ...opts, shell: process.platform === "win32" });
 const nodeVersion = spawnSync(NODE, ["--version"], { encoding: "utf8" }).stdout.trim();
 const tarballSha512 = FROM_REGISTRY ? "" : createHash("sha512").update(readFileSync(TARBALL)).digest("base64");
 
@@ -54,8 +58,8 @@ try {
   record("install folder is outside the repository", !base.startsWith(REPO) && !REPO.startsWith(base), base.replace(/.*\//, "<tmp>/"));
   const t0 = performance.now();
   const inst = FROM_REGISTRY
-    ? spawnSync("npm", ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-online", "--cache", path.join(base, "empty-npm-cache"), "--registry", "https://registry.npmjs.org/", FROM_REGISTRY], { cwd: app, encoding: "utf8" })
-    : spawnSync("npm", ["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline", TARBALL], { cwd: app, encoding: "utf8" });
+    ? npmSpawn(["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-online", "--cache", path.join(base, "empty-npm-cache"), "--registry", "https://registry.npmjs.org/", FROM_REGISTRY], { cwd: app, encoding: "utf8" })
+    : npmSpawn(["install", "--no-audit", "--no-fund", "--ignore-scripts", "--prefer-offline", TARBALL], { cwd: app, encoding: "utf8" });
   record(FROM_REGISTRY ? `npm install ${FROM_REGISTRY} from registry.npmjs.org (empty cache, scripts disabled)` : "npm install <tarball> (scripts disabled)", inst.status === 0, `${Math.round(performance.now() - t0)} ms${inst.status === 0 ? "" : `: ${inst.stderr.slice(-400)}`}`);
   if (inst.status !== 0) throw new Error("install failed");
 
@@ -156,8 +160,9 @@ try {
   record("project files unchanged by scan, MCP reads and propose", hashAll() === before);
 
   const installedText = manifests.filter((m) => m.includes(`${path.sep}agentsol${path.sep}`)).length;
-  const grep = spawnSync("grep", ["-rl", REPO, path.join(nm, "agentsol")], { encoding: "utf8" });
-  record("installed package contains no repository path", grep.stdout.trim() === "", `${installedText} manifest(s) checked`);
+  const pkgDir = path.join(nm, "agentsol");
+  const withRepoPath = readdirSync(pkgDir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && readFileSync(path.join(e.parentPath, e.name), "utf8").includes(REPO));
+  record("installed package contains no repository path", withRepoPath.length === 0, `${installedText} manifest(s) checked`);
   if (FROM_REGISTRY) {
     const lock = JSON.parse(readFileSync(path.join(app, "package-lock.json"), "utf8")).packages?.["node_modules/agentsol"] ?? {};
     record("installed agentsol came from registry.npmjs.org with the expected integrity", lock.integrity === EXPECT_INTEGRITY && String(lock.resolved).startsWith("https://registry.npmjs.org/agentsol/-/"), `${lock.resolved} ${String(lock.integrity).slice(0, 23)}…`);

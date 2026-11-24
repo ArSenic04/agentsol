@@ -12,6 +12,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/ArSenic04/agentsol/actions/workflows/test.yml"><img alt="tests" src="https://github.com/ArSenic04/agentsol/actions/workflows/test.yml/badge.svg"></a>
   <a href="https://www.npmjs.com/package/agentsol"><img alt="npm" src="https://img.shields.io/npm/v/agentsol/alpha?label=npm%20%40alpha&color=111"></a>
   <img alt="licence MIT" src="https://img.shields.io/badge/licence-MIT-111">
   <img alt="node 24+" src="https://img.shields.io/badge/node-%E2%89%A524-111">
@@ -28,7 +29,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/agent-session.png" alt="An assistant using the agentsol MCP server: it scans the project, lists findings, reads two files, proposes a diff and stops for a person" width="720">
+  <img src="docs/images/guard-session.gif" alt="An agent session with Agentsol: the session starts with the project's lessons, the agent's npm test is blocked with the command that works, the agent runs pnpm test and the tests pass, and the fix to the out-of-date instruction line waits for the person" width="640"><br>
+  <sub>Illustrative session. The briefing and the block are Agentsol's real hook output.</sub>
 </p>
 
 ---

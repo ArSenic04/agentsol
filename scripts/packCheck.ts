@@ -20,9 +20,13 @@ const DEST = path.join(REPO, "artifacts", "pack");
 await mkdir(DEST, { recursive: true });
 for (const f of readdirSync(DEST)) if (f.endsWith(".tgz")) rmSync(path.join(DEST, f));
 
+/** npm through node: on Windows npm is npm.cmd, which spawnSync cannot run without a shell. */
+const NPM_CLI = /\.c?js$/.test(process.env.npm_execpath ?? "") ? process.env.npm_execpath! : null;
+const npmSpawn = (args: string[], opts: { cwd?: string; encoding: "utf8" }) =>
+  NPM_CLI ? spawnSync(process.execPath, [NPM_CLI, ...args], opts) : spawnSync("npm", args, { ...opts, shell: process.platform === "win32" });
 const run = (cmd: string, args: string[], cwd = REPO): string => {
-  const r = spawnSync(cmd, args, { cwd, encoding: "utf8" });
-  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${r.stderr}`);
+  const r = cmd === "npm" ? npmSpawn(args, { cwd, encoding: "utf8" }) : spawnSync(cmd, args, { cwd, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")} failed: ${r.stderr ?? r.error}`);
   return r.stdout;
 };
 // Build explicitly: this repository's .npmrc sets ignore-scripts=true, so prepack does not run.

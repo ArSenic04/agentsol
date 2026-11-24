@@ -36,6 +36,8 @@ import {
 } from "./schemas.ts";
 
 export const DB_FILE = "workspace.sqlite";
+/** Windows has no POSIX mode bits (stat always reports 0o666 or 0o777); access there is set by the profile folder's ACL. */
+export const sharedWithOthers = (mode: number, platform: NodeJS.Platform = process.platform): boolean => platform !== "win32" && (mode & 0o077) !== 0;
 export const SCHEMA_VERSION = "5";
 /** Approvals expire if not used within this window. */
 export const APPROVAL_TTL_MS = 10 * 60 * 1000;
@@ -235,7 +237,7 @@ export class WorkspaceStore {
     if (!existsSync(absDir)) mkdirSync(absDir, { recursive: true, mode: 0o700 });
     const st = lstatSync(absDir);
     if (st.isSymbolicLink() || !st.isDirectory()) throw new Error("Workspace path must be a real directory, not a symlink or file");
-    if ((st.mode & 0o077) !== 0) {
+    if (sharedWithOthers(st.mode)) {
       throw new Error(`Workspace directory is accessible by other users (mode ${(st.mode & 0o777).toString(8)}); run: chmod 700 '${absDir.replace(/'/g, "'\\''")}'`);
     }
     const dbPath = path.join(absDir, DB_FILE);

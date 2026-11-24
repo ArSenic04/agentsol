@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { proposeChange } from "../src/core/proposals.ts";
 import { scanProject } from "../src/core/scan.ts";
+import { sharedWithOthers } from "../src/core/store.ts";
 import { detectTerm } from "../src/cli/tui.ts";
 import { fixture, sourceByPath, tempDir } from "./helpers.ts";
 
@@ -169,7 +170,13 @@ test("CLI review escapes terminal control and bidi characters from untrusted tex
   }
 });
 
-test("CLI refuses an existing workspace that other users can read", async () => {
+test("the workspace privacy check uses mode bits on macOS and Linux, and not on Windows, which reports 0o666 for every folder", () => {
+  assert.equal(sharedWithOthers(0o40755, "linux"), true);
+  assert.equal(sharedWithOthers(0o40700, "darwin"), false);
+  assert.equal(sharedWithOthers(0o40666, "win32"), false);
+});
+
+test("CLI refuses an existing workspace that other users can read", { skip: process.platform === "win32" && "Windows has no POSIX mode bits" }, async () => {
   const fx = await fixture({ "AGENTS.md": "# Root\n" });
   try {
     const { chmod } = await import("node:fs/promises");
