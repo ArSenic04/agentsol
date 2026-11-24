@@ -63,3 +63,22 @@ jobs:
       - run: npm ci
       - run: npx playwright-core install --with-deps chromium
       - run: npm run test:web
+
+  action:
+    name: GitHub Action (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: agentsol
+        uses: ./
+        with:
+          strict: "true"
+          upload-sarif: "false"
+      - shell: bash
+        env:
+          SARIF: ${{ steps.agentsol.outputs.sarif-file }}
+        run: test -s "$SARIF" && grep -q '"version": "2.1.0"' "$SARIF"
