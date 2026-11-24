@@ -127,7 +127,7 @@ test("agentsol learn --propose turns lessons into a proposal and changes no file
       ".claude/projects/-p/aaaa.jsonl": session(fx.root, T, { said: ["no, use pnpm not npm in this repo"], fragile: true }),
       ".claude/projects/-p/bbbb.jsonl": session(fx.root, T + 3_600_000, { said: ["use pnpm, not npm, in this repo"], fragile: true }),
     });
-    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0" };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0" };
     const cli = (...a: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), ...a], { env, encoding: "utf8", cwd: fx.root });
     const human = cli("learn");
     assert.equal(human.status, 0, human.stderr);
@@ -455,7 +455,8 @@ test("learn works through symlinked folders and with Windows command names", asy
     assert.match(cmd[0]!.rule ?? "", /^Use `pnpm`, not `npm`/);
     assert.equal(programName("C:\\Program Files\\nodejs\\npm.cmd"), "npm");
     assert.equal(programName("./node_modules/.bin/vitest"), "vitest");
-    assert.equal(canonicalPath(path.join(link, "gone", "x.ts")), path.join(fx.root, "gone", "x.ts"));
+    const want = path.join(fx.root, "gone", "x.ts");
+    assert.equal(canonicalPath(path.join(link, "gone", "x.ts")), process.platform === "win32" ? want.toLowerCase() : want);
   } finally {
     await fx.cleanup();
     await rm(home, { recursive: true, force: true });
@@ -473,7 +474,7 @@ test("agentsol learn --propose corrects every file that is wrong; with no file i
       ".claude/projects/-q/b.jsonl": claudeRun(bare.root, T, [["npm test", true], ["pnpm test", false]]),
       ".claude/projects/-q/c.jsonl": claudeRun(bare.root, T + 60_000, [["npm test", true], ["pnpm test", false]]),
     });
-    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "80" };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "80" };
     const cli = (cwd: string, ...a: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), ...a], { env, encoding: "utf8", cwd });
     const human = cli(fx.root, "learn");
     assert.equal(human.status, 0, human.stderr);
@@ -514,7 +515,7 @@ test("learn in a monorepo corrects the nested AGENTS.md that caused the mistake,
       ".claude/projects/-p/a.jsonl": claudeRun(web, T, [["yarn test", true], ["bun test", false], ["cd ../.. && pip install -r requirements.txt", true], ["uv pip install -r requirements.txt", false]]),
       ".claude/projects/-p/b.jsonl": claudeRun(web, T + 60_000, [["yarn lint", true], ["bun lint", false], ["pip install -r requirements.txt", true], ["uv pip install -r requirements.txt", false]]),
     });
-    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "80" };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "80" };
     const r = spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "learn", "--json"], { env, encoding: "utf8", cwd: fx.root });
     const v = JSON.parse(r.stdout) as { lessons: { conflicts: { file: string; line: number; replacement: string }[] }[]; suggestedChange: { edits: { startLine: number; replacementLines: string[] }[] } | null; otherChanges: { relPath: string; edits: { replacementLines: string[] }[] }[] };
     const conflicts = v.lessons.flatMap((l) => l.conflicts).map((c) => [c.file, c.line, c.replacement]).sort();
@@ -557,7 +558,7 @@ test("learn reads newer Codex transcripts and CRLF instruction files, and the re
       ".codex/sessions/2026/11/14/rollout-2026-11-14T11-00-00-b.jsonl": rollout("event", [["npm run fmt", 1], ["pnpm run fmt", 0]]),
       ".codex/sessions/2026/11/14/rollout-2026-11-14T12-00-00-c.jsonl": rollout("stdin", [["npm run build", 1], ["pnpm run build", 0]]),
     });
-    const env = { ...process.env, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "100" };
+    const env = { ...process.env, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", FORCE_COLOR: "0", COLUMNS: "100" };
     const cli = (...a: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), ...a], { env, encoding: "utf8", cwd: fx.root });
     const human = cli("learn").stdout;
     assert.match(human, /Tokens lost {3}not recorded in these transcripts/);
@@ -586,7 +587,7 @@ test("over MCP, lessons go to the file the erring app reads, and every change ca
       ".claude/projects/-p/b.jsonl": claudeRun(fx.root, T + 60_000, [["npm test", true], ["pnpm test", false]]),
     });
     const ws = path.join(home, "ws");
-    const env = { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
+    const env = { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
     assert.equal(spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "project", "add", fx.root], { env, encoding: "utf8" }).status, 0);
     client = new Client({ name: "learn-test", version: "0.0.0" });
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: REPO, stderr: "pipe", env }));
@@ -632,7 +633,7 @@ test("project_briefing tells an agent starting work what to follow, which lines 
       ".codex/sessions/2026/11/02/rollout-2026-11-02T10-00-00-b.jsonl": codexRun(fx.root, T + 60_000, [["npm test", true], ["pnpm test", false], ["make release", true]]),
     });
     const ws = path.join(home, "ws");
-    const env = { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
+    const env = { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: ws, NO_COLOR: "1" };
     client = new Client({ name: "briefing-test", version: "0.0.0" });
     await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", ws], cwd: REPO, stderr: "pipe", env }));
     const call = async (args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {

@@ -126,7 +126,7 @@ test("local bridge sanitizes internal errors and the static-only mode has no API
 test("web entrypoint needs an existing workspace, never creates one, and has no --host", async () => {
   const base = await tempDir("webmain");
   const dist = await tinyStatic(path.join(base, "dist"));
-  const run = (...args: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/web/main.ts"), "--dist", dist, "--port", "45123", ...args], { cwd: REPO, encoding: "utf8", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
+  const run = (...args: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/web/main.ts"), "--dist", dist, "--port", "45123", ...args], { cwd: REPO, encoding: "utf8", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", USERPROFILE: process.env.HOME ?? "" } });
   try {
     assert.equal(run().status, 2);
     const missing = path.join(base, "nope");

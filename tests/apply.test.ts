@@ -154,7 +154,7 @@ test("a proposal goes stale for approval once a rescan sees a newer version", as
   }
 });
 
-test("a failed write leaves the original intact and requires re-approval", { skip: process.getuid?.() === 0 ? "root ignores permissions" : false }, async () => {
+test("a failed write leaves the original intact and requires re-approval", { skip: process.platform === "win32" ? "Windows ignores folder mode bits" : process.getuid?.() === 0 ? "root ignores permissions" : false }, async () => {
   const fx = await setup();
   try {
     const id = mustPropose(fx, [EDIT]);

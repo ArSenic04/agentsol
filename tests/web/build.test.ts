@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { tempDir } from "../helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const build = (out: string) => spawnSync(process.execPath, [path.join(REPO, "scripts/buildWeb.ts"), "--out", out], { cwd: REPO, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
+const build = (out: string) => spawnSync(process.execPath, [path.join(REPO, "scripts/buildWeb.ts"), "--out", out], { cwd: REPO, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", USERPROFILE: process.env.HOME ?? "" } });
 
 test("web build is static, self-contained, and carries no local paths or secrets", async () => {
   const base = await tempDir("webbuild");

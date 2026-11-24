@@ -10,7 +10,7 @@ import { tempDir } from "./helpers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const demo = (...args: string[]) =>
-  spawnSync(process.execPath, [path.join(REPO, "scripts", "demo.ts"), ...args], { cwd: REPO, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
+  spawnSync(process.execPath, [path.join(REPO, "scripts", "demo.ts"), ...args], { cwd: REPO, encoding: "utf8", timeout: 60_000, env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", USERPROFILE: process.env.USERPROFILE ?? process.env.HOME ?? "" } });
 
 test("demo creates a synthetic project, proposes over real MCP stdio, and writes nothing to the project", async () => {
   const base = await tempDir("demo");
@@ -65,7 +65,7 @@ test("doctor is non-destructive, reports workspace problems, and prints no envir
   const doctor = (...args: string[]) =>
     spawnSync(process.execPath, [path.join(REPO, "scripts", "doctor.mjs"), "doctor", ...args, "--json"], {
       cwd: REPO, encoding: "utf8", timeout: 30_000,
-      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", CURSOR_AGENT: "1", AGENTSOL_TEST_SECRET: "sk-DOCTORFAKEFAKEFAKEFAKE1234" },
+      env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", USERPROFILE: process.env.USERPROFILE ?? process.env.HOME ?? "", CURSOR_AGENT: "1", AGENTSOL_TEST_SECRET: "sk-DOCTORFAKEFAKEFAKEFAKE1234" },
     });
   const missing = path.join(base, "not-created");
   const r1 = doctor("--workspace", missing);
@@ -81,9 +81,11 @@ test("doctor is non-destructive, reports workspace problems, and prints no envir
   const open = path.join(base, "too-open");
   await mkdir(open, { mode: 0o755 });
   await chmod(open, 0o755);
-  const r2 = doctor("--workspace", open);
-  assert.equal(r2.status, 1);
-  assert.match(r2.stdout, /chmod 700/);
+  if (process.platform !== "win32") {
+    const r2 = doctor("--workspace", open);
+    assert.equal(r2.status, 1);
+    assert.match(r2.stdout, /chmod 700/);
+  }
 
   const linked = path.join(base, "linked");
   await symlink(open, linked);

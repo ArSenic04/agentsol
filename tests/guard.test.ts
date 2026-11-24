@@ -198,7 +198,7 @@ test("session start: the cached briefing reaches each app, and nothing is said w
     await mkdir(ws, { mode: 0o700 });
     const text = "Agentsol briefing for proj, from 3 sessions since 2026-06-01.\n\nFollow these here; agents got them wrong before:\n- Run make test, not make check.";
     await writeFile(path.join(ws, "guard-lessons.json"), JSON.stringify({ version: 1, at: new Date().toISOString(), projects: [{ root: proj, sessionsRead: 3, lessons: [], briefing: text }, { root: quiet, sessionsRead: 2, lessons: [] }] }));
-    const hook = (e: unknown, extra: Record<string, string> = {}) => spawnSync(process.execPath, [GUARD], { input: JSON.stringify(e), encoding: "utf8", timeout: 10_000, env: { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, ...extra } });
+    const hook = (e: unknown, extra: Record<string, string> = {}) => spawnSync(process.execPath, [GUARD], { input: JSON.stringify(e), encoding: "utf8", timeout: 10_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: ws, ...extra } });
     const sub = path.join(proj, "src");
     const claude = hook({ session_id: "s", hook_event_name: "SessionStart", source: "startup", cwd: sub });
     assert.equal(claude.status, 0, claude.stderr);
@@ -219,7 +219,7 @@ test("connect --guard sets up every app it finds, each only after a yes, and rem
     const cursorOriginal = { version: 1, hooks: { afterFileEdit: [{ command: "fmt.sh" }] } };
     await writeTree(home, { ".cursor/hooks.json": JSON.stringify(cursorOriginal), ".copilot/config.json": "{}", "Documents/Cline/Rules/x.md": "" });
     await mkdir(path.join(home, ".codex"));
-    const connect = (...args: string[]) => spawnSync(process.execPath, [CLI, "connect", "--guard", ...args], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
+    const connect = (...args: string[]) => spawnSync(process.execPath, [CLI, "connect", "--guard", ...args], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, NO_COLOR: "1" } });
 
     const printed = connect();
     assert.match(printed.stdout, /Not an interactive terminal, so nothing was changed/);
@@ -240,7 +240,7 @@ test("connect --guard sets up every app it finds, each only after a yes, and rem
     assert.match(await readFile(task, "utf8"), /^#!\/bin\/sh\n# agentsol guard/);
     assert.equal(lstatSync(task).mode & 0o111, 0o111, "Cline hooks are executable");
 
-    const brief = spawnSync(task, [], { input: JSON.stringify({ hookName: "TaskStart", workspaceRoots: [home] }), encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    const brief = spawnSync(task, [], { input: JSON.stringify({ hookName: "TaskStart", workspaceRoots: [home] }), encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home } });
     assert.deepEqual([brief.status, brief.stdout], [0, ""], "the installed Cline script runs and stays quiet with no lessons");
     assert.match(connect("--yes").stdout, /Codex: the agentsol hooks are already installed/);
 
@@ -267,7 +267,7 @@ test("hook process: denies with lessons from the cache, fails open on anything u
     await mkdir(ws, { mode: 0o700 });
     await writeFile(path.join(ws, "guard-lessons.json"), JSON.stringify({ version: 1, at: new Date().toISOString(), projects: [{ root: proj, sessionsRead: 3, lessons: [{ id: "lsn_1", kind: "command", rule: null, title: "t", times: 2, sessions: 2, match: { kind: "command", bad: "make check", good: "make test" } }] }] }));
     const hook = (input: string, extra: Record<string, string> = {}) =>
-      spawnSync(process.execPath, [GUARD], { input, encoding: "utf8", timeout: 10_000, env: { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, ...extra } });
+      spawnSync(process.execPath, [GUARD], { input, encoding: "utf8", timeout: 10_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: ws, ...extra } });
     const ev = (command: string, more: Record<string, unknown> = {}) => JSON.stringify({ session_id: "s", hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: proj, ...more });
 
     const d = hook(ev("npm install"));
@@ -315,7 +315,7 @@ test("guard --test explains a decision to a person without echoing secrets", asy
   try {
     const home = path.join(base, "home");
     await writeTree(home, { "proj/pnpm-lock.yaml": "" });
-    const run = (...args: string[]) => spawnSync(process.execPath, [CLI, "guard", ...args], { encoding: "utf8", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
+    const run = (...args: string[]) => spawnSync(process.execPath, [CLI, "guard", ...args], { encoding: "utf8", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, NO_COLOR: "1" } });
     const r = run("--test", "NPM_TOKEN=sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890 npm install", "--cwd", path.join(home, "proj"));
     assert.equal(r.status, 1, r.stderr);
     assert.match(r.stdout, /^deny {3}this project uses pnpm/);
@@ -365,7 +365,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     await writeTree(home, { ".claude/settings.json": JSON.stringify(original) });
     await chmod(settings, 0o600);
     const connect = (extra: Record<string, string>, ...args: string[]) =>
-      spawnSync(process.execPath, [CLI, "connect", "claude-code", "--guard", ...args], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1", ...extra } });
+      spawnSync(process.execPath, [CLI, "connect", "claude-code", "--guard", ...args], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, NO_COLOR: "1", ...extra } });
     const backups = () => readdirSync(path.join(home, ".claude")).filter((f) => f.includes("agentsol-backup"));
 
     const noTty = connect({});
@@ -381,7 +381,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
 
     const yes = connect({}, "--yes");
     assert.equal(yes.status, 0, yes.stderr);
-    assert.match(yes.stdout, /Claude Code: added the agentsol hooks · backup: ~\/\.claude\/settings\.json\.agentsol-backup-/);
+    assert.match(yes.stdout, /Claude Code: added the agentsol hooks · backup: ~[\\/]\.claude[\\/]settings\.json\.agentsol-backup-/);
     const now = JSON.parse(await readFile(settings, "utf8"));
     assert.deepEqual(now.permissions, original.permissions);
     assert.equal(now.hooks.PreToolUse.length, 2);
@@ -391,7 +391,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
 
     assert.match(connect({}, "--yes").stdout, /already installed; nothing changed/);
     assert.equal(backups().length, 1, "idempotent: no second backup");
-    const doctor = () => spawnSync(process.execPath, [CLI, "doctor"], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } }).stdout;
+    const doctor = () => spawnSync(process.execPath, [CLI, "doctor"], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, NO_COLOR: "1" } }).stdout;
     assert.doesNotMatch(doctor(), /guard hook/);
     const installed = await readFile(settings, "utf8");
     await writeFile(settings, installed.replace(JSON.stringify(process.execPath).slice(1, -1), "/gone/bin/node"));
@@ -401,7 +401,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     assert.match(off.stdout, /Claude Code: removed the agentsol hooks/);
     assert.deepEqual(JSON.parse(await readFile(settings, "utf8")), original);
 
-    const codex = spawnSync(process.execPath, [CLI, "connect", "codex", "--guard"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
+    const codex = spawnSync(process.execPath, [CLI, "connect", "codex", "--guard"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home, NO_COLOR: "1" } });
     assert.match(codex.stdout, /~\/\.codex\/hooks\.json/);
     assert.ok(!existsSync(path.join(home, ".codex")), "codex setup is printed, never written");
   } finally {

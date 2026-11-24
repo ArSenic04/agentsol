@@ -9,7 +9,7 @@ import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { diffSnapshots, FAKE_SECRET, generateBigProject, SHARED_LINE, snapshotTree } from "../scripts/bigFixture.ts";
 import { applyApprovedProposal, approveProposal } from "../src/core/humanApproval.ts";
 import type { ProposalId } from "../src/core/ids.ts";
@@ -52,7 +52,7 @@ test("synthetic monorepo: layered scopes, every edge case reported, nothing sile
     assert.deepEqual(Object.fromEntries([...reasons].filter(([p]) => p.startsWith("edge/")).sort()), {
       "edge/binary/AGENTS.md": "binary",
       "edge/case/agents.md": "case_variant_name",
-      "edge/fifo/AGENTS.md": "not_regular_file",
+      ...(process.platform === "win32" ? {} : { "edge/fifo/AGENTS.md": "not_regular_file" }),
       "edge/hardlink/AGENTS.md": "hard_link",
       "edge/invalid-utf8/AGENTS.md": "invalid_utf8",
       "edge/large/AGENTS.md": "too_large",
@@ -136,8 +136,8 @@ test("retries, concurrent writers in separate processes, and stale proposals", a
     // 6 processes race: 3 reuse one key, 3 use their own keys. Expect exactly 1 + 3 new proposals.
     const child = (key: string, text: string) => new Promise<number>((resolve) => {
       const code = `
-        import { WorkspaceStore } from ${JSON.stringify(path.join(REPO, "src/core/store.ts"))};
-        import { createAssistantService } from ${JSON.stringify(path.join(REPO, "src/core/service/assistant.ts"))};
+        import { WorkspaceStore } from ${JSON.stringify(pathToFileURL(path.join(REPO, "src/core/store.ts")).href)};
+        import { createAssistantService } from ${JSON.stringify(pathToFileURL(path.join(REPO, "src/core/service/assistant.ts")).href)};
         const store = WorkspaceStore.open(${JSON.stringify(fx.wsDir)});
         const svc = createAssistantService(store, { reporter: () => "assistant:child", onInternalError: (op, e) => { console.error(op, e); process.exit(3); } });
         const r = svc.proposeChange(${JSON.stringify(change(text, key))});

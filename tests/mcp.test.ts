@@ -152,7 +152,7 @@ test("MCP entrypoint without a workspace flag uses <home>/.agentsol", async () =
   const home = await mkdtemp(path.join(tmpdir(), "agentsol-home-"));
   let client: Client | undefined;
   try {
-    const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], cwd: REPO, stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    const transport = new StdioClientTransport({ command: process.execPath, args: [SERVER], cwd: REPO, stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home } });
     client = new Client({ name: "agentsol-test-client", version: "0.0.0" });
     await client.connect(transport);
     const r = await client.callTool({ name: "projects_list", arguments: {} });

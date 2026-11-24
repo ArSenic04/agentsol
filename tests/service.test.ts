@@ -17,7 +17,7 @@ const SERVER = path.join(REPO, "src", "mcp", "main.ts");
 const FAKE_SECRET = "sk-FAKEFAKEFAKEFAKEFAKEFAKE1234567890";
 
 const cli = (ws: string, ...args: string[]) =>
-  spawnSync(process.execPath, [CLI, "--workspace", ws, ...args], { cwd: REPO, encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: homedir() } });
+  spawnSync(process.execPath, [CLI, "--workspace", ws, ...args], { cwd: REPO, encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: homedir(), USERPROFILE: homedir() } });
 const cliJson = (ws: string, ...args: string[]): unknown => {
   const r = cli(ws, ...args, "--json");
   return JSON.parse(r.stdout);

@@ -140,7 +140,7 @@ test("session review finds risky steps in Claude and Codex transcripts and keeps
     assert.match(r.review.notes.join(" "), /not valid JSON/);
     const a14 = r.review.findings.find((f) => f.checkId === "A14");
     assert.ok(a14 && /SQL injection/.test(a14.message) && /TLS/.test(a14.message), "insecure code an agent added is flagged");
-    assert.ok(r.review.findings.some((f) => f.checkId === "A02" && /^Wrote an API key into src\/db\.py/.test(f.message)), "a secret written into a file is flagged");
+    assert.ok(r.review.findings.some((f) => f.checkId === "A02" && /^Wrote an API key into src[\\/]db\.py/.test(f.message)), "a secret written into a file is flagged");
     const a02Steps = r.review.findings.filter((f) => f.checkId === "A02").map((f) => f.step);
     assert.equal(a02Steps.length, 2, `placeholders and type annotations are not secrets: ${JSON.stringify(a02Steps)}`);
     assert.ok(!r.review.findings.some((f) => f.checkId === "A01" && /variable \(\$T\)/.test(f.message)), "deleting a mktemp folder is not flagged");
@@ -305,7 +305,7 @@ test("assistant service: sessions limited to registered projects, paths hidden, 
 test("CLI sessions, session and doctor read the fake home and print no secrets", async () => {
   const m = await machine();
   try {
-    const env = { PATH: process.env.PATH ?? "", HOME: m.home };
+    const env = { PATH: process.env.PATH ?? "", HOME: m.home, USERPROFILE: m.home };
     const cli = (...args: string[]) => spawnSync(process.execPath, [path.join(REPO, "src/cli/main.ts"), "--workspace", m.fx.wsDir, ...args], { cwd: m.fx.root, encoding: "utf8", input: "", timeout: 20_000, env });
     const list = cli("sessions", "--since", "3650d", "--json");
     assert.equal(list.status, 0, list.stderr);
@@ -336,7 +336,7 @@ test("MCP server exposes setup_audit, sessions_list, session_review and session_
   const m = await machine();
   let client: Client | undefined;
   try {
-    const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", m.fx.wsDir], cwd: REPO, stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: m.home } });
+    const transport = new StdioClientTransport({ command: process.execPath, args: [path.join(REPO, "src/mcp/main.ts"), "--workspace", m.fx.wsDir], cwd: REPO, stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: m.home, USERPROFILE: m.home } });
     client = new Client({ name: "agentsol-test-client", version: "0.0.0" });
     await client.connect(transport);
     const call = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {

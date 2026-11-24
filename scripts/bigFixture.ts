@@ -80,10 +80,12 @@ export async function generateBigProject(root: string, o: BigFixtureOptions): Pr
     await put("edge/hardlink/source.txt", "# hard linked content\n", "other");
     await link(path.join(root, "edge/hardlink/source.txt"), path.join(root, "edge/hardlink/AGENTS.md"));
     s.instructionFiles += 1;
-    await mkdir(path.join(root, "edge/fifo"), { recursive: true });
-    const fifo = spawnSync("mkfifo", [path.join(root, "edge/fifo/AGENTS.md")]);
-    if (fifo.status !== 0) throw new Error("mkfifo failed");
-    s.instructionFiles += 1;
+    if (process.platform !== "win32") {
+      await mkdir(path.join(root, "edge/fifo"), { recursive: true });
+      const fifo = spawnSync("mkfifo", [path.join(root, "edge/fifo/AGENTS.md")]);
+      if (fifo.status !== 0) throw new Error("mkfifo failed");
+      s.instructionFiles += 1;
+    }
     await put("edge/case/agents.md", "# lowercase name\n", "instruction");
     await put("edge/local/CLAUDE.local.md", "# personal\n", "instruction");
     await put(`edge/${Array.from({ length: 18 }, (_, k) => `d${k}`).join("/")}/AGENTS.md`, "# too deep\n", "instruction");

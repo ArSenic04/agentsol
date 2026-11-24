@@ -16,7 +16,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(REPO, "src", "cli", "main.ts");
 const run = (ws: string, ...args: string[]) => runEnv({}, ws, ...args);
 const runEnv = (extra: Record<string, string>, ws: string, ...args: string[]) =>
-  spawnSync(process.execPath, [CLI, "--workspace", ws, ...args], { cwd: REPO, encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: homedir(), ...extra } });
+  spawnSync(process.execPath, [CLI, "--workspace", ws, ...args], { cwd: REPO, encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: homedir(), USERPROFILE: homedir(), ...extra } });
 
 test("CLI registers a project, scans it, and refuses home or filesystem root", async () => {
   const fx = await fixture({ "AGENTS.md": "# Root\n" });
@@ -44,7 +44,7 @@ test("CLI registers a project, scans it, and refuses home or filesystem root", a
 test("CLI without a workspace flag uses <home>/.agentsol", async () => {
   const home = await mkdtemp(path.join(tmpdir(), "agentsol-home-"));
   try {
-    const r = spawnSync(process.execPath, [CLI, "projects"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    const r = spawnSync(process.execPath, [CLI, "projects"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, USERPROFILE: home } });
     assert.equal(r.status, 0, r.stderr);
     assert.ok(existsSync(path.join(home, ".agentsol")));
   } finally {
@@ -99,11 +99,11 @@ test("check output cannot be hijacked by escape codes inside instruction files",
 });
 
 test("connect prints setup for every client and adds the workspace only when it is not the default", () => {
-  const custom = spawnSync(process.execPath, [CLI, "--workspace", "/tmp/custom-ws", "connect"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir() } });
+  const custom = spawnSync(process.execPath, [CLI, "--workspace", "/tmp/custom-ws", "connect"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir(), USERPROFILE: homedir() } });
   assert.equal(custom.status, 0, custom.stderr);
   for (const s of ["claude mcp add agentsol", "codex mcp add agentsol", "gemini mcp add", "code --add-mcp", "mcpServers", "prompt |"]) assert.ok(custom.stdout.includes(s), s);
-  assert.match(custom.stdout, /AGENTSOL_WORKSPACE="\/tmp\/custom-ws"/);
-  const plain = spawnSync(process.execPath, [CLI, "connect", "claude-code"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir() } });
+  assert.ok(custom.stdout.includes(`AGENTSOL_WORKSPACE="${path.resolve("/tmp/custom-ws")}"`), custom.stdout);
+  const plain = spawnSync(process.execPath, [CLI, "connect", "claude-code"], { cwd: REPO, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: homedir(), USERPROFILE: homedir() } });
   assert.match(plain.stdout, /claude mcp add agentsol -s user -- npx -y -p agentsol@alpha agentsol-mcp/);
   assert.ok(!plain.stdout.includes("AGENTSOL_WORKSPACE"));
   assert.equal(spawnSync(process.execPath, [CLI, "connect", "nope"], { cwd: REPO, encoding: "utf8" }).status, 2);
@@ -194,7 +194,7 @@ test("connect claude-desktop uses the full npx path when npx is outside the syst
   const bin = await tempDir("bin");
   try {
     for (const b of ["npx", "node"]) { await writeFile(path.join(bin, b), "#!/bin/sh\n"); await chmod(path.join(bin, b), 0o755); }
-    const run = (PATH: string): string => spawnSync(process.execPath, [CLI, "connect", "claude-desktop"], { cwd: REPO, encoding: "utf8", env: { PATH, HOME: bin, NO_COLOR: "1" } }).stdout;
+    const run = (PATH: string): string => spawnSync(process.execPath, [CLI, "connect", "claude-desktop"], { cwd: REPO, encoding: "utf8", env: { PATH, HOME: bin, USERPROFILE: bin, NO_COLOR: "1" } }).stdout;
     const custom = run(bin);
     assert.ok(custom.includes(`"command": "${path.join(bin, "npx")}"`), custom);
     assert.ok(custom.includes(`"PATH": "${bin}:/usr/bin:/bin"`), custom);
@@ -220,11 +220,11 @@ test("start registers, scans and connects only apps that are installed, after co
     await chmod(path.join(bin, "codex"), 0o755);
     // PATH holds only the fakes, so no real assistant app can be reached.
     const start = (extra: Record<string, string>, ...args: string[]) =>
-      spawnSync(process.execPath, [CLI, "start", ...args], { cwd: fx.root, encoding: "utf8", input: "", timeout: 30_000, env: { PATH: bin, HOME: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", ...extra } });
+      spawnSync(process.execPath, [CLI, "start", ...args], { cwd: fx.root, encoding: "utf8", input: "", timeout: 30_000, env: { PATH: bin, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", ...extra } });
 
     const first = start({}, "--yes");
     assert.equal(first.status, 0, first.stderr);
-    assert.match(first.stdout, /Project\s+registered /);
+    assert.match(first.stdout, /Project\s+registered\s/);
     assert.match(first.stdout, /Claude Code · connected now/);
     assert.match(first.stdout, /Codex · could not connect/);
     assert.match(first.stdout, /Restart your AI app/);
