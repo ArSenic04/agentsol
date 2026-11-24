@@ -50,7 +50,8 @@ for (const node of nodes) {
   gates.push({ gate: `clean install + CLI + MCP on ${spawnSync(node, ["--version"], { encoding: "utf8" }).stdout.trim()}`, ok: r.status === 0, detail: r.status === 0 ? summary : r.stdout.split("\n").filter((l) => l.startsWith("FAIL")).join("; ") });
 }
 
-const dry = spawnSync("npm", ["publish", "--dry-run", "--json", "--tag", "alpha", "--access", "public", "--registry", "https://registry.npmjs.org/", tarball], { cwd: path.dirname(tarball), encoding: "utf8" });
+// --loglevel notice: `npm run -s` passes silent down, which hides the tag line checked below.
+const dry = spawnSync("npm", ["publish", "--dry-run", "--json", "--loglevel", "notice", "--tag", "alpha", "--access", "public", "--registry", "https://registry.npmjs.org/", tarball], { cwd: path.dirname(tarball), encoding: "utf8" });
 const loggedOut = /requires you to be logged in/.test(dry.stderr);
 const tagged = /with tag alpha and public access/.test(dry.stderr);
 try {
