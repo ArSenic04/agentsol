@@ -5,7 +5,7 @@ import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { briefingOutput, hookApps, hookOutput, installHooks, parseHookEvent, withHooks } from "../src/cli/guard.ts";
+import { briefingOutput, hookApps, hookOutput, installHooks, parseHookEvent, stableNode, withHooks } from "../src/cli/guard.ts";
 import { evaluate, gitBranch, packageManagerFor, type GuardContext, type GuardLesson } from "../src/core/guard.ts";
 import { createAssistantService } from "../src/core/service/assistant.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
@@ -586,6 +586,24 @@ test("red-team corpus: bypasses are still caught and benign look-alikes are allo
     assert.equal(evaluate("npm test", root, ctxAt(".")).decision, "deny");
     assert.equal(evaluate("npm install", path.join(root, "both"), ctxAt("both")).decision, "allow", "two lockfiles: ambiguous, never block");
     assert.equal(evaluate("yarn add zod", path.join(root, "both"), ctxAt("both")).decision, "allow");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a Homebrew node is written as its opt link, so a brew upgrade does not break the hooks", { skip: process.platform === "win32" }, async () => {
+  const root = await tempDir("brew");
+  try {
+    const cellar = path.join(root, "Cellar/node/25.9.0_1/bin/node");
+    await writeTree(root, { "Cellar/node/25.9.0_1/bin/node": "" });
+    assert.equal(stableNode(cellar), cellar, "no opt link: keep the real path");
+    await mkdir(path.join(root, "opt"));
+    await symlink("../Cellar/node/25.9.0_1", path.join(root, "opt/node"));
+    assert.equal(stableNode(cellar), path.join(root, "opt/node/bin/node"));
+    await writeTree(root, { "Cellar/node/26.0.0/bin/node": "" });
+    const other = path.join(root, "Cellar/node/26.0.0/bin/node");
+    assert.equal(stableNode(other), other, "opt points at another version: keep the running one");
+    assert.equal(stableNode("/usr/local/bin/node"), "/usr/local/bin/node");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

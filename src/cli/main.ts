@@ -51,7 +51,7 @@ Start here:
   connect [client] --guard [--remove]   brief every new agent session with this project's lessons and stop wrong or
                                         dangerous shell commands: adds hooks to each app found (Claude Code, Codex,
                                         Gemini CLI, Cursor, Copilot CLI, Cline) after asking, backup kept; --remove
-                                        takes them out
+                                        takes them out, AGENTSOL_GUARD=off pauses them
   guard --test "<command>" [--cwd dir]  what the guard would tell an agent about a command, without running it
   prompt [path]                         print one masked prompt to paste into any chat AI
   inspect <folder|file> [--json]        before you install a skill or MCP server: scan its files or its tool
@@ -472,19 +472,19 @@ async function guardConnect(t: Term, ws: { dir: string; isDefault: boolean }, wh
       raw();
       raw(`  ${heading(t, s.name, [["muted", `${remove ? "remove the agentsol entries from" : "add to"} ${s.file}:`]])}`);
       if (!remove) for (const l of s.json.split("\n")) raw(render(t, ["    ", ["agent", l]]));
-      if (s.note) raw(render(t, ["    ", ["muted", s.note]]));
+      if (s.note && !remove) raw(render(t, ["    ", ["muted", s.note]]));
     }
   };
   if (chosen.length === 0) {
-    raw(render(t, ["\n  ", ["muted", `No app with hooks found in ${tilde(home)} (${apps.map((a) => a.name).join(", ")}). To add them by hand:`]]));
+    raw(render(t, ["\n  ", ["muted", `No app with hooks found in ${tilde(home)} (${apps.map((a) => a.name).join(", ")}). To ${remove ? "remove" : "add"} them by hand:`]]));
     printBy(apps);
     raw();
     return 0;
   }
-  if (runsFromNpxCache()) raw(render(t, ["\n  ", ["warn", "▲ "], "This agentsol runs from npx's cache, which can be cleaned. Install it first (npm i -g agentsol@alpha), then run this again so the hooks point at the installed copy."]));
+  if (runsFromNpxCache() && !remove) raw(render(t, ["\n  ", ["warn", "▲ "], "This agentsol runs from npx's cache, which can be cleaned. Install it first (npm i -g agentsol@alpha), then run this again so the hooks point at the installed copy."]));
   const agent = detectAgentEnvironment(process.env);
   if (agent || !(args.includes("--yes") || isInteractive())) {
-    raw(render(t, ["\n  ", ["muted", agent ? `${agent.agent} runs this terminal, so nothing was changed. Run this yourself in a normal terminal, or add these by hand:` : "Not an interactive terminal, so nothing was changed. Add these yourself:"]]));
+    raw(render(t, ["\n  ", ["muted", agent ? `${agent.agent} runs this terminal, so nothing was changed. Run this yourself in a normal terminal, or ${remove ? "remove them" : "add these"} by hand:` : `Not an interactive terminal, so nothing was changed. ${remove ? "Remove them" : "Add these"} yourself:`]]));
     printBy(chosen);
     raw();
     return 0;

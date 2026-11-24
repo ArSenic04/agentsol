@@ -212,7 +212,14 @@ async function hookMain(ws: Workspace, home: string): Promise<number> {
 const shq = (s: string): string => (/^[\w./:=@%+,-]+$/.test(s) ? s : process.platform === "win32" ? `"${s}"` : `'${s.replace(/'/g, "'\\''")}'`);
 /** Absolute node and script paths: npx would resolve the package (and maybe the network) before every command. */
 export function guardHookCommand(ws: Workspace): string {
-  return `${ws.isDefault ? "" : `AGENTSOL_WORKSPACE=${shq(path.resolve(ws.dir))} `}${shq(process.execPath)} ${shq(SELF)}`;
+  return `${ws.isDefault ? "" : `AGENTSOL_WORKSPACE=${shq(path.resolve(ws.dir))} `}${shq(stableNode(process.execPath))} ${shq(SELF)}`;
+}
+/** Homebrew's Cellar path names one version and is deleted on upgrade; its opt link follows upgrades. */
+export function stableNode(execPath: string): string {
+  const m = /^(.*)[\\/]Cellar[\\/]([^\\/]+)[\\/][^\\/]+[\\/]bin[\\/]node$/.exec(execPath);
+  if (!m) return execPath;
+  const opt = path.join(m[1]!, "opt", m[2]!, "bin", "node");
+  return existsSync(opt) && realOrSelf(opt) === realOrSelf(execPath) ? opt : execPath;
 }
 export const runsFromNpxCache = (): boolean => /[\\/]_npx[\\/]/.test(SELF);
 

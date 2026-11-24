@@ -79,4 +79,5 @@
 
 ## Unreleased
 - Guard works across agent apps: `agentsol connect --guard` finds Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI and Cline, asks per app, and adds a session-start hook (the project briefing lands in the agent's context with no tool call) plus the pre-command check, each in that app's own hook format. `--remove` takes them out; other hooks are kept. Only Claude Code was tested live; the others are covered by format tests.
+- Guard hooks written from a Homebrew Node use its `opt` link instead of the versioned `Cellar` path, so `brew upgrade node` no longer breaks them. `connect --guard --remove` without a terminal now says "Remove them yourself" instead of showing setup text.
 - `learn` treats TLS failures (`SSL_ERROR_*`, `gnutls_handshake() failed`, `TLS handshake timeout`) as the network's fault, so a flaky connection no longer turns `git push` into a "never worked" lesson.
