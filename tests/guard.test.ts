@@ -5,7 +5,7 @@ import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { hookOutput, installClaudeGuard, withGuardHook } from "../src/cli/guard.ts";
+import { briefingOutput, hookApps, hookOutput, installHooks, parseHookEvent, withHooks } from "../src/cli/guard.ts";
 import { evaluate, gitBranch, packageManagerFor, type GuardContext, type GuardLesson } from "../src/core/guard.ts";
 import { createAssistantService } from "../src/core/service/assistant.ts";
 import { fixture, tempDir, writeTree } from "./helpers.ts";
@@ -17,6 +17,7 @@ const HOME = "/home/someone";
 const pnpm: GuardContext = { packageManager: { pm: "pnpm", why: "pnpm-lock.yaml" }, branch: "feature/login", home: HOME };
 const npm: GuardContext = { packageManager: { pm: "npm", why: "package-lock.json" }, branch: "feature/login", home: HOME };
 const at = (c: string, ctx: GuardContext = npm) => evaluate(c, `${HOME}/proj`, ctx);
+const app = (id: string, command: string, platform: NodeJS.Platform = "darwin") => hookApps(command, platform).find((a) => a.id === id)!;
 
 test("guard allows everyday commands silently", () => {
   const ok: [string, GuardContext][] = [
@@ -157,6 +158,105 @@ test("hook answers in each app's format", () => {
   assert.equal(hookOutput("claude-code", at("ls")), null);
 });
 
+test("hook input from every app is read, and session start is answered in its format", () => {
+  const cwd = "/w/proj";
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hook_event_name: "SessionStart", source: "startup", cwd })), { client: "claude-code", kind: "start", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" }, cwd, turn_id: "t" })), { client: "codex", kind: "command", command: "ls", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hook_event_name: "BeforeTool", tool_name: "run_shell_command", tool_input: { command: "ls" }, cwd })), { client: "gemini", kind: "command", command: "ls", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hook_event_name: "sessionStart", session_id: "s", workspace_roots: [cwd] })), { client: "cursor", kind: "start", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hook_event_name: "beforeShellExecution", command: "ls", cwd })), { client: "cursor", kind: "command", command: "ls", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ sessionId: "s", timestamp: 1, cwd, source: "new" })), { client: "copilot", kind: "start", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ sessionId: "s", timestamp: 1, cwd, toolName: "bash", toolArgs: JSON.stringify({ command: "ls" }) })), { client: "copilot", kind: "command", command: "ls", cwd });
+  assert.equal(parseHookEvent(JSON.stringify({ sessionId: "s", cwd, toolName: "edit", toolArgs: "{}" })), null);
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hookName: "TaskStart", workspaceRoots: [cwd], taskStart: { taskMetadata: {} } })), { client: "cline", kind: "start", cwd });
+  assert.deepEqual(parseHookEvent(JSON.stringify({ hookName: "PreToolUse", workspaceRoots: [cwd], preToolUse: { toolName: "execute_command", parameters: { command: "ls" } } })), { client: "cline", kind: "command", command: "ls", cwd });
+  assert.equal(parseHookEvent(JSON.stringify({ hookName: "PreToolUse", preToolUse: { toolName: "read_file", parameters: {} } })), null);
+
+  const deny = at("npm test", pnpm);
+  assert.deepEqual(JSON.parse(hookOutput("cursor", deny)!), { permission: "deny", user_message: deny.reason, agent_message: deny.reason });
+  assert.equal(JSON.parse(hookOutput("cursor", at("rm -rf ~"))!).permission, "ask");
+  assert.deepEqual(JSON.parse(hookOutput("copilot", deny)!), { permissionDecision: "deny", permissionDecisionReason: deny.reason });
+  assert.deepEqual(JSON.parse(hookOutput("cline", deny)!), { cancel: true, errorMessage: deny.reason });
+  for (const c of ["copilot", "cline"] as const) assert.equal(hookOutput(c, at("rm -rf ~")), null, `${c} has no ask`);
+
+  assert.deepEqual(JSON.parse(briefingOutput("claude-code", "B")), { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: "B" } });
+  assert.deepEqual(JSON.parse(briefingOutput("cursor", "B")), { additional_context: "B" });
+  assert.deepEqual(JSON.parse(briefingOutput("copilot", "B")), { additionalContext: "B" });
+  assert.deepEqual(JSON.parse(briefingOutput("cline", "B")), { cancel: false, contextModification: "B" });
+  assert.match(JSON.parse(briefingOutput("cursor", "x".repeat(9_000))).additional_context, /^x{6000}\n\(cut short; call project_briefing/);
+});
+
+test("session start: the cached briefing reaches each app, and nothing is said where there is nothing to say", async () => {
+  const base = await tempDir("guard-brief");
+  try {
+    const home = path.join(base, "home");
+    const ws = path.join(base, "ws");
+    const proj = path.join(home, "proj");
+    const quiet = path.join(home, "quiet");
+    await writeTree(proj, { "package.json": "{}" });
+    await writeTree(quiet, { "package.json": "{}" });
+    await mkdir(ws, { mode: 0o700 });
+    const text = "Agentsol briefing for proj, from 3 sessions since 2026-06-01.\n\nFollow these here; agents got them wrong before:\n- Run make test, not make check.";
+    await writeFile(path.join(ws, "guard-lessons.json"), JSON.stringify({ version: 1, at: new Date().toISOString(), projects: [{ root: proj, sessionsRead: 3, lessons: [], briefing: text }, { root: quiet, sessionsRead: 2, lessons: [] }] }));
+    const hook = (e: unknown, extra: Record<string, string> = {}) => spawnSync(process.execPath, [GUARD], { input: JSON.stringify(e), encoding: "utf8", timeout: 10_000, env: { PATH: process.env.PATH ?? "", HOME: home, AGENTSOL_WORKSPACE: ws, ...extra } });
+    const sub = path.join(proj, "src");
+    const claude = hook({ session_id: "s", hook_event_name: "SessionStart", source: "startup", cwd: sub });
+    assert.equal(claude.status, 0, claude.stderr);
+    assert.equal(JSON.parse(claude.stdout).hookSpecificOutput.additionalContext, text, "a subfolder gets its project's briefing");
+    assert.equal(JSON.parse(hook({ hook_event_name: "sessionStart", session_id: "s", workspace_roots: [proj] }).stdout).additional_context, text);
+    assert.equal(JSON.parse(hook({ sessionId: "s", timestamp: 1, cwd: proj, source: "new" }).stdout).additionalContext, text);
+    assert.equal(JSON.parse(hook({ hookName: "TaskStart", workspaceRoots: [proj], taskStart: {} }).stdout).contextModification, text);
+    for (const cwd of [quiet, path.join(home, "elsewhere")]) assert.deepEqual([hook({ hook_event_name: "SessionStart", cwd }).stdout], [""], cwd);
+    assert.equal(hook({ hook_event_name: "SessionStart", cwd: proj }, { AGENTSOL_GUARD: "off" }).stdout, "");
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test("connect --guard sets up every app it finds, each only after a yes, and removes cleanly", { skip: process.platform === "win32" }, async () => {
+  const home = await tempDir("guard-all");
+  try {
+    const cursorOriginal = { version: 1, hooks: { afterFileEdit: [{ command: "fmt.sh" }] } };
+    await writeTree(home, { ".cursor/hooks.json": JSON.stringify(cursorOriginal), ".copilot/config.json": "{}", "Documents/Cline/Rules/x.md": "" });
+    await mkdir(path.join(home, ".codex"));
+    const connect = (...args: string[]) => spawnSync(process.execPath, [CLI, "connect", "--guard", ...args], { encoding: "utf8", input: "", timeout: 20_000, env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
+
+    const printed = connect();
+    assert.match(printed.stdout, /Not an interactive terminal, so nothing was changed/);
+    for (const name of ["Codex", "Cursor", "Copilot CLI", "Cline"]) assert.match(printed.stdout, new RegExp(`${name} `), name);
+    assert.doesNotMatch(printed.stdout, /Claude Code|Gemini CLI/, "apps that are not installed are left out");
+    assert.ok(!existsSync(path.join(home, ".codex", "hooks.json")));
+
+    const yes = connect("--yes");
+    assert.equal(yes.status, 0, yes.stderr);
+    for (const name of ["Codex", "Cursor", "Copilot CLI", "Cline"]) assert.match(yes.stdout, new RegExp(`${name}: added the agentsol hooks`), name);
+    const codex = JSON.parse(await readFile(path.join(home, ".codex", "hooks.json"), "utf8"));
+    assert.deepEqual(Object.keys(codex.hooks), ["PreToolUse", "SessionStart"]);
+    const cursor = JSON.parse(await readFile(path.join(home, ".cursor", "hooks.json"), "utf8"));
+    assert.deepEqual(cursor.hooks.afterFileEdit, cursorOriginal.hooks.afterFileEdit);
+    assert.equal(cursor.hooks.beforeShellExecution.length, 1);
+    assert.match(JSON.parse(await readFile(path.join(home, ".copilot", "hooks", "agentsol.json"), "utf8")).hooks.sessionStart[0].bash, /guard\.ts'?$/);
+    const task = path.join(home, "Documents", "Cline", "Hooks", "TaskStart");
+    assert.match(await readFile(task, "utf8"), /^#!\/bin\/sh\n# agentsol guard/);
+    assert.equal(lstatSync(task).mode & 0o111, 0o111, "Cline hooks are executable");
+
+    const brief = spawnSync(task, [], { input: JSON.stringify({ hookName: "TaskStart", workspaceRoots: [home] }), encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home } });
+    assert.deepEqual([brief.status, brief.stdout], [0, ""], "the installed Cline script runs and stays quiet with no lessons");
+    assert.match(connect("--yes").stdout, /Codex: the agentsol hooks are already installed/);
+
+    await writeFile(path.join(home, "Documents", "Cline", "Hooks", "PreToolUse"), "#!/bin/sh\nmy-own-hook\n");
+    const off = connect("--yes", "--remove");
+    assert.equal(off.status, 1, "a hook that is not agentsol's is reported, not removed");
+    assert.match(off.stdout, /Cline: .*already has a PreToolUse hook there, so it was left as it is/);
+    assert.equal(await readFile(path.join(home, "Documents", "Cline", "Hooks", "PreToolUse"), "utf8"), "#!/bin/sh\nmy-own-hook\n");
+    assert.deepEqual(JSON.parse(await readFile(path.join(home, ".cursor", "hooks.json"), "utf8")), cursorOriginal);
+    assert.ok(!existsSync(path.join(home, ".copilot", "hooks", "agentsol.json")), "agentsol's own Copilot file is deleted");
+    assert.deepEqual(JSON.parse(await readFile(path.join(home, ".codex", "hooks.json"), "utf8")), {});
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("hook process: denies with lessons from the cache, fails open on anything unexpected, is fast", async () => {
   const base = await tempDir("guard-hook");
   try {
@@ -231,19 +331,30 @@ test("guard --test explains a decision to a person without echoing secrets", asy
   }
 });
 
-test("settings merge keeps every other hook, is idempotent, and removes only its own entry", () => {
+test("settings merge keeps every other hook, is idempotent, and removes only its own entries", () => {
   const cmd = "'/usr/local/bin/node' '/opt/lib/node_modules/agentsol/build/cli/guard.js'";
+  const claude = app("claude-code", cmd);
   const theirs = { model: "x", hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "~/bin/audit.sh" }] }], Stop: [{ hooks: [{ type: "command", command: "say done" }] }] } };
-  const added = withGuardHook(theirs, cmd);
+  const added = withHooks(theirs, claude, true);
   assert.equal(added.changed, true);
-  assert.deepEqual((added.settings["hooks"] as { PreToolUse: unknown[] }).PreToolUse, [theirs.hooks.PreToolUse[0], { matcher: "Bash", hooks: [{ type: "command", command: cmd, timeout: 5 }] }]);
-  assert.deepEqual((added.settings["hooks"] as { Stop: unknown }).Stop, theirs.hooks.Stop);
-  assert.equal(withGuardHook(added.settings, cmd).changed, false, "a second install changes nothing");
-  const moved = withGuardHook(added.settings, cmd.replace("/opt/lib", "/usr/lib"));
+  const hooks = added.settings["hooks"] as { PreToolUse: unknown[]; SessionStart: unknown[]; Stop: unknown };
+  assert.deepEqual(hooks.PreToolUse, [theirs.hooks.PreToolUse[0], { matcher: "Bash", hooks: [{ type: "command", command: cmd, timeout: 5 }] }]);
+  assert.deepEqual(hooks.SessionStart, [{ hooks: [{ type: "command", command: cmd, timeout: 5 }] }], "the session briefing comes with it");
+  assert.deepEqual(hooks.Stop, theirs.hooks.Stop);
+  assert.equal(withHooks(added.settings, claude, true).changed, false, "a second install changes nothing");
+  const moved = withHooks(added.settings, app("claude-code", cmd.replace("/opt/lib", "/usr/lib")), true);
   assert.equal((moved.settings["hooks"] as { PreToolUse: unknown[] }).PreToolUse.length, 2, "a new path replaces the old entry");
-  assert.deepEqual(withGuardHook(added.settings, null).settings, theirs, "remove gives back the original");
-  assert.deepEqual(withGuardHook({}, null), { settings: {}, changed: false });
-  assert.throws(() => withGuardHook({ hooks: { PreToolUse: {} } }, cmd), /not a list/);
+  assert.deepEqual(withHooks(added.settings, claude, false).settings, theirs, "remove gives back the original");
+  assert.deepEqual(withHooks({}, claude, false), { settings: {}, changed: false });
+  assert.throws(() => withHooks({ hooks: { PreToolUse: {} } }, claude, true), /not a list/);
+
+  const cursor = withHooks({ hooks: { afterFileEdit: [{ command: "fmt.sh" }] } }, app("cursor", cmd), true).settings;
+  assert.deepEqual(cursor, { version: 1, hooks: { afterFileEdit: [{ command: "fmt.sh" }], sessionStart: [{ command: cmd }], beforeShellExecution: [{ command: cmd }] } }, "Cursor entries are flat and the file gets its version");
+  assert.deepEqual(withHooks(cursor, app("cursor", cmd), false).settings, { version: 1, hooks: { afterFileEdit: [{ command: "fmt.sh" }] } });
+  assert.deepEqual(app("copilot", cmd).events["preToolUse"], { type: "command", bash: cmd, timeoutSec: 5 });
+  assert.equal(app("copilot", cmd, "win32").events["preToolUse"]!["powershell"], `& ${cmd}`);
+  assert.equal(hookApps(cmd, "win32").some((a) => a.id === "cline"), false, "Cline hooks do not run on Windows");
+  assert.deepEqual(Object.keys(app("gemini", cmd).events), ["BeforeTool", "SessionStart"]);
 });
 
 test("connect claude-code --guard writes settings only with consent, keeps a backup, and uninstalls", async () => {
@@ -259,7 +370,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
 
     const noTty = connect({});
     assert.equal(noTty.status, 0, noTty.stderr);
-    assert.match(noTty.stdout, /Not an interactive terminal.*not changed/);
+    assert.match(noTty.stdout, /Not an interactive terminal, so nothing was changed/);
     assert.match(noTty.stdout, /"PreToolUse"/);
     for (const marker of ["CLAUDE_CODE_CHILD_SESSION", "CLAUDECODE"]) {
       const agent = connect({ [marker]: "1" }, "--yes");
@@ -270,7 +381,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
 
     const yes = connect({}, "--yes");
     assert.equal(yes.status, 0, yes.stderr);
-    assert.match(yes.stdout, /Added the guard hook · backup: ~\/\.claude\/settings\.json\.agentsol-backup-/);
+    assert.match(yes.stdout, /Claude Code: added the agentsol hooks · backup: ~\/\.claude\/settings\.json\.agentsol-backup-/);
     const now = JSON.parse(await readFile(settings, "utf8"));
     assert.deepEqual(now.permissions, original.permissions);
     assert.equal(now.hooks.PreToolUse.length, 2);
@@ -287,7 +398,7 @@ test("connect claude-code --guard writes settings only with consent, keeps a bac
     assert.match(doctor(), /WARN {2}The guard hook in ~\/\.claude\/settings\.json runs \/gone\/bin\/node, which no longer exists.*connect claude-code --guard/);
     await writeFile(settings, installed);
     const off = connect({}, "--yes", "--remove");
-    assert.match(off.stdout, /Removed the guard hook/);
+    assert.match(off.stdout, /Claude Code: removed the agentsol hooks/);
     assert.deepEqual(JSON.parse(await readFile(settings, "utf8")), original);
 
     const codex = spawnSync(process.execPath, [CLI, "connect", "codex", "--guard"], { encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: home, NO_COLOR: "1" } });
@@ -306,7 +417,7 @@ test("a symlinked settings.json is written through to its target and the link st
     await mkdir(path.join(home, ".claude"));
     const link = path.join(home, ".claude", "settings.json");
     await symlink(real, link);
-    const r = installClaudeGuard(home, "'/usr/bin/node' '/opt/agentsol/build/cli/guard.js'");
+    const r = installHooks(home, app("claude-code", "'/usr/bin/node' '/opt/agentsol/build/cli/guard.js'"), "'/usr/bin/node' '/opt/agentsol/build/cli/guard.js'");
     assert.ok(r.ok && r.changed, JSON.stringify(r));
     assert.ok(lstatSync(link).isSymbolicLink(), "the link is kept");
     const written = JSON.parse(await readFile(real, "utf8"));

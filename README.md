@@ -38,10 +38,10 @@
 ```sh
 cd your-project
 npx -y agentsol@alpha start                                  # scan, connect your apps, show what past mistakes cost
-npm i -g agentsol@alpha && agentsol connect claude-code --guard   # block known-wrong commands before they run
+npm i -g agentsol@alpha && agentsol connect --guard             # brief every agent session, stop known-wrong commands
 ```
 
-`start` registers and scans the folder, connects the AI apps you have (it asks first), and shows what to fix first. The guard needs an installed copy because the hook must not depend on npx's cache. No account, no API key, no hosted service; everything runs on your machine.
+`start` registers and scans the folder, connects the AI apps you have (it asks first), and shows what to fix first. `connect --guard` adds two hooks to every agent app it finds (Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI, Cline), asking for each: one briefs each new session with what agents got wrong in this project, the other checks each shell command. After that you never call Agentsol; it is there in every session. The hooks need an installed copy because they must not depend on npx's cache. No account, no API key, no hosted service; everything runs on your machine.
 
 ## How it works
 
@@ -50,7 +50,7 @@ Agents forget everything between sessions. They run `npm` in a `pnpm` repo again
 | Step | Command | What happens |
 |---|---|---|
 | **1. Learn** | `learn` | Reads your Claude Code and Codex transcripts for this folder and turns repeated mistakes into lessons, with the time and tokens they cost and the instruction line that caused them. |
-| **2. Guard** | `connect claude-code --guard` | A pre-command hook: a command known to fail here is blocked and the agent is told the one that works; a dangerous one waits for you. |
+| **2. Guard** | `connect --guard` | Hooks in each agent app: every new session starts with this project's lessons, a command known to fail here is blocked with the one that works, and a dangerous one waits for you. |
 | **3. Check** | `check` · `inspect` | Instruction files that are broken, unread or contradict the project, and third-party skills or MCP servers that steal credentials, send data out or hide instructions. |
 
 Every fix is a diff you approve and apply in your own terminal. Agentsol never edits a project file on its own.
@@ -74,13 +74,18 @@ It finds **commands** that fail here and the one that works, files agents look f
 
 **Measured:** `npm run eval:learn` replays 48 labelled agent histories in Claude Code and Codex formats. On the 27 held out, 100% of reported lessons were right and 86% of expected lessons were found; no planted secret ever reached the output. The histories are synthetic and many were written alongside the tuning, so treat this as a regression bar, not proof on your history. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
-## Guard · stop wrong commands before they run
+## Guard · every session starts briefed, wrong commands never run
 
 ```sh
-agentsol connect claude-code --guard            # shows the hook, asks, then adds it (backup kept)
-agentsol guard --test "npm install"             # what the agent would be told, without running anything
-agentsol connect claude-code --guard --remove   # undo
+agentsol connect --guard                # finds your agent apps, asks for each, adds the hooks (backup kept)
+agentsol connect cursor --guard         # or one app
+agentsol guard --test "npm install"     # what the agent would be told, without running anything
+agentsol connect --guard --remove       # undo
 ```
+
+**At session start** the agent gets the project briefing in its context: the rules from mistakes agents repeated here, instruction lines that are out of date with what to do instead, and what to ask you first. No tool call, no prompt to type, and in any app with hooks. It covers the projects you set up with `start`; lessons come from Claude Code and Codex transcripts and reach every app. Projects with nothing to report add nothing.
+
+**Before each shell command:**
 
 | The agent runs | Guard |
 |---|---|
@@ -89,13 +94,19 @@ agentsol connect claude-code --guard --remove   # undo
 | `curl … \| sh`, `rm -rf ~`, force-push to main, `reset --hard`, reading `.env` or SSH keys, rewriting AI app settings, `DROP TABLE` | **Asks you** first |
 | Anything else | Runs, silently |
 
-| App | Support |
-|---|---|
-| Claude Code | Block and ask; installed for you after you agree |
-| Codex | Block only (Codex does not support ask yet); `connect codex --guard` prints the `~/.codex/hooks.json` entry |
-| Gemini CLI | Block, and a warning instead of ask; `connect gemini --guard` prints the `BeforeTool` entry |
+| App | Hooks file | Session briefing | Command check |
+|---|---|---|---|
+| Claude Code | `~/.claude/settings.json` | Yes | Block and ask |
+| Codex | `~/.codex/hooks.json` | Yes | Block (no ask in Codex yet) |
+| Gemini CLI | `~/.gemini/settings.json` | Yes | Block, and a warning instead of ask |
+| Cursor | `~/.cursor/hooks.json` | Yes | Block and ask |
+| Copilot CLI | `~/.copilot/hooks/agentsol.json` | Yes | Block (no ask yet) |
+| Cline | `~/Documents/Cline/Hooks/` (turn on Enable Hooks) | Yes, at task start | Block (no ask) |
+| Any other MCP app (VS Code, Windsurf, Claude Desktop, OpenCode, …) | MCP only | The agent is told to call `project_briefing` first | `command_check` before build, test, install or deploy commands |
 
-It is local and fast (about 0.1 s per command), and fails open: any error or a 2-second timeout lets the command run. Lessons come from registered projects and refresh in the background at most every 30 minutes. `AGENTSOL_GUARD=off` turns it off. Commands longer than 20,000 characters are checked on their first 20,000 and then wait for you. The hook stores absolute paths, so run `connect … --guard` again after upgrading Node or reinstalling; `agentsol doctor` warns when those paths are gone. A symlinked `settings.json` is written through to its target. The guard hook has not been tested on Windows.
+The Claude Code hooks were tested live; the others follow each app's published hook format and are covered by tests, not yet by a live run.
+
+It is local and fast (about 0.1 s per command), and fails open: any error or a 2-second timeout lets the command run. Lessons come from registered projects and refresh in the background at most every 30 minutes. `AGENTSOL_GUARD=off` turns it off. Commands longer than 20,000 characters are checked on their first 20,000 and then wait for you. The hooks store absolute paths, so run `connect --guard` again after upgrading Node or reinstalling; `agentsol doctor` warns when those paths are gone. A symlinked settings file is written through to its target. Other hooks you have stay as they are; a Cline hook that is not Agentsol's is never replaced. The hooks have not been tested on Windows.
 
 ## Check · instructions your agents actually read
 
@@ -175,7 +186,7 @@ flowchart LR
 
 ## What it will never do
 
-- **Write without you.** There is no approve, apply, write or delete MCP tool, and approve, apply and reject refuse to run inside coding-agent terminals. The only file it changes outside your workspace is `~/.claude/settings.json`, for the guard, after you type yes, with a backup.
+- **Write without you.** There is no approve, apply, write or delete MCP tool, and approve, apply and reject refuse to run inside coding-agent terminals. The only files it changes outside your workspace are the hook settings of your agent apps, for the guard, each after you type yes, with a backup.
 - **Send your data anywhere.** No hosted service, analytics or telemetry. What MCP tools return goes to your assistant's provider, as with any tool you use with it.
 - **Show you a secret.** Secret-like text is masked before your assistant sees it (by pattern, so keep secrets out of instruction files anyway). Session review, learn and guard return derived facts only, never transcript text or secret values.
 - **Read what you did not register.** Only folders you add are visible. `CLAUDE.local.md`, `.env*`, keys, credentials, symlinks and hard-linked files are never read.
@@ -188,7 +199,7 @@ flowchart LR
 |---|---|
 | `start` | Register, scan, connect your apps, show session costs and what to fix first |
 | `learn` | Lessons from past sessions. `--since 365d`, `--propose` |
-| `connect <app> --guard` · `guard --test "<cmd>"` | Install the pre-command guard (`--remove` to undo), or see its answer for a command |
+| `connect [app] --guard` · `guard --test "<cmd>"` | Add the session-briefing and command-check hooks to your agent apps (`--remove` to undo), or see the guard's answer for a command |
 | `check` | Scan this folder: every finding with its line. `--strict` exits 1 on errors (CI), `--json` |
 | `inspect <path>` | Verdict on a skill or MCP server |
 | `sessions` · `session <id>` | What agents did, risky steps flagged. `--since 7d`, `--timeline` |

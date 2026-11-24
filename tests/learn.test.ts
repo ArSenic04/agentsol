@@ -701,6 +701,13 @@ test("project_briefing tells an agent starting work what to follow, which lines 
       const r = await here.callTool({ name: "project_briefing", arguments: {} });
       assert.ok(r.isError !== true, JSON.stringify(r));
       assert.equal((JSON.parse((r.content as { text: string }[])[0]!.text) as { sessionsRead: number }).sessionsRead, 2, "without path, the folder the server started in is used");
+
+      const guard = path.join(REPO, "src/cli/guard.ts");
+      assert.equal(spawnSync(process.execPath, [guard, "--refresh"], { env, encoding: "utf8" }).status, 0);
+      const start = (cwd: string) => spawnSync(process.execPath, [guard], { env, encoding: "utf8", input: JSON.stringify({ session_id: "s", hook_event_name: "SessionStart", source: "startup", cwd }) }).stdout;
+      const ctx = (JSON.parse(start(path.join(fx.root, "src"))) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+      assert.equal(ctx, v.text, "session start puts the same briefing in the agent's context, with no tool call");
+      assert.equal(start(other.root), "", "a project with nothing to say adds nothing to the session");
     } finally {
       await here?.close();
       await other.cleanup();

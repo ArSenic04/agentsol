@@ -62,7 +62,7 @@ test("landing explains the product honestly and the CTA opens the labelled demo"
   for (const banned of [/testimonial/i, /trusted by/i, /\d[\d,]* (users|developers|teams)/i, /sign up/i, /waitlist/i, /forever free/i, /guarantee(?!s? )/i]) assert.ok(!banned.test(text), `no ${banned}`);
   assert.ok(await page.locator("form, input[type=email]").count() === 0, "no signup or contact forms on the landing page");
   assert.match(await page.locator("#learn").innerText(), /keep repeating/);
-  assert.match(await page.locator("#guardsec").innerText(), /before it runs/);
+  assert.match(await page.locator("#guardsec").innerText(), /never run/);
   assert.match(text, /What repeated mistakes cost[\s\S]*1 wrong instruction[\s\S]*AGENTS\.md line 7\s+now {3}− - Run `npm test`[\s\S]*fix {3}\+ - Run `pnpm test`[\s\S]*npx -y agentsol@alpha learn --propose/);
   assert.match(text, /Instructions that cause it/);
   const tracks = page.locator(".client-carousel .client-track");

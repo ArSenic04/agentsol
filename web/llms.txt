@@ -12,7 +12,7 @@
 - Web chats without MCP: `npx -y agentsol@alpha prompt` prints one masked prompt to paste.
 - Sessions: `npx -y agentsol@alpha sessions` and `npx -y agentsol@alpha session <id> --timeline`
 - Setup audit: `npx -y agentsol@alpha doctor`
-- Guard (a person runs it, with consent): `agentsol connect claude-code --guard` after `npm i -g agentsol@alpha` (asks before changing settings); `agentsol connect --guard` prints the hook config for Codex and Gemini CLI to paste. Test a command without running it: `agentsol guard --test "npm install"`. Pause with `AGENTSOL_GUARD=off`.
+- Guard (a person runs it, with consent): after `npm i -g agentsol@alpha`, `agentsol connect --guard` adds two hooks to each agent app it finds (Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI, Cline), asking per app and keeping a backup: at session start the agent gets the project briefing in its context, and before each shell command the command is checked against learned lessons. One app: `agentsol connect cursor --guard`; undo: `--remove`. Other MCP apps get the same briefing through the `project_briefing` tool. Test a command without running it: `agentsol guard --test "npm install"`. Pause with `AGENTSOL_GUARD=off`.
 - CI: `uses: ArSenic04/agentsol@main` in a pull-request workflow uploads findings to GitHub code scanning (SARIF); locally `check --sarif`.
 - Requires Node.js 24 or newer.
 
