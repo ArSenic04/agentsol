@@ -8,13 +8,13 @@
     "source": "github"
   },
   "websiteUrl": "https://arsenic04.github.io/agentsol/",
-  "version": "0.2.0-alpha.7",
+  "version": "0.2.0-alpha.8",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "agentsol",
-      "version": "0.2.0-alpha.7",
+      "version": "0.2.0-alpha.8",
       "runtimeHint": "npx",
       "runtimeArguments": [
         { "type": "positional", "value": "-y" },

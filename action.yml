@@ -17,7 +17,7 @@ inputs:
     default: "true"
   version:
     description: Agentsol version to run. The default is the exact release this action was tagged with, so a new npm publish never changes your CI.
-    default: "0.2.0-alpha.7"
+    default: "0.2.0-alpha.8"
 
 outputs:
   sarif-file:

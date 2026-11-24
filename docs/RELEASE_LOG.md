@@ -84,5 +84,9 @@
 - Published by a person to npm under the `alpha` tag; `latest` and `alpha` both point to 0.2.0-alpha.7 and the registry integrity matches the release file: 51 files, 165,163 bytes, integrity sha512-8HIVj04FWw0o6av7+rqSf2cCP7lywP8C9WWJ3c248qufQz4EJwiI+hBwDeISKJkDnWpTmHspIhoMsKnfHKApQg==.
 - `release:check` READY on Node 26.8.2. Listed in the official MCP Registry as 0.2.0-alpha.7, latest.
 
-## Unreleased
+## Agentsol 0.2.0-alpha.8: prepared (Nov 24, 2026)
+- Windows works: the workspace privacy check used POSIX mode bits, which Windows does not have (it reports 0o666 for every folder), so every command failed with "accessible by other users". On Windows the check now relies on the user folder's permissions. `start` also finds apps installed as `claude.cmd` or `.exe` (PATHEXT) and prints their connect commands.
+- CI on every push: tests on Linux, macOS and Windows (Node 24 and 26), pack audit and clean install on Linux and Windows, website tests. Workflow actions pinned by commit. The tests now fake the home folder on Windows too (USERPROFILE).
+- The website is built and deployed from this repository (`.github/workflows/pages.yml`) at https://arsenic04.github.io/agentsol/; the separate site repository is retired.
+- `SECURITY.md` (private reporting), repo guide in `AGENTS.md` with `CLAUDE.md` importing it, README session GIF and tests badge.
 - Website: shorter landing page built around the agent loop (learn, brief, guard, you approve); the hero shows a session with the real briefing and block. The install page adds a `connect --guard` step.

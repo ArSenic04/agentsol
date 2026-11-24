@@ -1,6 +1,6 @@
 {
   "name": "agentsol",
-  "version": "0.2.0-alpha.7",
+  "version": "0.2.0-alpha.8",
   "private": true,
   "description": "Stops AI coding agents repeating mistakes: learns from past Claude Code and Codex sessions, guards each command before it runs, and checks instruction files, skills and MCP servers. Local MCP server and CLI, human-only approval.",
   "mcpName": "io.github.ArSenic04/agentsol",

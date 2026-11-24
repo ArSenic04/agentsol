@@ -193,7 +193,7 @@ flowchart LR
 - **Show you a secret.** Secret-like text is masked before your assistant sees it (by pattern, so keep secrets out of instruction files anyway). Session review, learn and guard return derived facts only, never transcript text or secret values.
 - **Read what you did not register.** Only folders you add are visible. `CLAUDE.local.md`, `.env*`, keys, credentials, symlinks and hard-linked files are never read.
 
-> **Early alpha (0.2.0-alpha.7).** A person has not yet run approve and apply end to end through this CLI; those steps are covered by automated tests only. No real assistant app has been formally validated. Tested on macOS (arm64) with Node 24 and 26; Linux and Windows are untested. Try it on the synthetic demo first and keep your files in version control.
+> **Early alpha (0.2.0-alpha.8).** A person has not yet run approve and apply end to end through this CLI; those steps are covered by automated tests only. No real assistant app has been formally validated. Tested on macOS (arm64) with Node 24 and 26; Linux and Windows are untested. Try it on the synthetic demo first and keep your files in version control.
 
 ## All commands
 
@@ -367,7 +367,7 @@ npm run test:web                                    # build, then browser tests 
 - Claude Code scope assumes the default "Project instructions" setting. User-level, managed and `.claude/rules` files are not inspected. Cursor `.mdc` rules are not supported.
 - Only LF or CRLF files with consistent line endings can be edited. Lines with redacted secrets cannot be edited through Agentsol.
 - A process that can rewrite folders inside the project during an apply can still race the final rename. This is detected afterwards (`write_unverified`) but not prevented. Power loss during apply is not tested.
-- Tested on macOS only; Linux and Windows are untested.
+- Every push runs the tests on Linux, macOS and Windows (Node 24 and 26) and a clean install of the package on Linux and Windows. Day-to-day use is on macOS. On Windows, `start` prints the commands to connect your apps instead of running them, and Cline hooks are not installed.
 </details>
 
 <details>
