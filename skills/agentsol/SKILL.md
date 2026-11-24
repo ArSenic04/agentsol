@@ -13,7 +13,7 @@ Agentsol reads, on this machine, the instruction files agents follow, the transc
 
 - **MCP tools available** (`project_briefing`, `lessons_list`, `checks_run`, …): use them. They are read-only.
 - **No MCP, but a shell:** run `npx -y agentsol@alpha <command>` in the project folder. Add `--json` when you need to parse the output.
-- **Neither:** tell the user to run `npx -y agentsol@alpha start` in their project, or to use the browser checker at https://arsenic04.github.io/agentsol-site/#/check, which needs no install.
+- **Neither:** tell the user to run `npx -y agentsol@alpha start` in their project, or to use the browser checker at https://arsenic04.github.io/agentsol/#/check, which needs no install.
 
 If `projects_list` is empty or a tool says the project is not registered, ask the user to run `npx -y agentsol@alpha check` in the project. You cannot register projects yourself.
 

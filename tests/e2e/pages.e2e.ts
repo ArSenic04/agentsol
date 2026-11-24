@@ -1,5 +1,5 @@
 /**
- * The GitHub Pages export, served the way Pages serves a project site: under /agentsol-site/,
+ * The GitHub Pages export, served the way Pages serves a project site: under /agentsol/,
  * plain static files, and NO security headers (only the <meta> CSP inside index.html).
  */
 import assert from "node:assert/strict";
@@ -11,7 +11,7 @@ import { after, before, test } from "node:test";
 import { chromium, type Browser } from "playwright-core";
 import { exportPages } from "../../scripts/exportPages.ts";
 
-const BASE = "/agentsol-site/";
+const BASE = "/agentsol/";
 const TYPES: Record<string, string> = { ".png": "image/png", ".txt": "text/plain", ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".md": "text/markdown" };
 let browser: Browser;
 let server: Server;

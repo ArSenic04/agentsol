@@ -20,9 +20,9 @@
 </p>
 
 <p align="center">
-  <a href="https://arsenic04.github.io/agentsol-site/">Website</a> ·
-  <a href="https://arsenic04.github.io/agentsol-site/#/demo">Live demo</a> ·
-  <a href="https://arsenic04.github.io/agentsol-site/#/check">Check in your browser</a> ·
+  <a href="https://arsenic04.github.io/agentsol/">Website</a> ·
+  <a href="https://arsenic04.github.io/agentsol/#/demo">Live demo</a> ·
+  <a href="https://arsenic04.github.io/agentsol/#/check">Check in your browser</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#the-details">Docs</a>
 </p>
@@ -153,7 +153,7 @@ A verdict (danger, caution, clean) with every finding's file and line, from read
 - **`sessions`**: risky steps in recent agent sessions: destructive commands, secrets exposed to the model, skipped hooks, weakened tests, unverified edits, insecure code (A01–A14).
 - **`doctor`**: your AI apps' settings: plaintext keys in MCP config, unpinned servers, settings that let agents act without asking (C01–C10).
 - **`log`**: who approved, applied or rejected each change.
-- **In the browser**: the [demo](https://arsenic04.github.io/agentsol-site/#/demo) shows real output for a synthetic project, and [Check](https://arsenic04.github.io/agentsol-site/#/check) and Inspect run entirely in your browser.
+- **In the browser**: the [demo](https://arsenic04.github.io/agentsol/#/demo) shows real output for a synthetic project, and [Check](https://arsenic04.github.io/agentsol/#/check) and Inspect run entirely in your browser.
 
 ## Works with
 

@@ -696,7 +696,7 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   raw();
   if (L.sessionsRead === 0) {
     for (const r of wrapSegs(["    ", ["muted", "No Claude Code or Codex sessions ran in this folder in that time. Try a longer window: "], ["bold", `${CMD} learn --since 365d`]], w, 4)) raw(render(t, r));
-    for (const r of wrapSegs(["    ", ["muted", "Lessons appear after a few agent sessions in this folder. To see what they look like now, open the demo: "], ["bold", "https://arsenic04.github.io/agentsol-site/#/demo"]], w, 4)) raw(render(t, r));
+    for (const r of wrapSegs(["    ", ["muted", "Lessons appear after a few agent sessions in this folder. To see what they look like now, open the demo: "], ["bold", "https://arsenic04.github.io/agentsol/#/demo"]], w, 4)) raw(render(t, r));
     for (const note of L.notes) raw(render(t, ["    ", ["muted", safe(note)]]));
     raw();
     return 0;

@@ -41,8 +41,8 @@ projects_list, workspace_status, sources_freshness, sources_scan, sources_list, 
 
 ## Links
 
-- [Install guide](https://arsenic04.github.io/agentsol-site/#/setup)
-- [Inspect a skill or MCP server before installing, no install](https://arsenic04.github.io/agentsol-site/#/inspect)
-- [Browser checker, no install](https://arsenic04.github.io/agentsol-site/#/check)
-- [Interactive demo](https://arsenic04.github.io/agentsol-site/#/demo)
+- [Install guide](https://arsenic04.github.io/agentsol/#/setup)
+- [Inspect a skill or MCP server before installing, no install](https://arsenic04.github.io/agentsol/#/inspect)
+- [Browser checker, no install](https://arsenic04.github.io/agentsol/#/check)
+- [Interactive demo](https://arsenic04.github.io/agentsol/#/demo)
 - [npm package](https://www.npmjs.com/package/agentsol)
