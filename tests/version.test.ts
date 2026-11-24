@@ -25,6 +25,8 @@ test("one version everywhere: package.json, lockfile, CLI --version and the MCP 
   assert.match(readFileSync(path.join(REPO, "src/mcp/server.ts"), "utf8"), /version: PRODUCT_VERSION/);
   const action = readFileSync(path.join(REPO, "action.yml"), "utf8");
   assert.equal(/\n  version:\n(?: {4}.*\n)*? {4}default: "([^"]+)"/.exec(action)?.[1], PRODUCT_VERSION, "the GitHub Action runs the exact release it ships with");
+  const description = /^description: (.*)$/m.exec(action)?.[1] ?? "";
+  assert.ok(description.length > 0 && description.length < 125, `GitHub Marketplace needs an Action description under 125 characters (${description.length})`);
 });
 
 test("package metadata stays release-safe until a person decides", () => {

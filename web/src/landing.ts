@@ -163,7 +163,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
       startShowcase(),
       h("p", { class: "muted small" }, "Prefer to connect by hand? Pick your app and paste one line:"),
       installPicker(),
-      h("p", { class: "muted small" }, "In CI: add ", h("code", {}, "uses: ArSenic04/agentsol@v0.2.0-alpha.8"), " to a pull-request workflow and findings show up in code scanning. Full steps are on the ", h("a", { href: route("#/setup") }, "Install page"), ".")),
+      h("p", { class: "muted small" }, "In CI: add ", h("code", {}, "uses: ArSenic04/agentsol@v0.2.0-alpha.9"), " to a pull-request workflow and findings show up in code scanning. Full steps are on the ", h("a", { href: route("#/setup") }, "Install page"), ".")),
 
     h("section", { class: "section", attrs: { "aria-labelledby": "safety" } },
       head("Guardrails", "safety", "Your agent can propose. Only you can change files."),

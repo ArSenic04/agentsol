@@ -1,5 +1,5 @@
 name: Agentsol check
-description: Lint AGENTS.md, CLAUDE.md and SKILL.md on every pull request and show findings in GitHub code scanning. Offline; nothing is sent anywhere.
+description: Lint AGENTS.md, CLAUDE.md and SKILL.md on every pull request, with findings in code scanning. Offline, no account.
 author: ArSenic04
 branding:
   icon: sun
@@ -17,7 +17,7 @@ inputs:
     default: "true"
   version:
     description: Agentsol version to run. The default is the exact release this action was tagged with, so a new npm publish never changes your CI.
-    default: "0.2.0-alpha.8"
+    default: "0.2.0-alpha.9"
 
 outputs:
   sarif-file:

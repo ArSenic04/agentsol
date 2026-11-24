@@ -1,7 +1,7 @@
 # Agentsol: instructions for agents working in this repo
 
 Read this first; it is meant to replace exploring the repo. Owner: ArSenic04. Public repo github.com/ArSenic04/agentsol (MIT), `main` only.
-npm package `agentsol` (current `0.2.0-alpha.8`, tags `alpha` and `latest`), MCP Registry name `io.github.ArSenic04/agentsol`.
+npm package `agentsol` (current `0.2.0-alpha.9`, tags `alpha` and `latest`), MCP Registry name `io.github.ArSenic04/agentsol`.
 Website: https://arsenic04.github.io/agentsol/ (built from `web/` in this repo). There is no separate site repo; the old `agentsol-site` repo and its `/agentsol-site/` URLs are gone. Never recreate them.
 
 ## What Agentsol is

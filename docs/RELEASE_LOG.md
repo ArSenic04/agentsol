@@ -91,5 +91,9 @@
 - `SECURITY.md` (private reporting), repo guide in `AGENTS.md` with `CLAUDE.md` importing it, README session GIF and tests badge.
 - Website: shorter landing page built around the agent loop (learn, brief, guard, you approve); the hero shows a session with the real briefing and block. The install page adds a `connect --guard` step.
 
-## Unreleased
+## Agentsol 0.2.0-alpha.8: published (Nov 24, 2026)
+- npm `alpha` and `latest` point to 0.2.0-alpha.8; registry integrity matches the release file (sha512-WVOLuwjIZbeUAgVmF5lp5nGSFIfFGSB2bjE0oAN9u078iFt9rqnD7zA/CTZk72MBelkTLnAMVOt3GYlCxbv93A==, 51 files, 165,647 bytes). MCP Registry shows alpha.8 as latest with the new website URL. GitHub release `v0.2.0-alpha.8`.
+
+## Agentsol 0.2.0-alpha.9: prepared (Nov 24, 2026)
+- GitHub Action description shortened to the Marketplace's 125-character limit.
 - GitHub Action installs the exact Agentsol version into its own folder instead of using npx, which could run another copy (a global install or a checked-out repository named agentsol). CI now runs the Action itself on Linux and Windows.
