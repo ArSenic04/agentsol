@@ -753,7 +753,11 @@ async function learnCmd(t: Term, store: WorkspaceStore, svc: AssistantService, o
   return 0;
 }
 
-const onPath = (bin: string): boolean => (process.env["PATH"] ?? "").split(path.delimiter).some((d) => d && existsSync(path.join(d, bin)));
+/** On Windows an app is claude.cmd or claude.exe, so try each PATHEXT extension too. */
+const onPath = (bin: string): boolean => {
+  const exts = process.platform === "win32" ? ["", ...(process.env["PATHEXT"] ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean)] : [""];
+  return (process.env["PATH"] ?? "").split(path.delimiter).some((d) => d && exts.some((e) => existsSync(path.join(d, bin + e))));
+};
 type Connected = { name: string; state: "connected" | "added" | "failed" | "declined" | "manual" | "not_run"; detail?: string };
 
 /** One command to begin: register and scan the project, connect installed AI apps, then show what to do first. */

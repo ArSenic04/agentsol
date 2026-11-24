@@ -15,7 +15,7 @@ test("web build is static, self-contained, and carries no local paths or secrets
   try {
     const r = build(out);
     assert.equal(r.status, 0, r.stderr);
-    const files = (await readdir(out, { recursive: true })).sort();
+    const files = (await readdir(out, { recursive: true })).map((f) => f.split(path.sep).join("/")).sort();
     assert.deepEqual(files.filter((f) => !f.startsWith(".")), ["favicon.svg", "index.html", "js", "js/app.js", "js/checker.js", "js/contract.js", "js/core", "js/core/claudeImports.js", "js/core/handoff.js", "js/core/risks.js", "js/core/secrets.js", "js/data.js", "js/demo-data.js", "js/dom.js", "js/hero.js", "js/inspect.js", "js/labels.js", "js/landing.js", "js/mode.js", "js/setup.js", "js/workspace.js", "llms.txt", "og.png", "robots.txt", "styles.css"]);
     let all = "";
     for (const f of files) if (f.includes(".") && !f.endsWith(".png")) all += await readFile(path.join(out, f), "utf8");

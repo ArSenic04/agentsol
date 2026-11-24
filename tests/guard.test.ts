@@ -235,7 +235,7 @@ test("connect --guard sets up every app it finds, each only after a yes, and rem
     const cursor = JSON.parse(await readFile(path.join(home, ".cursor", "hooks.json"), "utf8"));
     assert.deepEqual(cursor.hooks.afterFileEdit, cursorOriginal.hooks.afterFileEdit);
     assert.equal(cursor.hooks.beforeShellExecution.length, 1);
-    assert.match(JSON.parse(await readFile(path.join(home, ".copilot", "hooks", "agentsol.json"), "utf8")).hooks.sessionStart[0].bash, /guard\.ts'?$/);
+    assert.match(JSON.parse(await readFile(path.join(home, ".copilot", "hooks", "agentsol.json"), "utf8")).hooks.sessionStart[0].bash, /guard\.ts['"]?$/);
     const task = path.join(home, "Documents", "Cline", "Hooks", "TaskStart");
     assert.match(await readFile(task, "utf8"), /^#!\/bin\/sh\n# agentsol guard/);
     assert.equal(lstatSync(task).mode & 0o111, 0o111, "Cline hooks are executable");

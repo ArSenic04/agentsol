@@ -222,6 +222,17 @@ test("start registers, scans and connects only apps that are installed, after co
     const start = (extra: Record<string, string>, ...args: string[]) =>
       spawnSync(process.execPath, [CLI, "start", ...args], { cwd: fx.root, encoding: "utf8", input: "", timeout: 30_000, env: { PATH: bin, HOME: home, USERPROFILE: home, AGENTSOL_WORKSPACE: path.join(home, "ws"), NO_COLOR: "1", ...extra } });
 
+    if (process.platform === "win32") {
+      // Windows apps are claude.cmd or claude.exe, and start prints the commands instead of running them.
+      await rm(claude);
+      await rm(path.join(bin, "codex"));
+      await writeFile(path.join(bin, "claude.cmd"), "@echo off\r\nexit /b 1\r\n");
+      const win = start({}, "--yes");
+      assert.equal(win.status, 0, win.stderr);
+      assert.match(win.stdout, /Claude Code · not connected/);
+      assert.match(win.stdout, /claude mcp add agentsol/, "prints the command to run");
+      return;
+    }
     const first = start({}, "--yes");
     assert.equal(first.status, 0, first.stderr);
     assert.match(first.stdout, /Project\s+registered\s/);
