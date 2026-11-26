@@ -97,3 +97,4 @@
 ## Agentsol 0.2.0-alpha.9: prepared (Nov 24, 2026)
 - GitHub Action description shortened to the Marketplace's 125-character limit.
 - GitHub Action installs the exact Agentsol version into its own folder instead of using npx, which could run another copy (a global install or a checked-out repository named agentsol). CI now runs the Action itself on Linux and Windows.
+- Website: more color and motion on the light theme: drifting aurora behind the hero, a glowing gradient frame around the session, italic gradient accent in the headlines, pill buttons, colored loop cards, lifting feature cards, a glowing final panel, and sections that rise in on scroll. Motion is off when the visitor prefers reduced motion.

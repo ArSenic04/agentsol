@@ -85,6 +85,18 @@ function faq(q: string, a: string): HTMLElement {
   return h("details", {}, h("summary", {}, q), h("p", {}, a));
 }
 
+/** Sections rise in once as they scroll into view. Skipped when motion is reduced or unsupported, so content is never hidden. */
+function revealOnScroll(root: HTMLElement): void {
+  if (typeof IntersectionObserver === "undefined" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+  }, { rootMargin: "0px 0px -6% 0px" });
+  for (const el of root.querySelectorAll<HTMLElement>(".section-head, .steps > li, .cards > li, .two-col, .final, .lock-list, .faq")) {
+    el.classList.add("reveal");
+    io.observe(el);
+  }
+}
+
 export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): void {
   const excerptSlot = h("div", { class: "excerpt-slot" });
   replace(root,
@@ -187,7 +199,7 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
 
     h("section", { class: "section" },
       h("div", { class: "final" },
-        h("h2", {}, "Fix a mistake once. Your agents keep the lesson."),
+        h("h2", {}, "Fix a mistake once. ", h("em", {}, "Your agents keep the lesson.")),
         h("p", {}, "Three commands, once per project. Then every agent session starts briefed and the known-wrong command never runs."),
         h("div", { class: "cta-row" },
           h("a", { class: "btn btn-primary", href: route("#/setup") }, "Install Agentsol"),
@@ -199,4 +211,5 @@ export function renderLanding(root: HTMLElement, bundle: DemoBundle | null): voi
       replace(excerptSlot, el ?? h("p", { class: "muted" }, "The demo excerpt is not available in this build."));
     });
   } else replace(excerptSlot, h("p", { class: "muted" }, "The demo excerpt is not available in this build."));
+  revealOnScroll(root);
 }
