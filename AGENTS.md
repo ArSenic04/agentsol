@@ -3,6 +3,22 @@
 Read this first; it is meant to replace exploring the repo. Owner: ArSenic04. Public repo github.com/ArSenic04/agentsol (MIT), `main` only.
 npm package `agentsol` (current `0.2.0-alpha.9`, tags `alpha` and `latest`), MCP Registry name `io.github.ArSenic04/agentsol`.
 Website: https://arsenic04.github.io/agentsol/ (built from `web/` in this repo). There is no separate site repo; the old `agentsol-site` repo and its `/agentsol-site/` URLs are gone. Never recreate them.
+Also listed: GitHub Marketplace https://github.com/marketplace/actions/agentsol-guard ("Agentsol Guard"; the exact name "Agentsol" is taken by an unrelated GitHub user), MCPRush https://mcprush.com/arsenic04/agentsol-mcp. Launch article: `docs/blog/2026-11-your-ai-agent-forgot-again/`.
+
+## New machine setup
+1. Node 24 or newer, git, and `gh` signed in as ArSenic04 (`gh auth login`). Set git `user.email` to the owner's personal email before committing.
+2. `git clone https://github.com/ArSenic04/agentsol.git && cd agentsol && npm ci`
+3. `npm run -s check` (unit tests). For the browser tests, once: `npx playwright-core install chromium`, then `npm run -s test:web`.
+4. `npm run -s build && npm link` puts the local `agentsol` command on PATH (or `npm i -g agentsol@alpha` for the published one).
+5. Publishing needs the person's own logins on that machine: `npm login` (2FA) and `mcp-publisher login github`. The `mcp-publisher` CLI comes from the modelcontextprotocol/registry releases.
+6. Real data stays on the old machine: `~/.agentsol` (registered projects, proposals, backups) and the agent transcripts. On a new machine run `agentsol start` again inside each project.
+
+## Status and next steps (Nov 25, 2026)
+- Done: npm 0.2.0-alpha.9 (`alpha` and `latest`), MCP Registry alpha.9 latest, GitHub release `v0.2.0-alpha.9`, Marketplace listing, CI green on Linux, macOS and Windows, website live, Substack article published.
+- `main` already has two changes for the next release: the Action is named "Agentsol Guard" in `action.yml`, and it installs its exact version instead of using npx. Ship them as alpha.10 with the normal release steps.
+- Not proven yet: only Claude Code ran the hooks live (Codex, Gemini CLI, Cursor, Copilot CLI and Cline only against documented formats); no real users; no before/after measurement. The plan: on a personal project run `agentsol learn` as a baseline, use `connect --guard` for 1–2 weeks, then `learn --since 14d` again and compare. Never run it on employer repositories.
+- Distribution (traffic was about 1 unique visitor on Nov 24): Show HN, Reddit (r/ClaudeAI, r/cursor), LinkedIn, X, PRs to awesome-mcp-servers and awesome-claude-code. Real stars only.
+- Domain, on hold: `agentsol.dev` and `agentsol.sh` were available on Nov 25 (`.com`, `.ai`, `.io`, `.app` are taken). Free alternative: `agentsol.js.org` (`scripts/exportPages.ts --domain` already writes that CNAME). After buying, set the Pages custom domain, add the GitHub Pages DNS records, and replace `arsenic04.github.io/agentsol` everywhere, as was done for the agentsol-site move.
 
 ## What Agentsol is
 A local tool (no server, account or API key) that stops AI coding agents repeating mistakes:

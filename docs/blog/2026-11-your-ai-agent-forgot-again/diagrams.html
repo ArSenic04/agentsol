@@ -1,0 +1,115 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+:root{--ink:#111;--mute:#5b5b5b;--line:#d9d5cc;--bg:#fbfaf7;--card:#fff;--or:#c2410c;--orbg:#fdf0e8;--te:#0f766e;--tebg:#e8f4f2;--vi:#4338ca;--vibg:#eef0fb;--re:#b42318;--rebg:#fdecea}
+*{box-sizing:border-box}body{margin:0;background:#eee;font:16px/1.45 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;color:var(--ink)}
+.fig{width:1200px;padding:44px 52px 40px;background:var(--bg);margin:0 0 40px}
+h2{margin:0 0 4px;font-size:30px;letter-spacing:-.02em}
+.sub{margin:0 0 30px;color:var(--mute);font-size:17px}
+.row{display:flex;align-items:center;gap:0}
+.box{background:var(--card);border:1.5px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:0 1px 0 rgba(0,0,0,.03)}
+.box h3{margin:0 0 6px;font-size:18px}.box p{margin:0;color:var(--mute);font-size:14.5px}
+.or{border-color:#f0b48f;background:var(--orbg)}.te{border-color:#9fd3cb;background:var(--tebg)}.vi{border-color:#b9bff0;background:var(--vibg)}.re{border-color:#f2b8b2;background:var(--rebg)}
+.arrow{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--mute);font-size:13px;padding:0 10px;min-width:96px;text-align:center}
+.arrow .a{font-size:30px;line-height:1;color:#8a857b}
+.mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:13.5px}
+.tag{display:inline-block;font:600 12px/1 ui-monospace,Menlo,monospace;padding:5px 8px;border-radius:6px;margin:2px 4px 2px 0;background:#f1efe9;color:#444}
+.foot{margin-top:24px;color:var(--mute);font-size:14px}
+.brand{float:right;font:600 13px ui-monospace,Menlo,monospace;color:var(--or)}
+.stack{display:flex;flex-direction:column;gap:8px}
+.seg{border-radius:10px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;font-size:15px;border:1.5px solid var(--line);background:#fff}
+.seg b{font-weight:650}.seg span{color:var(--mute);font-size:13.5px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.step{font:13.5px/1.6 ui-monospace,Menlo,monospace;margin:0}
+.x{color:var(--re);font-weight:700}.ok{color:var(--te);font-weight:700}
+.wall{width:10px;align-self:stretch;background:repeating-linear-gradient(45deg,#c9c3b6 0 8px,#e6e1d6 8px 16px);border-radius:4px;margin:0 22px}
+ul.l{margin:8px 0 0;padding-left:18px;color:#333;font-size:15px}ul.l li{margin:5px 0}
+.pill{display:inline-block;padding:6px 12px;border-radius:999px;font-weight:650;font-size:14px}
+</style></head><body>
+
+<div class="fig" id="f1"><span class="brand">how agents work</span>
+<h2>The agent loop</h2><p class="sub">The model never touches your computer. It asks; the app (the harness) does it and reports back.</p>
+<div class="row">
+ <div class="box" style="width:200px"><h3>You</h3><p>“Fix the failing date test, then run the tests.”</p></div>
+ <div class="arrow"><span class="a">→</span>task</div>
+ <div class="box or" style="width:300px"><h3>Harness</h3><p>Claude Code, Codex, Cursor, Gemini CLI, Copilot, Cline…<br>Builds the context, runs tools, enforces permissions and hooks.</p></div>
+ <div class="arrow"><span class="a">⇄</span>context in<br>tool call out</div>
+ <div class="box vi" style="width:270px"><h3>Model (LLM)</h3><p>Reads everything in its context, then writes text or a <b>tool call</b>: <span class="mono">Bash("npm test")</span></p></div>
+</div>
+<div class="row" style="margin-top:18px;justify-content:center">
+ <div class="arrow" style="min-width:0"><span class="a">↓</span>runs the call</div>
+</div>
+<div class="row" style="justify-content:center">
+ <div class="box te" style="width:640px"><h3>Tools</h3><p><span class="tag">shell</span><span class="tag">read file</span><span class="tag">edit file</span><span class="tag">search</span><span class="tag">web fetch</span><span class="tag">MCP servers</span><br>The result (output, error, file contents) is appended to the context, and the model decides the next step.</p></div>
+</div>
+<p class="foot"><b>Loop:</b> read context → choose a tool → harness runs it → result goes back into context → repeat until the model says it is done (or a person stops it).</p>
+</div>
+
+<div class="fig" id="f2"><span class="brand">how agents work</span>
+<h2>What the model actually sees</h2><p class="sub">Everything an agent “knows” in a session is text in one context window. Nothing else.</p>
+<div class="stack">
+ <div class="seg vi"><b>System prompt</b><span>written by the app: who it is, how to use tools, safety rules</span></div>
+ <div class="seg vi"><b>Tool definitions</b><span>names, descriptions and inputs of every tool, including each MCP server's tools</span></div>
+ <div class="seg or"><b>Instruction files: AGENTS.md · CLAUDE.md · skills</b><span>your project's rules, loaded at session start. The only “memory” most agents have</span></div>
+ <div class="seg"><b>Your request</b><span>the task you typed</span></div>
+ <div class="seg" style="min-height:120px;align-items:flex-start;flex-direction:column;gap:6px"><b>Conversation + tool results (grows every step)</b><span>commands and their output, files read, edits, errors… until the window fills up. Then the app compacts: old steps are summarized or dropped</span></div>
+</div>
+<p class="foot">When the session ends, this window is thrown away. The next session starts from the system prompt and your instruction files again.</p>
+</div>
+
+<div class="fig" id="f3"><span class="brand">why agents repeat mistakes</span>
+<h2>Every session starts from zero</h2><p class="sub">The agent learns what works in your project, then forgets it when the session ends.</p>
+<div class="grid3">
+ <div class="box"><h3>Monday</h3><p class="step">$ npm test <span class="x">✗</span><br>$ npm install && npm test <span class="x">✗</span><br>“this project uses pnpm”<br>$ pnpm test <span class="ok">✓</span></p><p style="margin-top:10px">12 steps lost</p></div>
+ <div class="box"><h3>Tuesday</h3><p class="step">$ npm test <span class="x">✗</span><br>$ npm ci <span class="x">✗</span><br>$ pnpm test <span class="ok">✓</span><br>&nbsp;</p><p style="margin-top:10px">8 steps lost</p></div>
+ <div class="box"><h3>Thursday</h3><p class="step">$ npm test <span class="x">✗</span><br>you: “use pnpm!”<br>$ pnpm test <span class="ok">✓</span><br>&nbsp;</p><p style="margin-top:10px">6 steps lost, and your patience</p></div>
+</div>
+<div class="box re" style="margin-top:18px"><h3>And often the cause is written down</h3><p>AGENTS.md line 3 still says <span class="mono">“Run npm test before every commit.”</span> The agent is following stale instructions exactly.</p></div>
+<p class="foot">Illustrative. The pattern (a command fails, the same fix is found again next session) is what Agentsol measures in real transcripts.</p>
+</div>
+
+<div class="fig" id="f4"><span class="brand">agentsol</span>
+<h2>Agentsol: a memory loop around your agents</h2><p class="sub">Learn from past sessions, brief the next one, guard each command. You approve every file change.</p>
+<div class="row" style="align-items:stretch">
+ <div class="box" style="width:200px"><h3>Past sessions</h3><p>Claude Code and Codex transcripts already on your machine</p></div>
+ <div class="arrow"><span class="a">→</span></div>
+ <div class="box or" style="width:250px"><h3>1 · Learn</h3><p>Commands that fail here and what worked, things you keep repeating, files agents keep breaking, and the instruction line that causes it</p></div>
+ <div class="arrow"><span class="a">→</span></div>
+ <div class="stack" style="width:420px">
+  <div class="box te"><h3>2 · Brief</h3><p>At session start, the lessons go into the agent's context automatically. No tool call needed.</p></div>
+  <div class="box te"><h3>3 · Guard</h3><p>Before each shell command: block a known-wrong one and say what works; ask before dangerous ones.</p></div>
+ </div>
+</div>
+<div class="row" style="justify-content:flex-end;margin-top:6px"><div class="arrow" style="min-width:420px"><span class="a">↓</span>the fix for the instruction file</div></div>
+<div class="row" style="justify-content:flex-end">
+ <div class="box vi" style="width:640px"><h3>4 · You approve</h3><p>Agentsol proposes a diff to AGENTS.md or CLAUDE.md. Only a person in a real terminal can approve it (one-time code) and apply it (backup kept). Then every agent reads the corrected rule.</p></div>
+</div>
+<p class="foot">Local only: no account, no API key, no server. One npm package for Claude Code, Codex, Gemini CLI, Cursor, Copilot CLI and Cline.</p>
+</div>
+
+<div class="fig" id="f5"><span class="brand">agentsol guard</span>
+<h2>What happens before each command</h2><p class="sub">The app calls Agentsol's hook with the command. About 0.16 seconds later it gets one of three answers.</p>
+<div class="row" style="align-items:stretch">
+ <div class="box" style="width:240px"><h3>Agent wants to run</h3><p class="mono" style="margin-top:8px">npm test</p></div>
+ <div class="arrow"><span class="a">→</span>hook</div>
+ <div class="box or" style="width:300px"><h3>Rules, in order</h3><ul class="l"><li>Wrong package manager for this project (from the lockfile)</li><li>Failed here before, and something else worked (a lesson)</li><li>Dangerous: <span class="mono">curl … | sh</span>, <span class="mono">rm -rf</span> outside the project, force-push to main, reading secrets</li></ul></div>
+ <div class="arrow"><span class="a">→</span></div>
+ <div class="stack" style="width:330px">
+  <div class="seg re" style="flex-direction:column;align-items:flex-start;gap:4px"><span class="pill" style="background:#fff;color:var(--re)">deny + fix</span><span class="mono" style="color:#333">“this project uses pnpm … Run instead: pnpm test”</span></div>
+  <div class="seg or" style="flex-direction:column;align-items:flex-start;gap:4px"><span class="pill" style="background:#fff;color:var(--or)">ask</span><span class="mono" style="color:#333">“downloads a script and runs it unseen”</span></div>
+  <div class="seg te" style="flex-direction:column;align-items:flex-start;gap:4px"><span class="pill" style="background:#fff;color:var(--te)">allow, silently</span><span style="color:#333">everything else</span></div>
+ </div>
+</div>
+<p class="foot">Fails open: any error or a 2-second timeout lets the command run as if Agentsol were not there. Replayed on 1,178 real agent commands: 0 wrongly blocked.</p>
+</div>
+
+<div class="fig" id="f6"><span class="brand">agentsol</span>
+<h2>Agents propose. People decide.</h2><p class="sub">The line Agentsol never lets an agent cross.</p>
+<div class="row" style="align-items:stretch">
+ <div class="box te" style="flex:1"><h3>What an agent can do (MCP tools, hooks)</h3><ul class="l"><li>Read the project's instruction files, with secrets masked</li><li>Run checks, get the briefing, check a command</li><li>Review its own past sessions</li><li>Record findings and <b>propose</b> a change as a diff</li></ul></div>
+ <div class="wall"></div>
+ <div class="box vi" style="flex:1"><h3>What only a person can do (CLI, real terminal)</h3><ul class="l"><li>Register a project</li><li>Review the exact diff</li><li><b>Approve</b> with a one-time code. Refused if an agent runs the terminal</li><li><b>Apply</b>: re-checks the file hash, keeps a backup, writes atomically</li></ul></div>
+</div>
+<p class="foot">There is no MCP tool for approve or apply. The approval is bound to one exact diff and one version of the file.</p>
+</div>
+
+</body></html>

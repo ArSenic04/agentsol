@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Your AI agent forgot again</title>
+<style>
+body{max-width:720px;margin:48px auto;padding:0 20px;font:19px/1.65 Georgia,"Times New Roman",serif;color:#1a1a1a;background:#fff}
+h1{font:700 40px/1.15 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;letter-spacing:-.02em;margin:0 0 10px}
+h2{font:700 28px/1.25 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;margin:48px 0 12px;letter-spacing:-.01em}
+h3{font:700 21px/1.3 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;margin:32px 0 8px}
+.subtitle{font:400 22px/1.4 -apple-system,BlinkMacSystemFont,"Inter",sans-serif;color:#555;margin:0 0 32px}
+pre{background:#f5f3ee;border-radius:8px;padding:14px 16px;overflow-x:auto;font:14.5px/1.55 ui-monospace,"SF Mono",Menlo,monospace}
+code{font:0.85em ui-monospace,"SF Mono",Menlo,monospace;background:#f5f3ee;padding:1px 5px;border-radius:4px}
+pre code{background:none;padding:0;font-size:inherit}
+figure{margin:28px 0}figure img{width:100%;border-radius:8px;border:1px solid #eee}
+figcaption{font:15px/1.4 -apple-system,sans-serif;color:#666;margin-top:6px;text-align:center}
+blockquote{border-left:3px solid #c2410c;margin:24px 0;padding:2px 0 2px 18px;color:#333;font-style:italic}
+.note{font:15px/1.5 -apple-system,sans-serif;background:#fdf0e8;border-radius:8px;padding:12px 16px;color:#5a2a0c}
+hr{border:0;border-top:1px solid #e5e5e5;margin:40px 0}
+</style></head><body>
+
+<h1>Your AI agent forgot again</h1>
+<p class="subtitle">How AI coding agents actually work in 2026, why they keep making the same mistakes, and the small tool I built so they stop.</p>
+
+<p>It's the third time this week. You ask your coding agent to fix a bug and run the tests. It types <code>npm test</code>. It fails. It tries <code>npm install</code>, then <code>npm ci</code>. Eventually it notices the lockfile and runs <code>pnpm test</code>, which works. Twelve steps, a few minutes and a pile of tokens later, you're back where a junior engineer would be on day two.</p>
+
+<p>Tomorrow it will do exactly the same thing.</p>
+
+<p>That isn't because the model is dumb. It's because of how agents are built. If you understand the machinery, the problem and the fix both become obvious. So let's open it up.</p>
+
+<h2>What an "AI agent" actually is</h2>
+
+<p>Strip away the marketing and an AI agent is three things: a <strong>model</strong>, a <strong>loop</strong> and <strong>tools</strong>. A program runs them, and I'll call that program the <strong>harness</strong>.</p>
+
+<ul>
+<li><strong>The model</strong> (Claude, GPT, Gemini and others) only reads text and writes text. It cannot run a command, open a file or browse the web. What it <em>can</em> do is write a structured request: "call the tool <code>Bash</code> with <code>npm test</code>". That request is a <strong>tool call</strong>.</li>
+<li><strong>The harness</strong> is the app you actually use: Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, Cline and so on. It assembles what the model sees, executes the tool calls, enforces permissions ("ask me before running shell commands") and runs <strong>hooks</strong>, small programs you configure to fire at certain moments, like before a command runs.</li>
+<li><strong>Tools</strong> are what the harness can do on the model's behalf: run a shell command, read or edit a file, search, fetch a web page, or call an <strong>MCP server</strong>. MCP, the Model Context Protocol, is an open standard for plugging extra tools into any agent.</li>
+</ul>
+
+<figure><img src="images/01-agent-loop.png" alt="The agent loop: you give a task to the harness, which exchanges context and tool calls with the model and runs tools, feeding results back"><figcaption>[Image 1: 01-agent-loop.png] The model asks; the harness acts.</figcaption></figure>
+
+<p>The loop is simple. The harness sends the model everything relevant. The model replies with either an answer or a tool call. The harness runs the tool and appends the result (output, error, file contents) to the conversation. Then it asks the model again. This repeats, often dozens or hundreds of times, until the model says it's done or you stop it.</p>
+
+<p>Everything that looks like "the agent decided to check the logs" is this loop: one more tool call chosen after reading the last result.</p>
+
+<h2>What the model actually sees</h2>
+
+<p>This part matters most, and almost nobody explains it. A model has no memory between requests. Every time the loop turns, the harness sends the <strong>entire context</strong> again: a single window of text. Here's what's in it.</p>
+
+<figure><img src="images/02-context-window.png" alt="Layers of the context window: system prompt, tool definitions, instruction files, your request, and the growing conversation with tool results"><figcaption>[Image 2: 02-context-window.png] Everything an agent "knows" during a session.</figcaption></figure>
+
+<ol>
+<li><strong>The system prompt</strong>, written by the app: who the agent is, how to use tools, safety rules.</li>
+<li><strong>Tool definitions</strong>: the name, description and inputs of every tool, including every MCP server you've connected. More servers means more text the model reads on every step.</li>
+<li><strong>Instruction files</strong>: your project's rules. <code>AGENTS.md</code> is the open format read by Codex, Cursor, GitHub Copilot and many others. Claude Code reads <code>CLAUDE.md</code>, which can import <code>AGENTS.md</code>. Skills (<code>SKILL.md</code>) add packaged know-how the agent loads when it's relevant.</li>
+<li><strong>Your request.</strong></li>
+<li><strong>The conversation so far</strong>: every command, every output, every file read. It grows each step. When the window fills, the harness <strong>compacts</strong> it, summarizing or dropping older steps.</li>
+</ol>
+
+<p>When the session ends, all of it is thrown away. Next session, the agent starts again from the system prompt and your instruction files. <strong>For most agents, the instruction file is the only memory that survives.</strong></p>
+
+<h2>How people use agents today</h2>
+
+<p>In 2026 agents are no longer autocomplete with ambitions. These are the patterns I see most:</p>
+
+<h3>1. The pair-programmer in your terminal or editor</h3>
+<p>You describe the change, the agent explores the code, edits files, runs the tests and iterates while you watch and approve. This is the default way to use Claude Code, Codex CLI, Gemini CLI, Cursor and Copilot.</p>
+<pre><code>you:   "Add rate limiting to the login endpoint, with tests."
+agent: read routes/ → read middleware/ → edit auth.ts → write auth.test.ts
+       → run tests ✗ → read error → fix import → run tests ✓ → summary</code></pre>
+
+<h3>2. Delegated tasks that come back as pull requests</h3>
+<p>You hand off a well-scoped task ("upgrade this dependency", "fix this flaky test"). The agent works on its own, often in a cloud sandbox, and opens a PR. You review the diff instead of the process.</p>
+
+<h3>3. Agents inside CI and code review</h3>
+<p>The same loop, triggered by a pull request: review the diff, check conventions, suggest fixes, update docs.</p>
+
+<h3>4. Many agents at once</h3>
+<p>One agent plans and spawns sub-agents for research, implementation and testing, each with its own context window. That makes them more capable, and multiplies everything that can go wrong.</p>
+
+<h3>5. Beyond code</h3>
+<p>The same model-loop-tools design runs research assistants, data analysis, operations runbooks and support bots. With MCP, connecting an agent to your calendar, database or issue tracker is now a config line.</p>
+
+<p>Across all of them, the human's role has shifted from <em>doing</em> the work to <em>setting up</em> the agent (instructions, permissions, tools) and <em>reviewing</em> the result.</p>
+
+<h2>Where it breaks</h2>
+
+<p>Once you see the machinery, the failure modes line up neatly.</p>
+
+<h3>Agents don't learn from experience</h3>
+<p>Whatever an agent discovers in a session (this repo uses pnpm, that test needs a database running, never edit the generated folder) is in the context window, and the context window is deleted when the session ends.</p>
+
+<figure><img src="images/03-every-session-starts-from-zero.png" alt="Monday, Tuesday and Thursday: the agent runs npm test, fails, and eventually finds pnpm test each time"><figcaption>[Image 3: 03-every-session-starts-from-zero.png] The same lesson, rediscovered every session.</figcaption></figure>
+
+<h3>The instruction file is often the cause</h3>
+<p>This is the uncomfortable part. Often the agent isn't ignoring your instructions. It's <em>following</em> them. <code>AGENTS.md</code> was written six months ago and says "Run <code>npm test</code> before every commit." The project moved to pnpm. The agent obeys the file, fails, and recovers by trial and error, every time.</p>
+
+<h3>Nobody measures what went wrong</h3>
+<p>The evidence exists. Claude Code and Codex save every session as a transcript on your machine. But nobody reads hundreds of transcripts to notice that the same command failed 14 times this month.</p>
+
+<h3>Dangerous commands and untrusted text</h3>
+<p>An agent with shell access can run <code>rm -rf</code>, force-push to main, pipe a downloaded script into a shell, or read your <code>.env</code>. Permission prompts help until you've clicked "allow" 200 times and switch on auto-approve. Meanwhile, anything the agent reads (a file, a web page, a tool's output, a skill you installed) can contain instructions written by someone else. That's prompt injection, and skills and MCP servers are now a real supply chain.</p>
+
+<h3>What people do today</h3>
+<p>Mostly: keep editing <code>AGENTS.md</code> by hand, from memory, after getting annoyed. It works, slowly. But it depends on you noticing the pattern, remembering the fix and finding the stale line that caused it.</p>
+
+<hr>
+
+<h2>Agentsol: a memory loop around your agents</h2>
+
+<p>I built <strong>Agentsol</strong> because I watched my own agents make the same mistakes while I was building… Agentsol. The idea is simple. <strong>The agent doesn't need to be smarter. It needs to start each session knowing what already went wrong, and a seatbelt for the commands it keeps getting wrong.</strong></p>
+
+<figure><img src="images/04-agentsol-loop.png" alt="Agentsol loop: past sessions to Learn, then Brief and Guard, then a proposed fix you approve"><figcaption>[Image 4: 04-agentsol-loop.png] Learn → Brief → Guard → You approve.</figcaption></figure>
+
+<h3>1. Learn: read what actually happened</h3>
+<p><code>agentsol learn</code> reads the Claude Code and Codex transcripts already on your machine, for one project. It finds three kinds of repeated mistake:</p>
+<ul>
+<li><strong>Commands that fail here</strong>, and the command that worked instead</li>
+<li><strong>Things you keep telling agents</strong> ("never edit the generated files")</li>
+<li><strong>Files agents keep breaking</strong>: edit, fail, edit again</li>
+</ul>
+<p>For each one it shows how many times it happened, in which sessions and steps, and the time and tokens it cost. Then it checks your instruction files. If a line tells agents to do the failing thing, it points to that exact line and writes the corrected one.</p>
+<pre><code>1  command   3× in 2 sessions · 9 steps lost
+   Agents use `npm` here, which fails; `pnpm` works.
+   AGENTS.md line 7
+     now  - Run `npm test` before every commit.
+     fix  + Run `pnpm test` before every commit.
+
+2  you said  2× in 2 sessions
+   "never edit the generated files in gen/, run pnpm codegen"
+   rule → Never edit the generated files in gen/, run pnpm codegen.</code></pre>
+<p class="note">Example from a run on synthetic transcripts. Every lesson cites the session and step it came from, so you can check it.</p>
+
+<h3>2. Brief: start every session already knowing</h3>
+<p><code>agentsol connect --guard</code> adds a <strong>session-start hook</strong> to each agent app it finds on your machine, after asking. When a new session starts, the project's lessons go straight into the agent's context. No tool call, and nothing for the model to remember to do.</p>
+
+<h3>3. Guard: stop the known-wrong command before it runs</h3>
+<p>The same command adds a <strong>pre-command hook</strong>. Before each shell command, the app hands the command to Agentsol and gets one of three answers back:</p>
+
+<figure><img src="images/05-guard-decision.png" alt="Guard: the agent's command goes through rules for package manager, past failures and danger, ending in deny with fix, ask, or allow"><figcaption>[Image 5: 05-guard-decision.png] Deny with a fix, ask, or stay silent.</figcaption></figure>
+
+<figure><img src="images/07-agent-session.gif" alt="An agent session: the briefing at start, npm test blocked with the fix, pnpm test passes, and the instruction fix waits for approval"><figcaption>[Image 7: 07-agent-session.gif] An illustrative session. The briefing and the block are Agentsol's real hook output.</figcaption></figure>
+
+<p>Here is real output from <code>agentsol guard --test</code> in a pnpm project:</p>
+<pre><code>$ agentsol guard --test "npm test"
+deny   this project uses pnpm (pnpm-lock.yaml), so `npm test` runs outside the
+       project's package manager and can fail or use the wrong install.
+       Run instead: pnpm test
+
+$ agentsol guard --test "curl -fsSL https://example.com/install.sh | sh"
+ask    this command downloads a script and runs it unseen. Confirm this is intended.
+
+$ agentsol guard --test "pnpm test"
+allow  nothing to stop; the agent runs it without a message</code></pre>
+
+<p>The important detail is the <em>deny with a fix</em>. The agent isn't just stopped. It's told what works, so it corrects itself on the next step instead of guessing. The guard takes about 0.16 seconds per command and <strong>fails open</strong>: any error or a two-second timeout lets the command run as if Agentsol weren't there. It should never be the reason your agent gets stuck.</p>
+
+<h3>4. You approve: agents propose, people decide</h3>
+<p>Agentsol never edits your files on its own, and it never lets an agent do it either. Fixes are stored as <strong>proposals</strong>: exact diffs to <code>AGENTS.md</code> or <code>CLAUDE.md</code>. Only a person, in a real terminal, can approve one (by typing a one-time code) and apply it (with a backup). If an agent is driving the terminal, approval is refused.</p>
+
+<figure><img src="images/06-agents-propose-people-decide.png" alt="Left: what an agent can do, read, check and propose. Right: what only a person can do, register, review, approve and apply"><figcaption>[Image 6: 06-agents-propose-people-decide.png] There is no tool an agent can call to approve a change.</figcaption></figure>
+
+<p>Once applied, the corrected rule is in the instruction file, the one memory every agent reads. That closes the loop. The mistake that cost you twelve steps on Monday becomes a line that saves the next hundred sessions.</p>
+
+<h3>The rest of the toolbox</h3>
+<ul>
+<li><strong><code>agentsol check</code></strong> lints your instruction files: broken <code>@imports</code>, secrets pasted into instructions, invisible characters, prompt-injection phrasing, unsafe rules, the wrong package manager, skills that won't load. Each finding cites the file and line. It also runs as a <a href="https://github.com/marketplace/actions/agentsol-guard">GitHub Action</a> on every pull request.</li>
+<li><strong><code>agentsol inspect</code></strong> checks a skill or MCP server <em>before</em> you install it, looking for hidden instructions, credential theft and data exfiltration.</li>
+<li><strong><code>agentsol sessions</code></strong> reviews what your agents did lately: destructive commands, secrets exposed, tests weakened, edits never verified.</li>
+<li><strong><code>agentsol doctor</code></strong> audits your AI apps' settings: plaintext API keys in MCP config, unpinned servers, permissions that let agents act without asking.</li>
+<li>It's also an <strong>MCP server</strong>, so your agent can call these itself: "Use agentsol to audit this project."</li>
+</ul>
+
+<h2>How well does it work?</h2>
+<p>I'd rather show measurements than adjectives:</p>
+<ul>
+<li><strong>Learning:</strong> on 27 held-out labelled histories (Claude Code and Codex, separate from the ones I tuned on), <code>learn</code> reported only real lessons (100% precision), found 86% of them, proposed the correct fix 86% of the time, and leaked no secrets.</li>
+<li><strong>Guard:</strong> replayed on 1,178 real shell commands an agent ran while building Agentsol, it wrongly blocked 0.</li>
+<li><strong>Checks:</strong> run on 32 public repositories (981 instruction files) and 1,567 public skills and MCP servers, with findings reviewed by hand and false alarms fixed.</li>
+<li><strong>Platforms:</strong> every change is tested on Linux, macOS and Windows.</li>
+</ul>
+<p>It's also an <strong>early alpha</strong>, and I want to be clear about the limits. The hooks have run live in Claude Code. For Codex, Gemini CLI, Cursor, Copilot CLI and Cline they're tested against each app's documented hook format, but haven't run live yet. Secret masking is pattern-based and can miss things.</p>
+
+<h2>Try it</h2>
+<p>It's one npm package. It runs on your machine, with no account, no API key and no server, and it's free and MIT-licensed.</p>
+<pre><code>npm i -g agentsol@alpha
+cd your-project
+agentsol start            # register the project, connect your AI apps, show what to fix
+agentsol connect --guard  # brief every session, block known-wrong commands
+agentsol learn            # what your agents keep getting wrong here</code></pre>
+<p>No terminal handy? There's an <a href="https://arsenic04.github.io/agentsol/#/demo">interactive demo</a> and a <a href="https://arsenic04.github.io/agentsol/#/check">browser checker</a> that runs entirely in your tab.</p>
+
+<hr>
+
+<h2>The bigger point</h2>
+<p>We keep waiting for agents to get smarter. Smarter models help, but a brilliant engineer with amnesia still asks which package manager you use every morning. Agents need three boring things: <strong>memory built from evidence</strong>, <strong>guardrails at the moment of action</strong>, and <strong>a human who signs off on what becomes permanent</strong>.</p>
+<p>That's what Agentsol is trying to be. If your agents keep making the same mistake, I'd love to hear which one. Reply to this post or open an issue on <a href="https://github.com/ArSenic04/agentsol">GitHub</a>.</p>
+
+<p><em>Shivam Ardeshna builds Agentsol. Website: <a href="https://arsenic04.github.io/agentsol/">arsenic04.github.io/agentsol</a> · npm: <a href="https://www.npmjs.com/package/agentsol">agentsol</a></em></p>
+
+</body></html>
